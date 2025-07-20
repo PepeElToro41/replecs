@@ -1,0 +1,28 @@
+name = "pepeeltoro41/replecs"
+authors = ["PepeElToro41"]
+description = "Replication library for Jecs"
+includes = ["pesde.toml", "README.md", "LICENSE.md", "src"]
+license = "MIT"
+repository = "https://github.com/PepeElToro41/replecs"
+version = "0.0.1"
+
+[indices]
+default = "https://github.com/pesde-pkg/index"
+
+[wally_indices]
+default = "https://github.com/UpliftGames/wally-index"
+
+[scripts]
+roblox_sync_config_generator = ".pesde/scripts/roblox_sync_config_generator.luau"
+sourcemap_generator = ".pesde/scripts/sourcemap_generator.luau"
+
+[target]
+build_files = ["src"]
+environment = "roblox"
+lib = "src/init.luau"
+
+[dev_dependencies]
+scripts = { name = "pesde/scripts_rojo", version = "^0.1.0", target = "lune" }
+
+[dependencies]
+jecs = { wally = "ukendio/jecs", version = "^0.6.0" }

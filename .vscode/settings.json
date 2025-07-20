@@ -1,0 +1,15 @@
+{
+    "luau-lsp.completion.imports.enabled": true,
+    "luau-lsp.completion.imports.suggestServices": true,
+    "luau-lsp.completion.imports.suggestRequires": true,
+    "luau-lsp.completion.autocompleteEnd": true,
+    "luau-lsp.sourcemap.rojoProjectFile": "default.project.json",
+    "luau-lsp.types.definitionFiles": [
+        "types/testez.d.luau"
+    ],
+    "[luau]": {
+        "editor.defaultFormatter": "JohnnyMorganz.stylua"
+    },
+    "luau-lsp.sourcemap.generatorCommand": "rojo sourcemap --watch",
+    "luau-lsp.sourcemap.enabled": true,
+}

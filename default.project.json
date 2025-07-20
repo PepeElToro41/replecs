@@ -1,0 +1,9 @@
+{
+	"name": "ui-labs",
+	"tree": {
+        "$path": "roblox_packages",
+        "replecs": {
+            "$path": "src"
+        }
+	}
+}

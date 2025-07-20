@@ -1,0 +1,16 @@
+sourcemap.json
+
+**/*.rbx[lm]*
+roblox.yml
+roblox.toml
+
+/serve
+lune_packages
+luau_packages
+roblox_packages
+
+**/sourcemap.json
+**/darklua-sourcemap.json
+
+# Added by cargo
+/target
