@@ -2,8 +2,8 @@
 --!optimize 2
 
 local Jecs = require(script.Parent.Parent.jecs)
-local Common = require "@self/common"
-local utils = require "./utils"
+local Common = require(script.Parent.common)
+local utils = require(script.Parent.utils)
 
 local cursor = utils.cursor
 type Cursor = utils.Cursor

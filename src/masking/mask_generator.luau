@@ -1,4 +1,5 @@
-local utils = require "../utils"
+local utils = require(script.Parent.Parent.utils)
+
 type ComputeCallback = (generator: MaskGenerator) -> utils.Bitmask
 type SubscribeCallback = (generator: MaskGenerator) -> ()
 
