@@ -12,6 +12,8 @@ export type Replecs = {
 	components: common.Components,
 	server: Server,
 	client: Client,
+
+	init: (self: Replecs, world: jecs.World) -> (),
 }
 
 local function init(replecs: Replecs, world: jecs.World)

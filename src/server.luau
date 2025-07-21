@@ -422,7 +422,7 @@ server.init = init
 server.destroy = destroy
 server.get_full = get_full
 server.collect_reliable = collect_reliable
-server.collect_unrealible = collect_unreliable
+server.collect_unreliable = collect_unreliable
 
 local function create(components: common.Components): Server
 	local self = {} :: Server
