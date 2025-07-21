@@ -1,4 +1,4 @@
-local jecs = require(script.Parent.Parent.jecs)
+local jecs = require(script.Parent.Parent.roblox_packages.jecs)
 local utils = require(script.Parent.utils)
 local mask_generator = require(script.mask_generator)
 
@@ -165,8 +165,6 @@ export type MaskingController = {
 	) -> (),
 }
 
-local MAX_EMPTY_STORAGES = 100
-
 local COMPONENT_TYPES = {
 	component = 1,
 	tag = 2,
@@ -188,11 +186,11 @@ function masking_controller.get_members_from_bitmask(controller: MaskingInternal
 	return members
 end
 
-function create_component_indexes()
+local function create_component_indexes()
 	return { {}, {}, {}, {} }
 end
 
-function create_entity_changes(): EntityChanges
+local function create_entity_changes(): EntityChanges
 	return {
 		tagged = {},
 		component = {},

@@ -1,11 +1,7 @@
-local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local jecs = require(ReplicatedStorage.roblox_packages[".pesde"]["ukendio_jecs@0.6.1"].jecs)
-local Jecs = require(script.Parent.Parent.jecs)
+local jecs = require(script.Parent.Parent.roblox_packages.jecs)
 local utils = require(script.Parent.utils)
-local Common = require(script.Parent.common)
+local common = require(script.Parent.common)
 local masking_controller = require(script.Parent.masking)
-
-local cursor = utils.cursor
 
 type Cursor = utils.Cursor
 
@@ -14,36 +10,36 @@ type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
 type TrackInfo = {
-	entities: { [Jecs.Entity]: boolean },
-	components: { [Jecs.Entity]: { [Jecs.Entity]: number } },
+	entities: { [jecs.Entity]: boolean },
+	components: { [jecs.Entity]: { [jecs.Entity]: number } },
 }
 
 type EntityStorage = {
-	tags: { [Jecs.Entity]: boolean },
-	values: { [Jecs.Entity]: any },
-	pairs: { [Jecs.Entity]: Set<Jecs.Entity> },
+	tags: { [jecs.Entity]: boolean },
+	values: { [jecs.Entity]: any },
+	pairs: { [jecs.Entity]: Set<jecs.Entity> },
 }
 
-type Storage = { [Jecs.Entity]: EntityStorage }
+type Storage = { [jecs.Entity]: EntityStorage }
 
 export type Server = {
-	world: Jecs.World,
+	world: jecs.World,
 	inited: boolean?,
 
-	shared: Common.Shared,
+	shared: common.Shared,
 
-	components: Common.Components,
-	hooks: Common.WorldHooks,
-	alive_tracked: { [Jecs.Entity]: boolean },
+	components: common.Components,
+	hooks: common.WorldHooks,
+	alive_tracked: { [jecs.Entity]: boolean },
 
 	track_info: TrackInfo,
-	additions: { [Jecs.Entity]: boolean },
-	custom_ids: { [Jecs.Entity]: Jecs.Entity },
+	additions: { [jecs.Entity]: boolean },
+	custom_ids: { [jecs.Entity]: jecs.Entity },
 	storage: Storage,
 	hooked: { () -> () },
 	masking: masking_controller.MaskingController,
 
-	init: (self: Server) -> (),
+	init: (self: Server, world: jecs.World, hooks: common.WorldHooks) -> (),
 	get_full: (self: Server, player: Player) -> (),
 	destroy: (self: Server) -> (),
 }
@@ -57,9 +53,7 @@ local TRACK_TYPES = {
 	pair = 3,
 }
 
-local function cleanup_entity() end
-
-local function track_entity_lifetime(server: Server, entity: Jecs.Entity)
+local function track_entity_lifetime(server: Server, entity: jecs.Entity)
 	if server.alive_tracked[entity] then
 		return
 	end
@@ -67,7 +61,7 @@ local function track_entity_lifetime(server: Server, entity: Jecs.Entity)
 	server.world:add(entity, server.components.__alive_tracking__)
 end
 
-local function get_or_set_entity_storage(server: Server, entity: Jecs.Entity)
+local function get_or_set_entity_storage(server: Server, entity: jecs.Entity)
 	local storage = server.storage[entity]
 
 	if not storage then
@@ -82,7 +76,7 @@ local function get_or_set_entity_storage(server: Server, entity: Jecs.Entity)
 	return storage
 end
 
-local function allocate_component_change(server: Server, entity: Jecs.Entity, component: Jecs.Entity, value: any)
+local function allocate_component_change(server: Server, entity: jecs.Entity, component: jecs.Entity, value: any)
 	local storage = get_or_set_entity_storage(server, entity)
 	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
 
@@ -91,7 +85,7 @@ local function allocate_component_change(server: Server, entity: Jecs.Entity, co
 		server.masking:allocate_component_change(entity, component, non_nil)
 	end
 end
-local function allocate_tag_addition(server: Server, entity: Jecs.Entity, tag: Jecs.Entity)
+local function allocate_tag_addition(server: Server, entity: jecs.Entity, tag: jecs.Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	storage.tags[tag] = true
 
@@ -99,7 +93,7 @@ local function allocate_tag_addition(server: Server, entity: Jecs.Entity, tag: J
 		server.masking:allocate_tag_addition(entity, tag)
 	end
 end
-local function allocate_pair_addition(server: Server, entity: Jecs.Entity, relation: Jecs.Entity, target: Jecs.Entity)
+local function allocate_pair_addition(server: Server, entity: jecs.Entity, relation: jecs.Entity, target: jecs.Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	local targets = storage.pairs[relation]
 	if targets == nil then
@@ -113,7 +107,7 @@ local function allocate_pair_addition(server: Server, entity: Jecs.Entity, relat
 	end
 end
 
-local function allocate_component_removal(server: Server, entity: Jecs.Entity, component: Jecs.Entity)
+local function allocate_component_removal(server: Server, entity: jecs.Entity, component: jecs.Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	storage.values[component] = nil
 
@@ -121,7 +115,7 @@ local function allocate_component_removal(server: Server, entity: Jecs.Entity, c
 		server.masking:allocate_component_removal(entity, component)
 	end
 end
-local function allocate_tag_removal(server: Server, entity: Jecs.Entity, tag: Jecs.Entity)
+local function allocate_tag_removal(server: Server, entity: jecs.Entity, tag: jecs.Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	storage.tags[tag] = nil
 
@@ -129,7 +123,7 @@ local function allocate_tag_removal(server: Server, entity: Jecs.Entity, tag: Je
 		server.masking:allocate_tag_removal(entity, tag)
 	end
 end
-local function allocate_pair_removal(server: Server, entity: Jecs.Entity, relation: Jecs.Entity, target: Jecs.Entity)
+local function allocate_pair_removal(server: Server, entity: jecs.Entity, relation: jecs.Entity, target: jecs.Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	local targets = storage.pairs[relation]
 	if targets then
@@ -141,7 +135,7 @@ local function allocate_pair_removal(server: Server, entity: Jecs.Entity, relati
 	end
 end
 
-local function track_component(server: Server, component: Jecs.Entity<any>)
+local function track_component(server: Server, component: jecs.Entity<any>)
 	local world = server.world
 	local hooks = server.hooks
 
@@ -163,10 +157,10 @@ local function track_component(server: Server, component: Jecs.Entity<any>)
 		elseif track_type == TRACK_TYPES.tag then
 			allocate_tag_addition(server, entity, component)
 		else
-			if not Jecs.IS_PAIR(id) then
+			if not jecs.IS_PAIR(id) then
 				return error "a non-pair tag was added to a pair tracked component"
 			end
-			allocate_pair_addition(server, entity, component, Jecs.pair_second(world, id))
+			allocate_pair_addition(server, entity, component, jecs.pair_second(world, id))
 		end
 	end))
 	hook(hooks.changed(world, component, function(entity, id, value)
@@ -189,17 +183,17 @@ local function track_component(server: Server, component: Jecs.Entity<any>)
 		elseif track_type == TRACK_TYPES.tag then
 			allocate_tag_removal(server, entity, component)
 		else
-			if not Jecs.IS_PAIR(id) then
+			if not jecs.IS_PAIR(id) then
 				return error "a non-pair tag was removed for a pair tracked component"
 			end
-			allocate_pair_removal(server, entity, component, Jecs.pair_second(world, id))
+			allocate_pair_removal(server, entity, component, jecs.pair_second(world, id))
 		end
 	end))
 
 	return info
 end
 
-local function track_entity_component(server: Server, entity: Jecs.Entity, component: Jecs.Entity<any>)
+local function track_entity_component(server: Server, entity: jecs.Entity, component: jecs.Entity<any>)
 	local world = server.world
 
 	local info = server.track_info.components[component]
@@ -209,7 +203,7 @@ local function track_entity_component(server: Server, entity: Jecs.Entity, compo
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
 
-	if world:has(component, Jecs.Component) then
+	if world:has(component, jecs.Component) then
 		-- component
 		if world:has(entity, component) then
 			local value = world:get(entity, component)
@@ -235,7 +229,7 @@ local function track_entity_component(server: Server, entity: Jecs.Entity, compo
 	end
 end
 
-local function track_entity_pair(server: Server, entity: Jecs.Entity, relation: Jecs.Entity)
+local function track_entity_pair(server: Server, entity: jecs.Entity, relation: jecs.Entity)
 	local world = server.world
 	local info = server.track_info.components[relation]
 	if not info then
@@ -259,7 +253,7 @@ local function track_entity_pair(server: Server, entity: Jecs.Entity, relation: 
 	info[entity] = TRACK_TYPES.pair
 end
 
-local function untrack_entity_component(server: Server, entity: Jecs.Entity, component: Jecs.Entity<any>): number?
+local function untrack_entity_component(server: Server, entity: jecs.Entity, component: jecs.Entity<any>): number?
 	local info = server.track_info.components[component]
 	if not info then
 		return
@@ -276,7 +270,7 @@ local function untrack_entity_component(server: Server, entity: Jecs.Entity, com
 	return listen_type
 end
 
-local function untrack_entity_pair(server: Server, entity: Jecs.Entity, relation: Jecs.Entity)
+local function untrack_entity_pair(server: Server, entity: jecs.Entity, relation: jecs.Entity)
 	local info = server.track_info.components[relation]
 	if not info then
 		return
@@ -289,7 +283,7 @@ local function untrack_entity_pair(server: Server, entity: Jecs.Entity, relation
 	end
 end
 
-local function init(server: Server)
+local function init(server: Server, world: jecs.World, hooks: common.WorldHooks)
 	if server.inited then
 		return warn "attempted to init a server twice"
 	end
@@ -297,9 +291,9 @@ local function init(server: Server)
 		return warn "attempted to re-init a destroyed server"
 	end
 	server.inited = true
+	server.world = world
+	server.hooks = hooks
 
-	local world = server.world
-	local hooks = server.hooks
 	local components = server.components
 	local masking = server.masking
 
@@ -330,10 +324,10 @@ local function init(server: Server)
 	end))
 
 	hook(hooks.added(world, components.reliable, function(entity, id, filter)
-		if not Jecs.IS_PAIR(id) then
+		if not jecs.IS_PAIR(id) then
 			return error "reliable should be used with a pair relationship"
 		end
-		local component = Jecs.pair_second(world, id)
+		local component = jecs.pair_second(world, id)
 
 		local component_type = track_entity_component(server, entity, component)
 		masking:unregister_stop_component(entity, component, component_type)
@@ -343,12 +337,12 @@ local function init(server: Server)
 		end
 	end))
 	hook(hooks.changed(world, components.reliable, function(entity, id, filter)
-		if not Jecs.IS_PAIR(id) then
+		if not jecs.IS_PAIR(id) then
 			return error "reliable should be used with a pair relationship"
 		end
-		local component = Jecs.pair_second(world, id)
+		local component = jecs.pair_second(world, id)
 
-		if world:has(component, Jecs.Component) then
+		if world:has(component, jecs.Component) then
 			masking:set_component(entity, component, COMPONENT_TYPES.component, filter)
 		else
 			masking:set_component(entity, component, COMPONENT_TYPES.tag, filter)
@@ -356,10 +350,10 @@ local function init(server: Server)
 	end))
 
 	hook(hooks.removed(world, components.reliable, function(entity, id)
-		if not Jecs.IS_PAIR(id) then
+		if not jecs.IS_PAIR(id) then
 			return error "reliable should be used with a pair relationship"
 		end
-		local component = Jecs.pair_second(world, id)
+		local component = jecs.pair_second(world, id)
 		local component_type = untrack_entity_component(server, entity, component)
 		if not component_type then
 			return
@@ -369,26 +363,26 @@ local function init(server: Server)
 	end))
 
 	hook(hooks.added(world, components.pair, function(entity, id, filter)
-		if not Jecs.IS_PAIR(id) then
+		if not jecs.IS_PAIR(id) then
 			return error "pair should be used with a relationship"
 		end
-		local relation = Jecs.pair_second(world, id)
+		local relation = jecs.pair_second(world, id)
 		track_entity_pair(server, entity, relation)
 		masking:unregister_stop_component(entity, relation, COMPONENT_TYPES.pair)
 		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
 	end))
 	hook(hooks.changed(world, components.pair, function(entity, id, filter)
-		if not Jecs.IS_PAIR(id) then
+		if not jecs.IS_PAIR(id) then
 			return error "reliable should be used with a pair relationship"
 		end
-		local relation = Jecs.pair_second(world, id)
+		local relation = jecs.pair_second(world, id)
 		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
 	end))
 	hook(hooks.removed(world, components.pair, function(entity, id)
-		if not Jecs.IS_PAIR(id) then
+		if not jecs.IS_PAIR(id) then
 			return error "reliable should be used with a pair relationship"
 		end
-		local relation = Jecs.pair_second(world, entity)
+		local relation = jecs.pair_second(world, entity)
 		untrack_entity_pair(server, entity, relation)
 		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
 		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
@@ -430,14 +424,12 @@ server.get_full = get_full
 server.collect_reliable = collect_reliable
 server.collect_unrealible = collect_unreliable
 
-local function create(world: Jecs.World, components: Common.Components, hooks: Common.WorldHooks): Server
+local function create(components: common.Components): Server
 	local self = {} :: Server
 
-	self.world = world
-	self.hooks = hooks
 	self.components = components
 
-	self.shared = {} :: Common.Shared
+	self.shared = {} :: common.Shared
 
 	self.additions = {}
 	self.storage = {}

@@ -12,6 +12,9 @@ default = "https://github.com/pesde-pkg/index"
 [wally_indices]
 default = "https://github.com/UpliftGames/wally-index"
 
+[engines]
+lune = "^0.8.9"
+
 [scripts]
 roblox_sync_config_generator = ".pesde/scripts/roblox_sync_config_generator.luau"
 sourcemap_generator = ".pesde/scripts/sourcemap_generator.luau"
@@ -23,6 +26,7 @@ lib = "src/init.luau"
 
 [dev_dependencies]
 scripts = { name = "pesde/scripts_rojo", version = "^0.1.0", target = "lune" }
+rojo = { name = "pesde/rojo", version = "^7.5.1", target = "lune" }
 
 [dependencies]
-jecs = { wally = "ukendio/jecs", version = "^0.6.0" }
+jecs = { wally = "ukendio/jecs", version = "^0.8.3" }

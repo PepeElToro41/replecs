@@ -70,6 +70,9 @@ index_url = "https://github.com/pesde-pkg/index"
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
 
+[graph."pesde/rojo@7.5.1 lune"]
+direct = ["rojo", { name = "pesde/rojo", version = "^7.5.1", index = "default", target = "lune" }, "dev"]
+
 [graph."pesde/rojo@7.5.1 lune".dependencies]
 core = ["pesde/toolchainlib@0.1.15 lune", "standard"]
 option = ["lukadev_0/option@1.2.0 lune", "standard"]
@@ -127,9 +130,9 @@ pathfs = [{ name = "jiwonz/pathfs", version = "^0.3.0", index = "https://github.
 result = [{ name = "lukadev_0/result", version = "^1.2.0", index = "https://github.com/pesde-pkg/index" }, "peer"]
 unzip = [{ name = "0x5eal/unzip", version = "^0.1.0", index = "https://github.com/pesde-pkg/index", target = "luau" }, "standard"]
 
-[graph."wally#ukendio/jecs@0.6.1 roblox"]
-direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.6.0", index = "default" }, "standard"]
+[graph."wally#ukendio/jecs@0.8.3 roblox"]
+direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.8.3", index = "default" }, "standard"]
 
-[graph."wally#ukendio/jecs@0.6.1 roblox".pkg_ref]
+[graph."wally#ukendio/jecs@0.8.3 roblox".pkg_ref]
 ref_ty = "wally"
 index_url = "https://github.com/UpliftGames/wally-index"
