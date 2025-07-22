@@ -17,9 +17,9 @@ export type Replecs = {
 local replecs = {}
 
 function replecs.create(forced: ("client" | "server")?): Replecs
-	local self = {} :: Replecs
+	local lib = {} :: Replecs
 
-	self.components = {
+	lib.components = {
 		shared = jecs.tag(),
 		networked = jecs.tag() :: jecs.Entity<{ [Player]: boolean }?>,
 		reliable = jecs.tag(),
@@ -34,21 +34,21 @@ function replecs.create(forced: ("client" | "server")?): Replecs
 
 	if forced then
 		if forced == "server" then
-			self.server = server.create(self.components)
+			lib.server = server.create(lib.components)
 		end
 		if forced == "client" then
-			self.client = client.create(self.components)
+			lib.client = client.create(lib.components)
 		end
 	else
 		if RunService:IsServer() then
-			self.server = server.create(self.components)
+			lib.server = server.create(lib.components)
 		end
 		if RunService:IsClient() then
-			self.client = client.create(self.components)
+			lib.client = client.create(lib.components)
 		end
 	end
 
-	return self
+	return lib
 end
 
 return replecs
