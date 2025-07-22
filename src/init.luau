@@ -48,7 +48,7 @@ function replecs.create(forced: ("client" | "server")?): Replecs
 		end
 	end
 
-	return setmetatable(self, replecs) :: any
+	return self
 end
 
 return replecs
