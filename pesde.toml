@@ -25,4 +25,4 @@ lib = "src/init.luau"
 scripts = { name = "pesde/scripts_rojo", version = "^0.1.0", target = "lune" }
 
 [dependencies]
-jecs = { wally = "ukendio/jecs", version = "^0.6.0" }
+jecs = { wally = "ukendio/jecs", version = "^0.8.3" }

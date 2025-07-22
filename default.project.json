@@ -1,7 +1,10 @@
 {
-	"name": "ui-labs",
+	"name": "replecs",
 	"tree": {
-        "$path": "roblox_packages",
+        "$className": "Folder",
+        "roblox_packages": {
+            "$path": "roblox_packages"
+        },
         "replecs": {
             "$path": "src"
         }

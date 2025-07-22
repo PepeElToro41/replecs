@@ -1,7 +1,9 @@
 --!native
 --!optimize 2
-local Jecs = require(script.Parent.Parent.jecs)
-local Common = require(script.Parent.common)
+
+local jecs = require(script.Parent.Parent.roblox_packages.jecs)
+local common = require(script.Parent.common)
+
 local utils = {}
 
 export type Cursor = {
@@ -119,19 +121,27 @@ end
 
 function cursor.read_vlq(c: Cursor): number
 	local b = cursor.readu8(c)
-	if b >= 128 then return b - 128 end
+	if b >= 128 then
+		return b - 128
+	end
 	local x = b
 
 	b = cursor.readu8(c)
-	if b >= 128 then return x + (b - 128) * 128 end
+	if b >= 128 then
+		return x + (b - 128) * 128
+	end
 	x += b * 128
 
 	b = cursor.readu8(c)
-	if b >= 128 then return x + (b - 128) * 128 ^ 2 end
+	if b >= 128 then
+		return x + (b - 128) * 128 ^ 2
+	end
 	x += b * 128 ^ 2
 
 	b = cursor.readu8(c)
-	if b >= 128 then return x + (b - 128) * 128 ^ 3 end
+	if b >= 128 then
+		return x + (b - 128) * 128 ^ 3
+	end
 	x += b * 128 ^ 3
 
 	error "vlq length too large"
@@ -181,14 +191,18 @@ function bitmask.from_set(indexes: { [any]: number }, filter: { [any]: boolean }
 	local newmask = bitmask.create(capacity or 32)
 	for player in filter do
 		local index = indexes[player]
-		if index == nil then continue end
+		if index == nil then
+			continue
+		end
 		bitmask.set(newmask, index)
 	end
 	return newmask
 end
 
 function bitmask.expand(self: Bitmask, capacity: number)
-	if capacity <= self.capacity then return end
+	if capacity <= self.capacity then
+		return
+	end
 
 	local new_entries = math.ceil(capacity / BITS_PER_ENTRY)
 	local new_buffer_size = new_entries * BYTES_PER_ENTRY
@@ -206,7 +220,9 @@ function bitmask.expand(self: Bitmask, capacity: number)
 end
 
 function bitmask.read(self: Bitmask, index: number): number
-	if index >= self.entries then return 0 end
+	if index >= self.entries then
+		return 0
+	end
 	return buffer.readu32(self.buffer, index * BYTES_PER_ENTRY)
 end
 
@@ -221,7 +237,9 @@ end
 -- BIT MANIPULATIONS
 
 function bitmask.set(self: Bitmask, index: number)
-	if index < 0 then error "Bit index cannot be negative" end
+	if index < 0 then
+		error "Bit index cannot be negative"
+	end
 
 	local entry_index, bit_position = get_entry_bit(index)
 	local current_value = bitmask.read(self, entry_index)
@@ -230,20 +248,28 @@ function bitmask.set(self: Bitmask, index: number)
 end
 
 function bitmask.get(self: Bitmask, index: number): boolean
-	if index < 0 then error "Bit index cannot be negative" end
+	if index < 0 then
+		error "Bit index cannot be negative"
+	end
 
 	local entry_index, bit_position = get_entry_bit(index)
-	if entry_index >= self.entries then return false end
+	if entry_index >= self.entries then
+		return false
+	end
 
 	local current_value = bitmask.read(self, entry_index)
 	return bit32.band(current_value, bit32.lshift(1, bit_position)) ~= 0
 end
 
 function bitmask.clear(self: Bitmask, index: number)
-	if index < 0 then error "Bit index cannot be negative" end
+	if index < 0 then
+		error "Bit index cannot be negative"
+	end
 
 	local entry_index, bit_position = get_entry_bit(index)
-	if entry_index >= self.entries then return end
+	if entry_index >= self.entries then
+		return
+	end
 
 	local current_value = bitmask.read(self, entry_index)
 	local mask = bit32.bnot(bit32.lshift(1, bit_position))
@@ -326,7 +352,9 @@ function bitmask.remap(self: Bitmask, from: { [any]: number }, to: { [any]: numb
 end
 
 function bitmask.lshift(self: Bitmask, n: number): Bitmask
-	if n <= 0 then return bitmask.clone(self) end
+	if n <= 0 then
+		return bitmask.clone(self)
+	end
 
 	local entry_shift = math.floor(n / BITS_PER_ENTRY)
 	local bit_shift = n % BITS_PER_ENTRY
@@ -349,19 +377,25 @@ function bitmask.lshift(self: Bitmask, n: number): Bitmask
 			carry = new_carry
 		end
 
-		if carry ~= 0 then bitmask.write(result, self.entries + entry_shift, carry) end
+		if carry ~= 0 then
+			bitmask.write(result, self.entries + entry_shift, carry)
+		end
 	end
 
 	return result
 end
 
 function bitmask.rshift(self: Bitmask, n: number): Bitmask
-	if n <= 0 then return bitmask.clone(self) end
+	if n <= 0 then
+		return bitmask.clone(self)
+	end
 
 	local entry_shift = math.floor(n / BITS_PER_ENTRY)
 	local bit_shift = n % BITS_PER_ENTRY
 
-	if entry_shift >= self.entries then return bitmask.create(32) end
+	if entry_shift >= self.entries then
+		return bitmask.create(32)
+	end
 
 	local result = bitmask.create(self.capacity)
 
@@ -376,7 +410,9 @@ function bitmask.rshift(self: Bitmask, n: number): Bitmask
 			local shifted_value = bit32.rshift(value, bit_shift)
 
 			local next_value = 0
-			if i + 1 < self.entries then next_value = bitmask.read(self, i + 1) end
+			if i + 1 < self.entries then
+				next_value = bitmask.read(self, i + 1)
+			end
 			local overflow = bit32.lshift(next_value, BITS_PER_ENTRY - bit_shift)
 
 			bitmask.write(result, i - entry_shift, bit32.bor(shifted_value, overflow))
@@ -386,8 +422,10 @@ function bitmask.rshift(self: Bitmask, n: number): Bitmask
 	return result
 end
 
-function tobinary(n: number): string
-	if n == 0 then return "0" end
+local function tobinary(n: number): string
+	if n == 0 then
+		return "0"
+	end
 
 	local result = ""
 	while n > 0 do
@@ -407,7 +445,9 @@ function bitmask.tostring(self: Bitmask): string
 		end
 	end
 
-	if highest_entry == -1 then return "" end
+	if highest_entry == -1 then
+		return ""
+	end
 
 	local str = ""
 	for i = 0, highest_entry do
@@ -422,18 +462,18 @@ utils.bitmask = {
 	from_set = bitmask.from_set,
 }
 
-function utils.create_shared_lookup(world: Jecs.World, components: Common.Components)
-	local shared = {} :: Common.Shared
+function utils.create_shared_lookup(world: jecs.World, components: common.Components)
+	local shared = {} :: common.Shared
 
-	for component, name in world:query(Jecs.Name):with(components.shared) do
+	for component, name in world:query(jecs.Name):with(components.shared):iter() do
 		shared.lookup[name] = component
 	end
 
-	for component, serdes in world:query(components.serdes):with(components.shared, Jecs.Name) do
+	for component, serdes in world:query(components.serdes):with(components.shared, jecs.Name):iter() do
 		shared.serdes[component] = serdes
 	end
 
-	for component, bytespan in world:query(components.bytespan):with(components.shared, Jecs.Name) do
+	for component, bytespan in world:query(components.bytespan):with(components.shared, jecs.Name):iter() do
 		shared.bytespan[component] = bytespan
 	end
 
@@ -450,7 +490,7 @@ function utils.create_shared_lookup(world: Jecs.World, components: Common.Compon
 		id_components[id] = shared[name]
 	end
 
-	component_ids[Jecs.ChildOf] = #keys + 1
+	component_ids[jecs.ChildOf] = #keys + 1
 
 	shared.ids = component_ids
 	shared.components = id_components
@@ -538,16 +578,27 @@ function utils.pop_vlq(buf: buffer, offset: number): (number, number)
 	return (((b1 - 128) * 128 + (b2 - 128)) * 128 + (b3 - 128)) * 128 + b4, offset + 4
 end
 
-function utils.remove_all_relations(world: Jecs.World, entity: Jecs.Entity, relation: Jecs.Entity)
-	local entity_index = Jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
-	if not entity_index then return end
+function utils.remove_all_relations(world: jecs.World, entity: jecs.Entity, relation: jecs.Entity)
+	local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
+	if not entity_index then
+		return
+	end
 	local archetype = entity_index.archetype
 
-	local wildcard = Jecs.pair(relation, Jecs.Wildcard) :: any
-	local total = archetype.counts[wildcard]
-	if not total or total <= 0 then return end
-	local start = archetype.records[wildcard]
-	if not start then return end
+	local wildcard = jecs.pair(relation, jecs.Wildcard) :: any
+	local idr = world.component_index[wildcard]
+	if not idr then
+		return
+	end
+
+	local total = idr.counts[wildcard]
+	if not total or total <= 0 then
+		return
+	end
+	local start = idr.records[wildcard]
+	if not start then
+		return
+	end
 
 	for i = start, start + total - 1 do
 		local pair = archetype.types[i]

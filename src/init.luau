@@ -1,45 +1,54 @@
 local RunService = game:GetService "RunService"
-local Jecs = require(script.Parent.jecs)
-local Common = require(script.common)
+local jecs = require(script.Parent.roblox_packages.jecs)
+local common = require(script.common)
 
 local client = require(script.client)
 local server = require(script.server)
 
-local rejecs = {}
-
 export type Server = server.Server
 export type Client = client.Client
 
-function rejecs.create(world: Jecs.World, forced: ("client" | "server")?)
-	local components: Common.Components = {
-		shared = world:entity(),
-		networked = world:entity() :: Jecs.Entity<{ [Player]: boolean }?>,
-		reliable = world:entity(),
-		unreliable = world:entity(),
-		pair = world:entity(),
+export type Replecs = {
+	components: common.Components,
+	server: Server,
+	client: Client,
+}
 
-		serdes = world:component() :: Jecs.Entity<Common.Serdes>,
-		bytespan = world:component() :: Jecs.Entity<number>,
-		custom_id = world:component() :: Jecs.Entity<(any) -> Jecs.Entity>,
-		__alive_tracking__ = world:entity(),
-	}
+local replecs = {}
 
-	local hooks: Common.WorldHooks = {
-		added = (world :: any).added,
-		changed = (world :: any).changed,
-		removed = (world :: any).removed,
+function replecs.create(forced: ("client" | "server")?): Replecs
+	local lib = {} :: Replecs
+
+	lib.components = {
+		shared = jecs.tag(),
+		networked = jecs.tag() :: jecs.Entity<{ [Player]: boolean }?>,
+		reliable = jecs.tag(),
+		unreliable = jecs.tag(),
+		pair = jecs.tag(),
+
+		serdes = jecs.component() :: jecs.Entity<common.Serdes>,
+		bytespan = jecs.component() :: jecs.Entity<number>,
+		custom_id = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
+		__alive_tracking__ = jecs.tag(),
 	}
-	local lib = {}
 
 	if forced then
-		if forced == "server" then lib.server = server.create(world, components, hooks) end
-		if forced == "client" then lib.client = client.create(world, components) end
+		if forced == "server" then
+			lib.server = server.create(lib.components)
+		end
+		if forced == "client" then
+			lib.client = client.create(lib.components)
+		end
 	else
-		if RunService:IsServer() then lib.server = server.create(world, components, hooks) end
-		if RunService:IsClient() then lib.client = client.create(world, components) end
+		if RunService:IsServer() then
+			lib.server = server.create(lib.components)
+		end
+		if RunService:IsClient() then
+			lib.client = client.create(lib.components)
+		end
 	end
 
 	return lib
 end
 
-return rejecs
+return replecs

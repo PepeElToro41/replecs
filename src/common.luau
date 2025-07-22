@@ -1,4 +1,4 @@
-local Jecs = require(script.Parent.Parent.jecs)
+local jecs = require(script.Parent.Parent.roblox_packages.jecs)
 
 export type PlayerFilter = {
 	[Player]: boolean,
@@ -10,40 +10,40 @@ export type Serdes = {
 }
 
 export type Components = {
-	shared: Jecs.Entity,
-	networked: Jecs.Entity<PlayerFilter?>,
-	reliable: Jecs.Entity,
-	unreliable: Jecs.Entity,
-	pair: Jecs.Entity,
+	shared: jecs.Entity,
+	networked: jecs.Entity<PlayerFilter?>,
+	reliable: jecs.Entity,
+	unreliable: jecs.Entity,
+	pair: jecs.Entity,
 
-	serdes: Jecs.Entity<Serdes>,
-	bytespan: Jecs.Entity<number>,
-	custom_id: Jecs.Entity<(value: any) -> Jecs.Entity>,
-	__alive_tracking__: Jecs.Entity,
+	serdes: jecs.Entity<Serdes>,
+	bytespan: jecs.Entity<number>,
+	custom_id: jecs.Entity<(value: any) -> jecs.Entity>,
+	__alive_tracking__: jecs.Entity,
 }
 
 export type Shared = {
-	lookup: { [string]: Jecs.Entity },
+	lookup: { [string]: jecs.Entity },
 
-	components: { [number]: Jecs.Entity },
-	ids: { [Jecs.Entity]: number },
+	components: { [number]: jecs.Entity },
+	ids: { [jecs.Entity]: number },
 
-	bytespan: { [Jecs.Entity]: number },
-	serdes: { [Jecs.Entity]: Serdes },
+	bytespan: { [jecs.Entity]: number },
+	serdes: { [jecs.Entity]: Serdes },
 }
 
 export type WorldHooks = {
 	added: (
-		world: Jecs.World,
-		component: Jecs.Entity,
-		fn: (entity: Jecs.Entity, id: Jecs.Id, value: any) -> ()
+		world: jecs.World,
+		component: jecs.Entity,
+		fn: (entity: jecs.Entity, id: jecs.Id, value: any) -> ()
 	) -> () -> (),
 	changed: (
-		world: Jecs.World,
-		component: Jecs.Entity,
-		fn: (entity: Jecs.Entity, id: Jecs.Id, value: any) -> ()
+		world: jecs.World,
+		component: jecs.Entity,
+		fn: (entity: jecs.Entity, id: jecs.Id, value: any) -> ()
 	) -> () -> (),
-	removed: (world: Jecs.World, component: Jecs.Entity, fn: (entity: Jecs.Entity, id: Jecs.Id) -> ()) -> () -> (),
+	removed: (world: jecs.World, component: jecs.Entity, fn: (entity: jecs.Entity, id: jecs.Id) -> ()) -> () -> (),
 }
 
 return nil

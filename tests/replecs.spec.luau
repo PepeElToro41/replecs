@@ -1,18 +1,19 @@
-local rejecs = require(script.Parent.Parent.roblox_packages.replecs)
-local Jecs = require(script.Parent.Parent.roblox_packages.jecs)
-local utils = require(script.Parent.Parent.roblox_packages.replecs.utils)
-local player_masking = require(script.Parent.Parent.roblox_packages.replecs.masking)
+local ReplicatedStorage = game:GetService "ReplicatedStorage"
+local replecs = require(ReplicatedStorage.replecs)
+local player_masking = require(ReplicatedStorage.replecs.masking)
+local utils = require(ReplicatedStorage.replecs.utils)
+local jecs = require(ReplicatedStorage.roblox_packages.jecs)
 
 local function table_size(t: {}): number
 	local count = 0
-	for _ in pairs(t) do
+	for _ in t do
 		count += 1
 	end
 	return count
 end
 
 return function()
-	local server: rejecs.Server = nil :: any
+	local server: replecs.Server = nil :: any
 
 	beforeEach(function()
 		-- server = rejecs.create(world, "server").server
@@ -237,16 +238,16 @@ return function()
 
 	describe("member bitmasking", function()
 		local masking: player_masking.MaskingInternal = nil :: any
-		local world: Jecs.World = nil :: any
+		local world: jecs.World = nil :: any
 
 		beforeEach(function()
 			masking = player_masking.create() :: player_masking.MaskingInternal
-			world = Jecs.world()
+			world = jecs.world()
 		end)
 
 		afterEach(function()
 			-- heuristic sanity checks
-			local entity_masks: { [Jecs.Entity]: boolean } = {}
+			local entity_masks: { [jecs.Entity]: boolean } = {}
 
 			for hash, storage in masking.storages do
 				local real_active_count = 0
@@ -254,10 +255,14 @@ return function()
 				for entity, actives in storage.active do
 					if actives.is_entity_mask then
 						local lookup = masking.lookups.entities[entity]
-						if lookup.storage_group ~= storage then error "marked mask entity does not match the lookup" end
+						if lookup.storage_group ~= storage then
+							error "marked mask entity does not match the lookup"
+						end
 
 						real_active_count += 1
-						if entity_masks[entity] then error "duplicated base entity mask" end
+						if entity_masks[entity] then
+							error "duplicated base entity mask"
+						end
 						entity_masks[entity] = true
 					elseif actives.component_count > 0 then
 						real_active_count += 1
@@ -286,7 +291,7 @@ return function()
 			end
 		end)
 
-		local function check_entity_mask(entity: Jecs.Entity, hash: string)
+		local function check_entity_mask(entity: jecs.Entity, hash: string)
 			local storage = masking.storages[hash]
 			local lookup = masking.lookups.entities[entity]
 
@@ -297,14 +302,16 @@ return function()
 			expect(storage.active[entity].is_entity_mask).to.be.ok()
 
 			for check_hash, check_storage in masking.storages do
-				if hash == check_hash then continue end
+				if hash == check_hash then
+					continue
+				end
 
 				if check_storage.active[entity] then
 					expect(check_storage.active[entity].is_entity_mask).to.be.equal(false)
 				end
 			end
 		end
-		local function check_component_mask(entity: Jecs.Entity, component: Jecs.Entity, hash: string)
+		local function check_component_mask(entity: jecs.Entity, component: jecs.Entity, hash: string)
 			local storage = masking.storages[hash]
 			local lookup = masking.lookups.components[entity][1][component]
 
@@ -318,7 +325,9 @@ return function()
 			expect(storage.shared_with[entity][1][component]).to.be.ok()
 
 			for check_hash, check_storage in masking.storages do
-				if hash == check_hash then continue end
+				if hash == check_hash then
+					continue
+				end
 
 				if check_storage.active[entity] then
 					expect(check_storage.active[entity].components[1][component]).to.never.be.ok()
@@ -329,9 +338,11 @@ return function()
 			end
 		end
 
-		local function check_component_is_merged(entity: Jecs.Entity, component: Jecs.Entity<number>, hash: string)
+		local function check_component_is_merged(entity: jecs.Entity, component: jecs.Entity<number>, hash: string)
 			local entity_lookup = masking.lookups.entities[entity]
-			if not entity_lookup then error "entity lookup not found" end
+			if not entity_lookup then
+				error "entity lookup not found"
+			end
 
 			expect(entity_lookup.storage_group).to.be.equal(masking.storages[hash])
 
@@ -348,9 +359,11 @@ return function()
 			end
 		end
 
-		local function check_component_is_not_active(entity: Jecs.Entity, component: Jecs.Entity<number>)
+		local function check_component_is_not_active(entity: jecs.Entity, component: jecs.Entity<number>)
 			local entities = masking.lookups.components[entity]
-			if entities then expect(entities[1][component]).to.never.be.ok() end
+			if entities then
+				expect(entities[1][component]).to.never.be.ok()
+			end
 
 			for hash, check_storage in masking.storages do
 				if check_storage.shared_with[entity] then
@@ -462,7 +475,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_entity(entity, {
 				[member0] = true,
 				[member1] = true,
@@ -482,7 +495,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_entity(entity, {
 				[member0] = true,
 				[member2] = true,
@@ -505,7 +518,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			masking:start_component(entity, component, 1, {
 				[member0] = true,
@@ -529,7 +542,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			masking:start_entity(entity, {
 				[member0] = true,
@@ -549,7 +562,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			masking:start_entity(entity, {
 				[member0] = true,
@@ -574,7 +587,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			masking:start_entity(entity, {
 				[member0] = true,
@@ -621,16 +634,16 @@ return function()
 
 	describeSKIP("player filtering bitmasking old", function()
 		local masking: player_masking.MaskingInternal = nil :: any
-		local world: Jecs.World = nil :: any
+		local world: jecs.World = nil :: any
 
 		beforeEach(function()
 			masking = player_masking.create() :: player_masking.MaskingInternal
-			world = Jecs.world()
+			world = jecs.world()
 		end)
 
 		local function check_component_in(
-			entity: Jecs.Entity,
-			component: Jecs.Entity,
+			entity: jecs.Entity,
+			component: jecs.Entity,
 			component_type: number,
 			hash: string
 		)
@@ -650,11 +663,13 @@ return function()
 			if entity_lookup then
 				if entity_lookup.mask_storage ~= mask then
 					local active = entity_lookup.mask_storage.active[entity]
-					if active then expect(active.components[component_type][component]).to.never.be.ok() end
+					if active then
+						expect(active.components[component_type][component]).to.never.be.ok()
+					end
 				end
 			end
 		end
-		local function check_entity_in(entity: Jecs.Entity, hash: string)
+		local function check_entity_in(entity: jecs.Entity, hash: string)
 			expect(masking.active_masks[hash].active[entity]).to.be.ok()
 			expect(masking.lookup_list.entities[entity]).to.be.ok()
 			expect(masking.lookup_list.entities[entity].mask_storage).to.be.equal(masking.active_masks[hash])
@@ -664,35 +679,43 @@ return function()
 		end
 
 		local function check_component_is_merged(
-			entity: Jecs.Entity,
-			component: Jecs.Entity<number>,
+			entity: jecs.Entity,
+			component: jecs.Entity<number>,
 			component_type: number
 		)
 			local entity_lookup = masking.lookup_list.entities[entity]
 
 			if masking.lookup_list.components[entity] then
 				local components = masking.lookup_list.components[entity][component_type]
-				if components then expect(components[component]).to.never.be.ok() end
+				if components then
+					expect(components[component]).to.never.be.ok()
+				end
 			end
 			expect(entity_lookup.mask_storage.active[entity].components[component_type][component]).to.be.ok()
 		end
 
-		local function check_entity_not_in(entity: Jecs.Entity, hash: string)
+		local function check_entity_not_in(entity: jecs.Entity, hash: string)
 			local lookup = masking.lookup_list.entities[entity]
-			if not lookup then return end
+			if not lookup then
+				return
+			end
 			expect(lookup.mask_storage).to.never.be.equal(masking.active_masks[hash])
 		end
 
 		local function check_component_not_in(
-			entity: Jecs.Entity,
-			component: Jecs.Entity,
+			entity: jecs.Entity,
+			component: jecs.Entity,
 			component_type: number,
 			hash: string
 		)
 			local mask = masking.active_masks[hash]
-			if not mask then return end
+			if not mask then
+				return
+			end
 			local active_mask = mask.active[entity]
-			if not active_mask then return end
+			if not active_mask then
+				return
+			end
 			expect(active_mask.components[component_type][component]).to.never.be.ok()
 		end
 
@@ -777,7 +800,7 @@ return function()
 				[member1] = true,
 				[member2] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member1] = true,
 			})
@@ -793,7 +816,7 @@ return function()
 				[member1] = true,
 				[member2] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member1] = true,
 			})
@@ -816,7 +839,7 @@ return function()
 				[member1] = true,
 				[member2] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, nil)
 
 			check_component_is_merged(entity, component, 1)
@@ -830,7 +853,7 @@ return function()
 				[member1] = true,
 				[member2] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member1] = true,
 			})
@@ -854,7 +877,7 @@ return function()
 				[member2] = true,
 				[member3] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member1] = true, -- should ignore this
 				[member2] = true,
@@ -876,7 +899,7 @@ return function()
 				[member2] = true,
 				[member3] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member1] = true, -- should ignore this
 				[member2] = true,
@@ -914,7 +937,7 @@ return function()
 				[member0] = true,
 				[member1] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member0] = true,
 			})
@@ -938,7 +961,7 @@ return function()
 				[member0] = true,
 				[member1] = true,
 			})
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member0] = true,
 				[member1] = true,
@@ -964,7 +987,7 @@ return function()
 			local member0, member1, member2 = add_members()
 
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member0] = true,
 				[member1] = true,
@@ -986,7 +1009,7 @@ return function()
 		it("should update posponed component filters", function()
 			local member0, member1, member2, member4 = add_members()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			masking:start_component(entity, component, 1, {
 				[member0] = true,
 				[member1] = true,
@@ -1009,7 +1032,7 @@ return function()
 		it("should stop a component", function()
 			local member0, member1, member2 = add_members()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			local component_hash = mask_hash { 0, 1 }
 
@@ -1034,7 +1057,7 @@ return function()
 		it("should stop an entity", function()
 			local member0, member1, member2 = add_members()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			local component_hash = mask_hash { 0, 1 }
 			local entity_hash = mask_hash { 0, 1, 2 }
@@ -1058,7 +1081,7 @@ return function()
 		it("should pospone components again when the entity is stopped", function()
 			local member0, member1, member2 = add_members()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			local component_hash = mask_hash { 0, 1 }
 			masking:start_entity(entity, {
@@ -1194,10 +1217,10 @@ return function()
 		-- FULL STORAGE
 		it("should storage reliably tracked components", function()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			world:set(entity, component, 1)
-			world:add(entity, Jecs.pair(server.components.reliable, component))
+			world:add(entity, jecs.pair(server.components.reliable, component))
 
 			expect(server.storage[entity].values[component]).to.be.equal(1)
 			world:set(entity, component, 2)
@@ -1208,7 +1231,7 @@ return function()
 			local entity = world:entity()
 			local tag = world:entity()
 
-			world:add(entity, Jecs.pair(server.components.reliable, tag))
+			world:add(entity, jecs.pair(server.components.reliable, tag))
 			expect(server.storage[entity].tags[tag]).to.be.ok()
 			expect(server.storage[entity].values[tag]).to.never.be.ok()
 		end)
@@ -1217,28 +1240,28 @@ return function()
 			local relation = world:entity()
 			local target = world:entity()
 
-			world:add(entity, Jecs.pair(server.components.pair, relation))
+			world:add(entity, jecs.pair(server.components.pair, relation))
 
-			world:add(entity, Jecs.pair(relation, target))
+			world:add(entity, jecs.pair(relation, target))
 			expect(server.storage[entity].pairs[relation]).to.be.equal(target)
 			expect(table_size(server.storage[entity].pairs)).to.be.equal(1)
 		end)
 		it("should clear component storage when reliable relation is removed", function()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
 			world:set(entity, component, 1)
-			world:add(entity, Jecs.pair(server.components.reliable, component))
+			world:add(entity, jecs.pair(server.components.reliable, component))
 
-			world:remove(entity, Jecs.pair(server.components.reliable, component))
+			world:remove(entity, jecs.pair(server.components.reliable, component))
 			expect(server.storage[entity].values[component]).to.never.be.ok()
 		end)
 		it("should clear tag storage when reliable relation is removed", function()
 			local entity = world:entity()
 			local tag = world:entity()
 
-			world:add(entity, Jecs.pair(server.components.reliable, tag))
-			world:remove(entity, Jecs.pair(server.components.reliable, tag))
+			world:add(entity, jecs.pair(server.components.reliable, tag))
+			world:remove(entity, jecs.pair(server.components.reliable, tag))
 			expect(server.storage[entity].tags[tag]).to.never.be.ok()
 		end)
 		it("should clear pair storage when reliable relation is removed", function()
@@ -1246,21 +1269,21 @@ return function()
 			local relation = world:entity()
 			local target = world:entity()
 
-			world:add(entity, Jecs.pair(server.components.pair, relation))
-			world:add(entity, Jecs.pair(relation, target))
-			world:remove(entity, Jecs.pair(server.components.pair, relation))
+			world:add(entity, jecs.pair(server.components.pair, relation))
+			world:add(entity, jecs.pair(relation, target))
+			world:remove(entity, jecs.pair(server.components.pair, relation))
 			expect(server.storage[entity].pairs[relation]).to.never.be.ok()
 			expect(table_size(server.storage[entity].pairs)).to.be.equal(0)
 		end)
 		-- CHANGES
 		it("should detect changes to reliably replicated components", function()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			world:add(entity, server.components.networked)
 			server.changes.added[entity] = nil -- added will block changes
 
 			world:set(entity, component, 1)
-			world:add(entity, Jecs.pair(server.components.reliable, component))
+			world:add(entity, jecs.pair(server.components.reliable, component))
 			world:set(entity, component, 2)
 
 			expect(server.changes.changed[entity].component[component]).to.be.equal(2)
@@ -1273,7 +1296,7 @@ return function()
 			world:add(entity, server.components.networked)
 			server.changes.added[entity] = nil -- added will block changes
 
-			world:add(entity, Jecs.pair(server.components.reliable, tag))
+			world:add(entity, jecs.pair(server.components.reliable, tag))
 			world:add(entity, tag)
 
 			expect(server.changes.changed[entity].tagged[tag]).to.be.ok()
@@ -1290,43 +1313,43 @@ return function()
 			local target1 = world:entity()
 			local target2 = world:entity()
 
-			world:add(entity, Jecs.pair(server.components.pair, relation))
-			world:add(entity, Jecs.pair(relation, target1))
+			world:add(entity, jecs.pair(server.components.pair, relation))
+			world:add(entity, jecs.pair(relation, target1))
 
 			expect(server.changes.changed[entity].pairs[relation]).to.be.equal(target1)
 
-			world:remove(entity, Jecs.pair(relation, target1))
+			world:remove(entity, jecs.pair(relation, target1))
 			expect(server.changes.changed[entity].pairs[relation]).to.never.be.equal()
-			world:add(entity, Jecs.pair(relation, target2))
+			world:add(entity, jecs.pair(relation, target2))
 			expect(server.changes.changed[entity].pairs[relation]).to.be.equal(target2)
 		end)
 		it("should omit changes for added entities", function()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			world:add(entity, server.components.networked)
 			server.changes.added[entity] = true
 
-			world:add(entity, Jecs.pair(server.components.reliable, component))
+			world:add(entity, jecs.pair(server.components.reliable, component))
 			world:set(entity, component, 1)
 
 			expect(server.changes.changed[entity]).to.never.be.ok()
 		end)
 		it("should omit changes for non networked entities", function()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 
-			world:add(entity, Jecs.pair(server.components.reliable, component))
+			world:add(entity, jecs.pair(server.components.reliable, component))
 			world:set(entity, component, 1)
 
 			expect(server.changes.changed[entity]).to.never.be.ok()
 		end)
 		it("should delete changes when the entity is removed", function()
 			local entity = world:entity()
-			local component = world:component() :: Jecs.Entity<number>
+			local component = world:component() :: jecs.Entity<number>
 			world:add(entity, server.components.networked)
 			server.changes.added[entity] = nil -- unlocks changes
 
-			world:add(entity, Jecs.pair(server.components.reliable, component))
+			world:add(entity, jecs.pair(server.components.reliable, component))
 			world:set(entity, component, 1)
 
 			expect(server.changes.changed[entity].component[component]).to.be.equal(1)

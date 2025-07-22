@@ -1,29 +1,29 @@
 --!native
 --!optimize 2
 
-local Jecs = require(script.Parent.Parent.jecs)
-local Common = require(script.Parent.common)
+local jecs = require(script.Parent.Parent.roblox_packages.jecs)
+local common = require(script.Parent.common)
 local utils = require(script.Parent.utils)
 
 local cursor = utils.cursor
 type Cursor = utils.Cursor
 
 export type Client = {
-	world: Jecs.World,
+	world: jecs.World,
 
-	components: Common.Components,
-	shared: Common.Shared,
-	server_ids: { [number]: Jecs.Entity },
-	client_ids: { [Jecs.Entity]: number },
+	components: common.Components,
+	shared: common.Shared,
+	server_ids: { [number]: jecs.Entity },
+	client_ids: { [jecs.Entity]: number },
 	ordered_creation: boolean,
-	custom_ids: { [Jecs.Entity]: (any) -> Jecs.Entity },
+	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
 
-	init: (self: Client) -> (),
+	init: (self: Client, world: jecs.World) -> (),
 	apply_changes: (self: Client, buffer, variants: { any }?) -> (),
 	apply_full: (self: Client, buf: buffer, variants: { any }?) -> (),
 }
 
-local function get_entity(client: Client, server_id: number): Jecs.Entity
+local function get_entity(client: Client, server_id: number): jecs.Entity
 	local server_entity = client.server_ids[server_id]
 	if server_entity then
 		return server_entity
@@ -38,11 +38,13 @@ end
 local function read_component_id(client: Client, c: Cursor)
 	local shared_id = cursor.readu8(c)
 	local component = client.shared.components[shared_id]
-	if not component then error "received a non shared component" end
+	if not component then
+		error "received a non shared component"
+	end
 	return component
 end
 
-local function read_component_value(client: Client, c: Cursor, variants: { any }): (Jecs.Entity, any)
+local function read_component_value(client: Client, c: Cursor, variants: { any }): (jecs.Entity, any)
 	local component = read_component_id(client, c)
 	local serdes = client.shared.serdes[component]
 	if serdes then
@@ -74,7 +76,7 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any })
 		if not custom_getter then
 			error(
 				"received a custom id for a non custom component, consider adding custom_id to: "
-					.. client.world:get(component, Jecs.Name) :: string
+					.. client.world:get(component, jecs.Name) :: string
 			)
 		end
 		return custom_getter(value)
@@ -104,7 +106,7 @@ local function read_entity(client: Client, c: Cursor, variants: { any })
 	for i = 1, total_pairs do
 		local relation = read_component_id(client, c)
 		local target = read_entity_id(client, c, variants)
-		client.world:add(entity, Jecs.pair(relation, target))
+		client.world:add(entity, jecs.pair(relation, target))
 	end
 end
 
@@ -154,7 +156,7 @@ local function apply_changes(client: Client, buf: buffer, variants: { any }?)
 				c.offset += 1 -- go back
 				local relation = read_component_id(client, c)
 				local target = read_entity_id(client, c, variants :: { any })
-				client.world:add(entity, Jecs.pair(relation, target))
+				client.world:add(entity, jecs.pair(relation, target))
 			end
 		end
 	end
@@ -169,13 +171,13 @@ local function apply_full(client: Client, buf: buffer, variants: { any }?)
 	end
 end
 
-local function init(client: Client)
-	local world = client.world
+local function init(client: Client, world: jecs.World)
 	local components = client.components
 
+	client.world = world
 	client.shared = utils.create_shared_lookup(world, components)
 
-	for component, custom_id_get in world:query(components.custom_id):with(components.shared, Jecs.Name) do
+	for component, custom_id_get in world:query(components.custom_id):with(components.shared, jecs.Name) do
 		client.custom_ids[component] = custom_id_get
 	end
 end
@@ -186,11 +188,10 @@ client.init = init
 client.apply_changes = apply_changes
 client.apply_full = apply_full
 
-local function create(world: Jecs.World, components: Common.Components): Client
+local function create(components: common.Components): Client
 	local self = {} :: Client
 
-	self.world = world
-	self.shared = {} :: Common.Shared
+	self.shared = {} :: common.Shared
 	self.components = components
 	self.ordered_creation = true
 	self.custom_ids = {}
