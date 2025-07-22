@@ -12,28 +12,11 @@ export type Replecs = {
 	components: common.Components,
 	server: Server,
 	client: Client,
-
-	init: (self: Replecs, world: jecs.World) -> (),
 }
 
-local function init(replecs: Replecs, world: jecs.World)
-	if replecs.server then
-		local hooks: common.WorldHooks = {
-			added = (world :: any).added,
-			changed = (world :: any).changed,
-			removed = (world :: any).removed,
-		}
-		replecs.server:init(world, hooks)
-	elseif replecs.client then
-		replecs.client:init(world)
-	end
-end
-
 local replecs = {}
-replecs.__index = replecs
-replecs.init = init
 
-local function create(forced: ("client" | "server")?): Replecs
+function replecs.create(forced: ("client" | "server")?): Replecs
 	local self = {} :: Replecs
 
 	self.components = {
@@ -68,6 +51,4 @@ local function create(forced: ("client" | "server")?): Replecs
 	return setmetatable(self, replecs) :: any
 end
 
-replecs.create = create
-
-return replecs :: { create: typeof(create) }
+return replecs

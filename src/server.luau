@@ -39,7 +39,7 @@ export type Server = {
 	hooked: { () -> () },
 	masking: masking_controller.MaskingController,
 
-	init: (self: Server, world: jecs.World, hooks: common.WorldHooks) -> (),
+	init: (self: Server, world: jecs.World) -> (),
 	get_full: (self: Server, player: Player) -> (),
 	destroy: (self: Server) -> (),
 }
@@ -283,7 +283,7 @@ local function untrack_entity_pair(server: Server, entity: jecs.Entity, relation
 	end
 end
 
-local function init(server: Server, world: jecs.World, hooks: common.WorldHooks)
+local function init(server: Server, world: jecs.World)
 	if server.inited then
 		return warn "attempted to init a server twice"
 	end
@@ -292,6 +292,12 @@ local function init(server: Server, world: jecs.World, hooks: common.WorldHooks)
 	end
 	server.inited = true
 	server.world = world
+
+	local hooks: common.WorldHooks = {
+		added = (world :: any).added,
+		changed = (world :: any).changed,
+		removed = (world :: any).removed,
+	}
 	server.hooks = hooks
 
 	local components = server.components
