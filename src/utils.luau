@@ -1,7 +1,7 @@
 --!native
 --!optimize 2
 
-local jecs = require(script.Parent.Parent.roblox_packages.jecs)
+local jecs = require(script.Parent.Parent.jecs)
 local common = require(script.Parent.common)
 
 local utils = {}
@@ -70,6 +70,24 @@ function cursor.writeu32(c: Cursor, value: number)
 	c.offset += 4
 end
 
+function cursor.writei8(c: Cursor, value: number)
+	cursor.tryalloc(c, 1)
+	buffer.writei8(c.buffer, c.offset, value)
+	c.offset += 1
+end
+
+function cursor.writei16(c: Cursor, value: number)
+	cursor.tryalloc(c, 2)
+	buffer.writei16(c.buffer, c.offset, value)
+	c.offset += 2
+end
+
+function cursor.writei32(c: Cursor, value: number)
+	cursor.tryalloc(c, 4)
+	buffer.writeu32(c.buffer, c.offset, value :: any)
+	c.offset += 4
+end
+
 function cursor.read_buffer(c: Cursor, len: number)
 	local retrieved = buffer.create(len)
 	buffer.copy(retrieved, 0, c.buffer, c.offset - len, len)
@@ -96,6 +114,20 @@ end
 function cursor.readu32(c: Cursor): number
 	c.offset -= 4
 	return buffer.readu32(c.buffer, c.offset)
+end
+
+function cursor.readi8(c: Cursor): number
+	c.offset -= 1
+	return buffer.readi8(c.buffer, c.offset)
+end
+
+function cursor.readi16(c: Cursor): number
+	c.offset -= 2
+	return buffer.readi16(c.buffer, c.offset)
+end
+function cursor.readi32(c: Cursor): number
+	c.offset -= 4
+	return buffer.readi32(c.buffer, c.offset)
 end
 
 function cursor.write_vlq(c: Cursor, value: number)

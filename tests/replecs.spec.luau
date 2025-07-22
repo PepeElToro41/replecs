@@ -1,7 +1,7 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local replecs = require(ReplicatedStorage.replecs)
-local player_masking = require(ReplicatedStorage.replecs.masking)
-local utils = require(ReplicatedStorage.replecs.utils)
+local replecs = require(ReplicatedStorage.roblox_packages.replecs)
+local player_masking = require(ReplicatedStorage.roblox_packages.replecs.masking)
+local utils = require(ReplicatedStorage.roblox_packages.replecs.utils)
 local jecs = require(ReplicatedStorage.roblox_packages.jecs)
 
 local function table_size(t: {}): number
@@ -379,6 +379,25 @@ return function()
 			end
 		end
 
+		local function check_entity_is_not_active(entity: Jecs.Entity)
+			expect(masking.lookups.entities[entity]).to.never.be.ok()
+
+			for hash, check_storage in masking.storages do
+				if check_storage.active[entity] then
+					error("entity found in active storage" .. ": " .. hash)
+				end
+				if check_storage.shared_with[entity] then
+					error("entity found in shared storage" .. ": " .. hash)
+				end
+				if check_storage.changes.added[entity] then
+					error "entity addition found in lookup changes"
+				end
+				if check_storage.changes.changed[entity] then
+					error "changes table for entity found in storage"
+				end
+			end
+		end
+
 		it("should use an entity filter", function()
 			local member0, member1, member2 = register_members(masking)
 			local entity = world:entity()
@@ -557,6 +576,35 @@ return function()
 			masking:set_component(entity, component, 1, nil)
 			check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
 		end)
+		it("should separate a component when a filter gets added when it wasnt added", function()
+			local member0, member1, member2 = register_members(masking)
+			active_all_members(masking)
+
+			local entity = world:entity()
+			local component = world:component()
+			masking:start_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+
+			masking:set_component(entity, component, 0, nil)
+			masking:set_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1 })
+			masking:set_component(entity, component, 1, nil)
+			check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
+
+			-- testing forcing to merge to the same mask
+			masking:set_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1, 2 })
+		end)
 		it("should merge components and entities when they share same mask", function(context)
 			local member0, member1, member2 = register_members(masking)
 			active_all_members(masking)
@@ -624,10 +672,105 @@ return function()
 			check_entity_mask(entity, mask_hash { 0, 1, 2 })
 			check_component_mask(entity, component, mask_hash { 0, 1 })
 		end)
-		it("should stop an entity", function() end)
-		it("should stop a component", function() end)
-		it("should be able to apply the same filter to an entity", function() end)
-		it("should be able to apply the same filter to a component", function() end)
+		it("should stop an entity", function()
+			local member0, member1, member2 = register_members(masking)
+			active_all_members(masking)
+
+			local entity = world:entity()
+			local component = world:component()
+
+			masking:start_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+			masking:start_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1 })
+			masking:stop_entity(entity)
+			check_component_is_not_active(entity, component)
+			check_entity_is_not_active(entity)
+		end)
+		it("should stop a component", function()
+			local member0, member1, member2 = register_members(masking)
+			active_all_members(masking)
+			local entity = world:entity()
+			local component = world:component()
+
+			masking:start_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+			masking:start_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1 })
+			masking:stop_component(entity, component, 1)
+			check_component_is_not_active(entity, component)
+
+			masking:start_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1, 2 })
+			check_entity_mask(entity, mask_hash { 0, 1, 2 })
+			masking:stop_component(entity, component, 1)
+			check_component_is_not_active(entity, component)
+			check_entity_mask(entity, mask_hash { 0, 1, 2 })
+		end)
+		it("should be able to apply the same filter to an entity", function()
+			local member0, member1 = register_members(masking)
+			active_all_members(masking)
+
+			local entity = world:entity()
+			local component = world:component()
+			masking:start_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+			})
+			masking:start_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_entity_mask(entity, mask_hash { 0, 1 })
+			masking:set_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_entity_mask(entity, mask_hash { 0, 1 })
+			check_component_mask(entity, component, mask_hash { 0, 1 })
+		end)
+		it("should be able to apply the same filter to a component", function()
+			local member0, member1, member2 = register_members(masking)
+			active_all_members(masking)
+
+			local entity = world:entity()
+			local component = world:component()
+			masking:start_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+			masking:start_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1 })
+			masking:set_component(entity, component, 1, {
+				[member0] = true,
+				[member1] = true,
+			})
+			check_component_mask(entity, component, mask_hash { 0, 1 })
+			masking:set_component(entity, component, 1, nil)
+			check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
+			masking:set_component(entity, component, 1, nil)
+			check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
+		end)
 		it("should merge two masks correctly", function() end)
 		it("should pospone all components when an entity stops", function() end)
 	end)

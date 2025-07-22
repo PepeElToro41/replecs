@@ -1,4 +1,4 @@
-local jecs = require(script.Parent.Parent.roblox_packages.jecs)
+local jecs = require(script.Parent.Parent.jecs)
 local utils = require(script.Parent.utils)
 local mask_generator = require(script.mask_generator)
 
@@ -30,7 +30,7 @@ type ComponentLookup = Lookup & {
 	band_generator: MaskGenerator,
 }
 
-type EntityChanges = {
+export type EntityChanges = {
 	tagged: { [jecs.Entity]: boolean },
 	component: { [jecs.Entity]: any },
 	removed: { [jecs.Entity]: boolean },
@@ -49,7 +49,7 @@ type LookupsList = {
 	posponed: EntityComponentIndex<MemberFilter>,
 }
 
-type ActiveEntity = {
+export type ActiveEntity = {
 	components: ComponentIndex<boolean>,
 	component_count: number,
 	is_entity_mask: boolean,
@@ -556,6 +556,8 @@ function masking_controller.move_component_storage(
 	set_component_index_entry(target_storage.shared_with, entity, component, component_type, true)
 	remove_component_index_entry(storage.shared_with, entity, component, component_type)
 
+	--todo: move changes
+
 	return target_storage
 end
 
@@ -790,6 +792,7 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: jecs.E
 				component_lookup.band_generator:destroy()
 				component_lookup.generator:destroy()
 				remove_component_active(component_lookup.storage_group, entity, component, component_type)
+				component_lookup.storage_group.shared_with[entity] = nil
 
 				if posponed == nil then
 					posponed = create_component_indexes()
@@ -864,27 +867,53 @@ function masking_controller.set_component(
 	if lookup == nil then
 		return
 	end
-
 	local component_lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
-	if component_lookup == nil then
-		error "attempted to modify the filter of an unactive component"
-	end
-
-	component_lookup.band_generator:destroy()
-	component_lookup.generator:destroy()
 
 	if filter == nil then
-		masking:merge_component_filter(entity, component, component_type)
+		if component_lookup then
+			component_lookup.band_generator:destroy()
+			component_lookup.generator:destroy()
+
+			masking:merge_component_filter(entity, component, component_type)
+		end
 		return
 	end
 
 	local generator, band_generator = masking:update_component_filter(entity, component, component_type, filter)
 
-	component_lookup.band_generator = band_generator
-	component_lookup.generator = generator
-	component_lookup.filter = filter
+	if component_lookup then
+		component_lookup.band_generator:destroy()
+		component_lookup.generator:destroy()
 
-	band_generator:run_subscribed()
+		component_lookup.band_generator = band_generator
+		component_lookup.generator = generator
+		component_lookup.filter = filter
+
+		band_generator:run_subscribed()
+	else
+		local desired_storage = masking:get_or_create_storage_group(band_generator.bitmask)
+		local new_storage: StorageGroup
+
+		if desired_storage and desired_storage == lookup.storage_group then
+			new_storage = lookup.storage_group
+			set_component_index_entry(desired_storage.shared_with, entity, component, component_type, true)
+		else
+			new_storage = masking:move_component_storage(
+				entity,
+				component,
+				component_type,
+				lookup.storage_group,
+				band_generator.bitmask
+			)
+		end
+
+		set_component_index_entry(masking.lookups.components, entity, component, component_type, {
+			generator = generator,
+			band_generator = band_generator,
+			filter = filter,
+			storage_group = new_storage,
+		})
+	end
 end
 
 function masking_controller.stop_component(

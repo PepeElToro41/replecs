@@ -1,4 +1,7 @@
-local jecs = require(script.Parent.Parent.roblox_packages.jecs)
+--!optimize 2
+--!native
+
+local jecs = require(script.Parent.Parent.jecs)
 local utils = require(script.Parent.utils)
 local common = require(script.Parent.common)
 local masking_controller = require(script.Parent.masking)
@@ -44,6 +47,8 @@ export type Server = {
 	destroy: (self: Server) -> (),
 }
 
+local cursor = utils.cursor
+
 local NIL_COMPONENT_VALUE = newproxy()
 
 local COMPONENT_TYPES = masking_controller.COMPONENT_TYPES
@@ -51,6 +56,11 @@ local TRACK_TYPES = {
 	component = 1,
 	tag = 2,
 	pair = 3,
+}
+local ENTITY_ID_TYPES = {
+	id = 1,
+	custom = 2,
+	shared = 3,
 }
 
 local function track_entity_lifetime(server: Server, entity: jecs.Entity)
@@ -416,10 +426,175 @@ local function init(server: Server, world: jecs.World)
 	end))
 end
 
+local function write_component_id(server: Server, c: Cursor, component: jecs.Entity)
+	local encoded = server.shared.ids[component]
+	if not encoded then
+		error(
+			`attempted to replicate a non-shared component, name:{server.world:get(component, jecs.Name) or "(no name)"} id:{component}`
+		)
+		return
+	end
+	cursor.writeu8(c, encoded)
+end
+
+local function write_component_value(server: Server, c: Cursor, component: jecs.Entity, value: any, variants: { any })
+	local serdes = server.shared.serdes[component]
+	if serdes then
+		local output = serdes.serialize(value)
+
+		local bytespan = server.shared.bytespan[component]
+		cursor.write_buffer(c, output)
+		if not bytespan then
+			local len = buffer.len(output)
+			cursor.write_vlq(c, len)
+		end
+	else
+		table.insert(variants, value)
+		cursor.write_vlq(c, #variants)
+	end
+
+	write_component_id(server, c, component)
+end
+
+local function write_entity_id(server: Server, c: Cursor, entity: jecs.Entity, variants: { any }, multiply: number?)
+	local custom = server.custom_ids[entity]
+
+	if custom then
+		local value = server.world:get(entity, custom)
+		write_component_value(server, c, custom, value, variants)
+		cursor.writei8(c, ENTITY_ID_TYPES.custom * (multiply or 1))
+	else
+		local shared_id = server.shared.ids[entity]
+		if shared_id then
+			cursor.writeu8(c, shared_id)
+			cursor.writei8(c, ENTITY_ID_TYPES.shared * (multiply or 1))
+		else
+			cursor.writeu24(c, jecs.ECS_ID(entity :: number))
+			cursor.writei8(c, ENTITY_ID_TYPES.id * (multiply or 1))
+		end
+	end
+end
+
+local function write_entity(
+	server: Server,
+	c: Cursor,
+	entity: jecs.Entity,
+	active: masking_controller.ActiveEntity,
+	variants: { any }
+)
+end
+
 local function destroy(server: Server) end
 local function get_full(server: Server, member: Player) end
 
-local function collect_reliable(server: Server) end
+type MemberPackets = {
+	buffers: { buffer },
+	variants: { { any } },
+	total_size: number,
+}
+local function collect_reliable(server: Server)
+	local packets: { [Player]: MemberPackets } = {}
+
+	for _, storage in server.masking.storages do
+		local c = cursor.new()
+		local variants = {}
+
+		local total_deleted = 0
+		for entity in storage.deletions.entities do
+			write_entity_id(server, c, entity, variants)
+			total_deleted += 1
+		end
+		cursor.write_vlq(c, total_deleted)
+
+		local total_component_deleted = 0
+		for component in storage.deletions.components do
+			write_component_id(server, c, component)
+			total_component_deleted += 1
+		end
+		cursor.write_vlq(c, total_component_deleted)
+
+		local storage_changes = storage.changes
+		local changed = 0
+		for entity, changes in storage_changes.changed do
+			local total_pairs = 0
+
+			local total_removed = 0
+			for component, value in changes.removed do
+				write_component_id(server, c, component)
+				total_removed += 1
+			end
+			cursor.write_vlq(c, total_removed)
+
+			for relation, targets in changes.pairs do
+				local total_targets = 0
+
+				for target, added in targets do
+					if added then
+						write_entity_id(server, c, target, variants)
+					else
+						write_entity_id(server, c, target, variants, -1)
+					end
+					total_targets += 1
+				end
+				cursor.write_vlq(c, total_targets)
+				write_component_id(server, c, relation)
+				total_pairs += 1
+			end
+			cursor.write_vlq(c, total_pairs)
+
+			local total_components = 0
+			for component, value in changes.component do
+				write_component_value(server, c, component, value, variants)
+				write_component_id(server, c, component)
+				total_components += 1
+			end
+			cursor.write_vlq(c, total_components)
+
+			local total_tagged = 0
+			for tag in changes.tagged do
+				write_component_id(server, c, tag)
+				total_tagged += 1
+			end
+			cursor.write_vlq(c, total_tagged)
+
+			write_entity_id(server, c, entity, variants)
+			changed += 1
+		end
+		cursor.write_vlq(c, changed)
+
+		local total_added = 0
+		for entity in storage_changes.added do
+			local active = storage.active[entity]
+			if not active then
+				continue
+			end
+
+			write_entity(server, c, entity, active, variants)
+			total_added += 1
+		end
+		cursor.write_vlq(c, total_added)
+
+		local output = cursor.close(c)
+		local len = buffer.len(output)
+
+		for _, member in storage.mask.members do
+			local member_packets = packets[member]
+
+			if member_packets then
+				table.insert(member_packets.buffers, output)
+				table.insert(member_packets.variants, variants)
+				member_packets.total_size += len
+			else
+				member_packets = {
+					buffers = { output },
+					variants = { variants },
+					total_size = len,
+				}
+				packets[member] = member_packets
+			end
+		end
+	end
+end
 local function collect_unreliable(server: Server) end
 
 local server = {}

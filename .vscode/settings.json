@@ -3,7 +3,7 @@
     "luau-lsp.completion.imports.suggestServices": true,
     "luau-lsp.completion.imports.suggestRequires": true,
     "luau-lsp.completion.autocompleteEnd": true,
-    "luau-lsp.sourcemap.rojoProjectFile": "default.project.json",
+    "luau-lsp.sourcemap.rojoProjectFile": "serve.project.json",
     "luau-lsp.types.definitionFiles": [
         "types/testez.d.luau"
     ],
@@ -12,4 +12,6 @@
     },
     "luau-lsp.sourcemap.generatorCommand": "rojo sourcemap -o sourcemap.json --watch",
     "luau-lsp.sourcemap.enabled": true,
+    "luau-lsp.sourcemap.sourcemapFile": "sourcemap.json",
+    "luau-lsp.sourcemap.autogenerate": true,
 }
