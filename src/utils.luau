@@ -638,4 +638,15 @@ function utils.remove_all_relations(world: jecs.World, entity: jecs.Entity, rela
 	end
 end
 
+function utils.logerror(...: string): never
+	error("REPLECS ERROR - " .. table.concat({ ... }, " "))
+end
+function utils.logwarn(...: string)
+	warn("REPLECS WARN - " .. table.concat({ ... }, " "))
+end
+
+function utils.logcomponent(world: jecs.World, component: jecs.Entity)
+	return ` name: {world:get(component, jecs.Name) or "(no name)"} id: {component}`
+end
+
 return utils

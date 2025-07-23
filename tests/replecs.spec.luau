@@ -13,16 +13,6 @@ local function table_size(t: {}): number
 end
 
 return function()
-	local server: replecs.Server = nil :: any
-
-	beforeEach(function()
-		-- server = rejecs.create(world, "server").server
-		-- server:init()
-	end)
-	afterEach(function()
-		-- server:destroy()
-	end)
-
 	describe("bitmasking", function()
 		it("should automatically expand", function()
 			local mask = utils.bitmask.create(10)
@@ -379,7 +369,7 @@ return function()
 			end
 		end
 
-		local function check_entity_is_not_active(entity: Jecs.Entity)
+		local function check_entity_is_not_active(entity: jecs.Entity)
 			expect(masking.lookups.entities[entity]).to.never.be.ok()
 
 			for hash, check_storage in masking.storages do
@@ -773,6 +763,17 @@ return function()
 		end)
 		it("should merge two masks correctly", function() end)
 		it("should pospone all components when an entity stops", function() end)
+	end)
+	describe("server -> client replication", function()
+		local server: replecs.Server = nil :: any
+
+		beforeEach(function()
+			server = replecs.create(world, "server").server
+			server:init()
+		end)
+		afterEach(function()
+			-- server:destroy()
+		end)
 	end)
 
 	describeSKIP("player filtering bitmasking old", function()

@@ -10,6 +10,9 @@ type Cursor = utils.Cursor
 
 export type Client = {
 	world: jecs.World,
+	inited: boolean?,
+	is_replicating: boolean,
+	after_replication_callbacks: { () -> () },
 
 	components: common.Components,
 	shared: common.Shared,
@@ -19,6 +22,9 @@ export type Client = {
 	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
 
 	init: (self: Client, world: jecs.World) -> (),
+	destroy: (self: Client) -> (),
+	after_replication: (self: Client, callback: () -> ()) -> (),
+
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
@@ -67,13 +73,12 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 	end
 end
 
-local function read_entity_id(client: Client, c: Cursor, variants: { any }?)
-	local id_type = cursor.readu8(c)
+local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (jecs.Entity?, number?)
+	local id_type = cursor.readi8(c)
 
 	if id_type == ENTITY_ID_TYPES.id then
 		local server_id = cursor.readu24(c)
-		local entity = get_or_create_entity(client, server_id)
-		return entity
+		return client.server_ids[server_id], server_id
 	elseif id_type == ENTITY_ID_TYPES.custom then
 		local component, value = read_component_value(client, c, variants)
 		local custom_getter = client.custom_ids[component]
@@ -92,8 +97,17 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?)
 	error("malformed entity id" .. cursor.readu32(c))
 end
 
-local function read_entity(client: Client, c: Cursor, variants: { any }?)
-	local entity = read_entity_id(client, c, variants)
+local function process_entity_id(client: Client, c: Cursor, variants: { any }?)
+	local entity, server_id = read_entity_id(client, c, variants)
+	if entity then
+		return entity
+	else
+		return get_or_create_entity(client, server_id :: number)
+	end
+end
+
+local function process_entity(client: Client, c: Cursor, variants: { any }?)
+	local entity = process_entity_id(client, c, variants)
 
 	local total_tags = cursor.read_vlq(c)
 	for i = 1, total_tags do
@@ -113,7 +127,7 @@ local function read_entity(client: Client, c: Cursor, variants: { any }?)
 		local total_targets = cursor.read_vlq(c)
 
 		for i = 1, total_targets do
-			local target = read_entity_id(client, c, variants)
+			local target = process_entity_id(client, c, variants)
 			client.world:add(entity, jecs.pair(relation, target))
 		end
 	end
@@ -128,18 +142,12 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		local total_added = cursor.read_vlq(c)
 
 		for i = 1, total_added do
-			read_entity(client, c, variants)
-		end
-
-		local total_deleted = cursor.read_vlq(c)
-		for i = 1, total_deleted do
-			local entity = read_entity_id(client, c, variants)
-			client.world:delete(entity)
+			process_entity(client, c, variants)
 		end
 
 		local total_changed = cursor.read_vlq(c)
 		for i = 1, total_changed do
-			local entity = read_entity_id(client, c, variants)
+			local entity = process_entity_id(client, c, variants)
 			local total_tagged = cursor.read_vlq(c)
 			for i = 1, total_tagged do
 				local tag = read_component_id(client, c)
@@ -160,37 +168,114 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 			local total_pairs = cursor.read_vlq(c)
 			for i = 1, total_pairs do
-				local got_removed = cursor.readu8(c) == 0
-				if got_removed then
-					local component = read_component_id(client, c)
-					utils.remove_all_relations(client.world, entity, component)
-				else
-					c.offset += 1 -- go back
-					local relation = read_component_id(client, c)
-					local target = read_entity_id(client, c, variants)
-					client.world:add(entity, jecs.pair(relation, target))
+				local relation = read_component_id(client, c)
+				local total_targets = cursor.read_vlq(c)
+
+				for t = 1, total_targets do
+					local id_type = cursor.readi8(c)
+					-- here I use negative numbers to indicate removals
+					-- but "process_entity_id" expects a positive value
+					-- so I just peek at it and put it back but positive
+					-- (surely there is a better way to do this)
+					cursor.writei8(c, math.abs(id_type))
+					local target = process_entity_id(client, c, variants)
+
+					if id_type > 0 then
+						client.world:add(entity, jecs.pair(relation, target))
+					elseif id_type < 0 then
+						client.world:remove(entity, jecs.pair(relation, target))
+					end
+				end
+			end
+		end
+
+		local total_component_deleted = cursor.read_vlq(c)
+		for i = 1, total_component_deleted do
+			local entity = process_entity_id(client, c, variants)
+
+			local total_tags = cursor.read_vlq(c)
+			for i = 1, total_tags do
+				local tag = read_component_id(client, c)
+				client.world:remove(entity, tag)
+			end
+
+			local total_components = cursor.read_vlq(c)
+			for i = 1, total_components do
+				local component = read_component_id(client, c)
+				client.world:remove(entity, component)
+			end
+
+			local total_pairs = cursor.read_vlq(c)
+			for i = 1, total_pairs do
+				local relation = read_component_id(client, c)
+				utils.remove_all_relations(client.world, entity, relation)
+			end
+
+			local component = read_component_id(client, c)
+			client.world:delete(component)
+		end
+
+		local total_deleted = cursor.read_vlq(c)
+		for i = 1, total_deleted do
+			local entity = read_entity_id(client, c, variants)
+			if entity then
+				client.world:delete(entity)
+			end
+		end
+	end
+end
+
+local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
+	local c = cursor.from(buf)
+	local total_packets = cursor.read_vlq(c)
+	for a = 1, total_packets do
+		local total_entities = cursor.read_vlq(c)
+		local variants = all_variants and all_variants[a]
+
+		for e = 1, total_entities do
+			local entity = read_entity_id(client, c, variants)
+			local total_unreliable = cursor.read_vlq(c)
+
+			if entity then
+				local component_id, value = read_component_value(client, c)
+				client.world:set(entity, component_id, value)
+			else
+				-- dont apply unreliable updates to entities that dont exist in the client yet
+				-- but we still need to process the values to keep the cursor in the right place
+				for u = 1, total_unreliable do
+					read_component_value(client, c)
 				end
 			end
 		end
 	end
 end
 
-local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?) end
-
 local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
-	local total_entities = cursor.read_vlq(c)
 
-	for i = 1, total_entities do
-		local variants = all_variants and all_variants[i]
-		read_entity(client, c, variants)
+	local total_packets = cursor.read_vlq(c)
+	for a = 1, total_packets do
+		local total_entities = cursor.read_vlq(c)
+		local variants = all_variants and all_variants[a]
+
+		for e = 1, total_entities do
+			process_entity(client, c, variants)
+		end
 	end
 end
 
-local function init(client: Client, world: jecs.World)
+local function init(client: Client)
+	if client.inited then
+		return warn "attempted to init a client twice"
+	end
+	if client.inited == nil then
+		return warn "attempted to re-init a destroyed client"
+	end
+	client.inited = true
+
+	local world = client.world
 	local components = client.components
 
-	client.world = world
 	client.shared = utils.create_shared_lookup(world, components)
 
 	for component, custom_id_get in world:query(components.custom_id):with(components.shared, jecs.Name) do
@@ -198,14 +283,33 @@ local function init(client: Client, world: jecs.World)
 	end
 end
 
+local function after_replication(client: Client, callback: () -> ())
+	if client.is_replicating then
+		table.insert(client.after_replication_callbacks, callback)
+	else
+		callback()
+	end
+end
+
+local function destroy(client: Client)
+	if client.inited == nil then
+		return warn "attempted to destroy a client twice"
+	end
+	client.inited = nil
+	-- I'll add any logic here if I need to clean up something
+	-- right now this is kind of useless
+end
+
 local client = {}
 client.__index = client
 client.init = init
+client.destroy = destroy
+client.after_replication = after_replication
 client.apply_updates = apply_updates
 client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
 
-local function create(components: common.Components): Client
+local function create(world: jecs.World, components: common.Components): Client
 	local self = {} :: Client
 
 	self.shared = {} :: common.Shared

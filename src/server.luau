@@ -43,8 +43,9 @@ export type Server = {
 	masking: masking_controller.MaskingController,
 
 	init: (self: Server, world: jecs.World) -> (),
-	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	destroy: (self: Server) -> (),
+
+	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
 	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
 }
@@ -170,7 +171,7 @@ local function track_component(server: Server, component: jecs.Entity<any>)
 			allocate_tag_addition(server, entity, component)
 		else
 			if not jecs.IS_PAIR(id) then
-				return error "a non-pair tag was added to a pair tracked component"
+				return utils.logerror "a non-pair tag was added to a pair tracked component"
 			end
 			allocate_pair_addition(server, entity, component, jecs.pair_second(world, id))
 		end
@@ -196,7 +197,7 @@ local function track_component(server: Server, component: jecs.Entity<any>)
 			allocate_tag_removal(server, entity, component)
 		else
 			if not jecs.IS_PAIR(id) then
-				return error "a non-pair tag was removed for a pair tracked component"
+				return utils.logerror "a non-pair tag was removed for a pair tracked component"
 			end
 			allocate_pair_removal(server, entity, component, jecs.pair_second(world, id))
 		end
@@ -295,145 +296,10 @@ local function untrack_entity_pair(server: Server, entity: jecs.Entity, relation
 	end
 end
 
-local function init(server: Server, world: jecs.World)
-	if server.inited then
-		return warn "attempted to init a server twice"
-	end
-	if server.inited == nil then
-		return warn "attempted to re-init a destroyed server"
-	end
-	server.inited = true
-	server.world = world
-
-	local hooks: common.WorldHooks = {
-		added = (world :: any).added,
-		changed = (world :: any).changed,
-		removed = (world :: any).removed,
-	}
-	server.hooks = hooks
-
-	local components = server.components
-	local masking = server.masking
-
-	server.shared = utils.create_shared_lookup(world, components)
-
-	local function hook(unhook: () -> ())
-		table.insert(server.hooked, unhook)
-	end
-
-	hook(hooks.added(world, components.networked, function(entity, id, filter)
-		masking:unregister_stop_entity(entity)
-		masking:start_entity(entity, filter)
-		masking:propagate_entity_addition(entity)
-
-		server.additions[entity] = true
-		server.track_info.entities[entity] = true
-		track_entity_lifetime(server, entity)
-	end))
-	hook(hooks.changed(world, components.networked, function(entity, id, filter)
-		masking:set_entity(entity, filter)
-	end))
-	hook(hooks.removed(world, components.networked, function(entity)
-		masking:register_stop_entity(entity)
-		masking:stop_entity(entity)
-
-		server.additions[entity] = nil
-		server.track_info.entities[entity] = nil
-	end))
-
-	hook(hooks.added(world, components.reliable, function(entity, id, filter)
-		if not jecs.IS_PAIR(id) then
-			return error "reliable should be used with a pair relationship"
-		end
-		local component = jecs.pair_second(world, id)
-
-		local component_type = track_entity_component(server, entity, component)
-		masking:unregister_stop_component(entity, component, component_type)
-		masking:start_component(entity, component, component_type, filter)
-		if server.additions[entity] then
-			masking:allocate_entity_addition(entity, component, component_type)
-		end
-	end))
-	hook(hooks.changed(world, components.reliable, function(entity, id, filter)
-		if not jecs.IS_PAIR(id) then
-			return error "reliable should be used with a pair relationship"
-		end
-		local component = jecs.pair_second(world, id)
-
-		if world:has(component, jecs.Component) then
-			masking:set_component(entity, component, COMPONENT_TYPES.component, filter)
-		else
-			masking:set_component(entity, component, COMPONENT_TYPES.tag, filter)
-		end
-	end))
-
-	hook(hooks.removed(world, components.reliable, function(entity, id)
-		if not jecs.IS_PAIR(id) then
-			return error "reliable should be used with a pair relationship"
-		end
-		local component = jecs.pair_second(world, id)
-		local component_type = untrack_entity_component(server, entity, component)
-		if not component_type then
-			return
-		end
-		masking:register_stop_component(entity, component, component_type)
-		masking:stop_component(entity, component, component_type)
-	end))
-
-	hook(hooks.added(world, components.pair, function(entity, id, filter)
-		if not jecs.IS_PAIR(id) then
-			return error "pair should be used with a relationship"
-		end
-		local relation = jecs.pair_second(world, id)
-		track_entity_pair(server, entity, relation)
-		masking:unregister_stop_component(entity, relation, COMPONENT_TYPES.pair)
-		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
-	end))
-	hook(hooks.changed(world, components.pair, function(entity, id, filter)
-		if not jecs.IS_PAIR(id) then
-			return error "reliable should be used with a pair relationship"
-		end
-		local relation = jecs.pair_second(world, id)
-		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
-	end))
-	hook(hooks.removed(world, components.pair, function(entity, id)
-		if not jecs.IS_PAIR(id) then
-			return error "reliable should be used with a pair relationship"
-		end
-		local relation = jecs.pair_second(world, entity)
-		untrack_entity_pair(server, entity, relation)
-		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
-		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
-	end))
-
-	hook(hooks.removed(world, components.__alive_tracking__, function(entity) end))
-
-	hook(hooks.added(world, components.custom_id, function(entity, id)
-		if not jecs.IS_PAIR(id) then
-			return error "custom_id should be used with a relationship"
-		end
-		local target = jecs.pair_second(world, id)
-		if not target then
-			error "custom_id should be used with a relationship in the server"
-		end
-		if server.custom_ids[entity] then
-			return warn("attempted to register a custom_id pair twice for the same entity", debug.traceback())
-		end
-
-		server.custom_ids[entity] = target
-	end))
-
-	hook(hooks.removed(world, components.custom_id, function(entity, id)
-		server.custom_ids[entity] = nil
-	end))
-end
-
 local function write_component_id(server: Server, c: Cursor, component: jecs.Entity)
 	local encoded = server.shared.ids[component]
 	if not encoded then
-		error(
-			`attempted to replicate a non-shared component, name:{server.world:get(component, jecs.Name) or "(no name)"} id:{component}`
-		)
+		utils.logerror(`attempted to replicate a non-shared component `, utils.logcomponent(server.world, component))
 		return
 	end
 	cursor.writeu8(c, encoded)
@@ -446,7 +312,14 @@ local function write_component_value(server: Server, c: Cursor, component: jecs.
 
 		local bytespan = server.shared.bytespan[component]
 		cursor.write_buffer(c, output)
-		if not bytespan then
+		if bytespan then
+			if bytespan ~= buffer.len(output) then
+				utils.logerror(
+					`bytespan: {bytespan} mismatch for buffer lenght: {buffer.len(output)} in component`,
+					utils.logcomponent(server.world, component)
+				)
+			end
+		else
 			local len = buffer.len(output)
 			cursor.write_vlq(c, len)
 		end
@@ -513,7 +386,6 @@ local function write_entity(
 	for component in active[COMPONENT_TYPES.component] do
 		local value = storage.values[component]
 		write_component_value(server, c, component, value, variants)
-		write_component_id(server, c, component)
 		components += 1
 	end
 	cursor.write_vlq(c, components)
@@ -526,7 +398,7 @@ type MemberPackets = {
 	total_size: number,
 }
 
-local function append_packets(
+local function append_packet(
 	packets: { [Player]: MemberPackets },
 	members: { any },
 	output: buffer,
@@ -582,14 +454,14 @@ end
 local function get_full(server: Server, member: Player): (buffer, { { any } })
 	local index = server.masking.member_indexes[member]
 	if index == nil then
-		error "attempted to replicate a non registered member"
+		utils.logerror "attempted to replicate for a non registered member"
 	end
 	local buffers: { buffer } = {}
 	local all_variants: { { any } } = {}
 	local total_size = 0
 
+	-- maybe edges to quickly find all relevant storages improves performance?
 	for _, storage in server.masking.storages do
-		-- maybe edges to quickly find all relevant storages improves performance?
 		if not storage.mask.bitmask:get(index) then
 			continue
 		end
@@ -626,8 +498,29 @@ local function collect_updates(server: Server)
 		cursor.write_vlq(c, total_deleted)
 
 		local total_component_deleted = 0
-		for component in storage.deletions.components do
-			write_component_id(server, c, component)
+		for entity, deleted in storage.deletions.components do
+			local total_pairs = 0
+			for relation in deleted[COMPONENT_TYPES.pair] do
+				write_component_id(server, c, relation)
+				total_pairs += 1
+			end
+			cursor.write_vlq(c, total_pairs)
+
+			local total_components = 0
+			for component in deleted[COMPONENT_TYPES.component] do
+				write_component_id(server, c, component)
+				total_components += 1
+			end
+			cursor.write_vlq(c, total_components)
+
+			local total_tags = 0
+			for tag in deleted[COMPONENT_TYPES.tag] do
+				write_component_id(server, c, tag)
+				total_tags += 1
+			end
+			cursor.write_vlq(c, total_tags)
+
+			write_entity_id(server, c, entity, variants)
 			total_component_deleted += 1
 		end
 		cursor.write_vlq(c, total_component_deleted)
@@ -663,7 +556,6 @@ local function collect_updates(server: Server)
 			local total_components = 0
 			for component, value in changes.component do
 				write_component_value(server, c, component, value, variants)
-				write_component_id(server, c, component)
 				total_components += 1
 			end
 			cursor.write_vlq(c, total_components)
@@ -693,7 +585,7 @@ local function collect_updates(server: Server)
 		cursor.write_vlq(c, total_added)
 
 		local output = cursor.close(c)
-		append_packets(packets, storage.mask.members, output, variants)
+		append_packet(packets, storage.mask.members, output, variants)
 	end
 
 	return create_packet_iterator(packets)
@@ -722,7 +614,6 @@ local function collect_unreliable(server: Server)
 				end
 
 				write_component_value(server, c, component, value, variants)
-				write_component_id(server, c, component)
 				total_unreliable += 1
 			end
 
@@ -730,8 +621,8 @@ local function collect_unreliable(server: Server)
 				continue
 			end
 			total_entities += 1
-			write_entity_id(server, c, entity, variants)
 			cursor.write_vlq(c, total_unreliable)
+			write_entity_id(server, c, entity, variants)
 		end
 
 		if total_entities <= 0 then
@@ -740,10 +631,137 @@ local function collect_unreliable(server: Server)
 		cursor.write_vlq(c, total_entities)
 
 		local output = cursor.close(c)
-		append_packets(packets, mask_storage.mask.members, output, variants)
+		append_packet(packets, mask_storage.mask.members, output, variants)
 	end
 
 	return create_packet_iterator(packets)
+end
+
+local function init(server: Server)
+	if server.inited then
+		return warn "attempted to init a server twice"
+	end
+	if server.inited == nil then
+		return warn "attempted to re-init a destroyed server"
+	end
+	server.inited = true
+
+	local world = server.world
+	local hooks = server.hooks
+	local components = server.components
+	local masking = server.masking
+
+	server.shared = utils.create_shared_lookup(world, components)
+
+	local function hook(unhook: () -> ())
+		table.insert(server.hooked, unhook)
+	end
+
+	hook(hooks.added(world, components.networked, function(entity, id, filter)
+		masking:unregister_stop_entity(entity)
+		masking:start_entity(entity, filter)
+		masking:propagate_entity_addition(entity)
+
+		server.additions[entity] = true
+		server.track_info.entities[entity] = true
+		track_entity_lifetime(server, entity)
+	end))
+	hook(hooks.changed(world, components.networked, function(entity, id, filter)
+		masking:set_entity(entity, filter)
+	end))
+	hook(hooks.removed(world, components.networked, function(entity)
+		masking:register_stop_entity(entity)
+		masking:stop_entity(entity)
+
+		server.additions[entity] = nil
+		server.track_info.entities[entity] = nil
+	end))
+
+	hook(hooks.added(world, components.reliable, function(entity, id, filter)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "reliable should be used with a pair relationship"
+		end
+		local component = jecs.pair_second(world, id)
+
+		local component_type = track_entity_component(server, entity, component)
+		masking:unregister_stop_component(entity, component, component_type)
+		masking:start_component(entity, component, component_type, filter)
+		if server.additions[entity] then
+			masking:allocate_entity_addition(entity, component, component_type)
+		end
+	end))
+	hook(hooks.changed(world, components.reliable, function(entity, id, filter)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "reliable should be used with a pair relationship"
+		end
+		local component = jecs.pair_second(world, id)
+
+		if world:has(component, jecs.Component) then
+			masking:set_component(entity, component, COMPONENT_TYPES.component, filter)
+		else
+			masking:set_component(entity, component, COMPONENT_TYPES.tag, filter)
+		end
+	end))
+
+	hook(hooks.removed(world, components.reliable, function(entity, id)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "reliable should be used with a pair relationship"
+		end
+		local component = jecs.pair_second(world, id)
+		local component_type = untrack_entity_component(server, entity, component)
+		if not component_type then
+			return
+		end
+		masking:register_stop_component(entity, component, component_type)
+		masking:stop_component(entity, component, component_type)
+	end))
+
+	hook(hooks.added(world, components.pair, function(entity, id, filter)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "pair should be used with a relationship"
+		end
+		local relation = jecs.pair_second(world, id)
+		track_entity_pair(server, entity, relation)
+		masking:unregister_stop_component(entity, relation, COMPONENT_TYPES.pair)
+		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
+	end))
+	hook(hooks.changed(world, components.pair, function(entity, id, filter)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "reliable should be used with a pair relationship"
+		end
+		local relation = jecs.pair_second(world, id)
+		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
+	end))
+	hook(hooks.removed(world, components.pair, function(entity, id)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "reliable should be used with a pair relationship"
+		end
+		local relation = jecs.pair_second(world, entity)
+		untrack_entity_pair(server, entity, relation)
+		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
+		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
+	end))
+
+	hook(hooks.removed(world, components.__alive_tracking__, function(entity) end))
+
+	hook(hooks.added(world, components.custom_id, function(entity, id)
+		if not jecs.IS_PAIR(id) then
+			return utils.logerror "custom_id should be used with a relationship"
+		end
+		local target = jecs.pair_second(world, id)
+		if not target then
+			return utils.logerror "custom_id should be used with a relationship in the server"
+		end
+		if server.custom_ids[entity] then
+			return utils.logwarn("attempted to register a custom_id twice for the same entity", debug.traceback())
+		end
+
+		server.custom_ids[entity] = target
+	end))
+
+	hook(hooks.removed(world, components.custom_id, function(entity, id)
+		server.custom_ids[entity] = nil
+	end))
 end
 
 local function destroy(server: Server)
@@ -765,19 +783,25 @@ server.get_full = get_full
 server.collect_updates = collect_updates
 server.collect_unreliable = collect_unreliable
 
-local function create(components: common.Components): Server
+local function create(world: jecs.World, components: common.Components): Server
 	local self = {} :: Server
 
 	self.components = components
 
 	self.shared = {} :: common.Shared
 
+	server.world = world
 	self.additions = {}
 	self.storage = {}
 	self.hooked = {}
 	self.track_info = {
 		entities = {},
 		components = {},
+	}
+	server.hooks = {
+		added = (world :: any).added,
+		changed = (world :: any).changed,
+		removed = (world :: any).removed,
 	}
 
 	self.inited = false

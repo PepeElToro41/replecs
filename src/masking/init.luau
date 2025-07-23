@@ -353,7 +353,7 @@ local function remove_active(storage: StorageGroup, entity: jecs.Entity): Active
 		-- todo: check if empty
 		return active
 	end
-	error "attempted to remove an entity that wasn't active"
+	return utils.logerror "attempted to remove an entity that wasn't active"
 end
 
 local function get_or_set_component_active(active: ActiveEntity, component: jecs.Entity, component_type: number)
@@ -466,7 +466,7 @@ function masking_controller.merge_component_filter(
 	local component_lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
 	local entity_lookup = masking.lookups.entities[entity]
 	if not entity_lookup then
-		error "attempted to merge a component filter to an unactive entity"
+		utils.logerror "attempted to merge a component filter to an unactive entity"
 	end
 
 	if component_lookup then
@@ -765,7 +765,7 @@ end
 function masking_controller.set_entity(masking: MaskingInternal, entity: jecs.Entity, filter: MemberFilter?)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
-		error "attempted to modify the filter of an unactive entity"
+		utils.logerror "attempted to modify the filter of an unactive entity"
 	end
 	lookup.generator:destroy()
 
@@ -781,7 +781,7 @@ end
 function masking_controller.stop_entity(masking: MaskingInternal, entity: jecs.Entity)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
-		error "attemped to stop an unactive entity"
+		utils.logerror "attemped to stop an unactive entity"
 	end
 
 	local posponed = masking.lookups.posponed[entity]
@@ -956,7 +956,7 @@ function masking_controller.get_component_storage_group(
 	else
 		local entity_lookup = masking.lookups.entities[entity]
 		if not entity_lookup then
-			error "attempted to use an entity that is not active"
+			utils.logerror "attempted to use an entity that is not active"
 		end
 		return entity_lookup.storage_group
 	end

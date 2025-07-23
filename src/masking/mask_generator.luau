@@ -48,7 +48,9 @@ function mask_generator.unmark_tracked(generator: GeneratorInternal, to_untrack:
 end
 
 function mask_generator.run_subscribed(generator: GeneratorInternal)
-	if generator.subscribed then generator.subscribed(generator) end
+	if generator.subscribed then
+		generator.subscribed(generator)
+	end
 end
 
 function mask_generator.compute(generator: GeneratorInternal)
@@ -56,7 +58,9 @@ function mask_generator.compute(generator: GeneratorInternal)
 		local result = generator.compute_callback(generator)
 		generator.bitmask = result
 	end
-	if generator.subscribed then generator.subscribed(generator) end
+	if generator.subscribed then
+		generator.subscribed(generator)
+	end
 
 	for _, tracking in generator.tracked_by do
 		tracking:compute()
