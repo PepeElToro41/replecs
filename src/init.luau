@@ -21,7 +21,7 @@ function replecs.create(forced: ("client" | "server")?): Replecs
 
 	lib.components = {
 		shared = jecs.tag(),
-		networked = jecs.tag() :: jecs.Entity<{ [Player]: boolean }?>,
+		networked = jecs.component() :: jecs.Entity<{ [Player]: boolean }?>,
 		reliable = jecs.tag(),
 		unreliable = jecs.tag(),
 		pair = jecs.tag(),

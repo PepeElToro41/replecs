@@ -43,8 +43,10 @@ export type Server = {
 	masking: masking_controller.MaskingController,
 
 	init: (self: Server, world: jecs.World) -> (),
-	get_full: (self: Server, player: Player) -> (),
+	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	destroy: (self: Server) -> (),
+	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
+	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
 }
 
 local cursor = utils.cursor
