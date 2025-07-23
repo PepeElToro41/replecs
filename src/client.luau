@@ -19,9 +19,9 @@ export type Client = {
 	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
 
 	init: (self: Client, world: jecs.World) -> (),
-	apply_updates: (self: Client, buf: buffer, variants: { any }?) -> (),
-	apply_unreliable: (self: Client, buf: buffer, variants: { any }?) -> (),
-	apply_full: (self: Client, buf: buffer, variants: { any }?) -> (),
+	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
+	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
+	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 }
 
 local ENTITY_ID_TYPES = {
@@ -133,13 +133,13 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 		local total_deleted = cursor.read_vlq(c)
 		for i = 1, total_deleted do
-			local entity = read_entity_id(client, c, variants :: { any })
+			local entity = read_entity_id(client, c, variants)
 			client.world:delete(entity)
 		end
 
 		local total_changed = cursor.read_vlq(c)
 		for i = 1, total_changed do
-			local entity = read_entity_id(client, c, variants :: { any })
+			local entity = read_entity_id(client, c, variants)
 			local total_tagged = cursor.read_vlq(c)
 			for i = 1, total_tagged do
 				local tag = read_component_id(client, c)
@@ -154,7 +154,7 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 			local total_components = cursor.read_vlq(c)
 			for i = 1, total_components do
-				local component, value = read_component_value(client, c, variants :: { any })
+				local component, value = read_component_value(client, c, variants)
 				client.world:set(entity, component, value)
 			end
 
@@ -167,7 +167,7 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 				else
 					c.offset += 1 -- go back
 					local relation = read_component_id(client, c)
-					local target = read_entity_id(client, c, variants :: { any })
+					local target = read_entity_id(client, c, variants)
 					client.world:add(entity, jecs.pair(relation, target))
 				end
 			end
@@ -175,14 +175,15 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 	end
 end
 
-local function apply_unreliable(client: Client, buf: buffer, variants: { { any } }?) end
+local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?) end
 
-local function apply_full(client: Client, buf: buffer, variants: { any }?)
+local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	local total_entities = cursor.read_vlq(c)
 
 	for i = 1, total_entities do
-		read_entity(client, c, variants :: { any })
+		local variants = all_variants and all_variants[i]
+		read_entity(client, c, variants)
 	end
 end
 
