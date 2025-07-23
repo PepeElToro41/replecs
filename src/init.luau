@@ -1,5 +1,5 @@
 local RunService = game:GetService "RunService"
-local jecs = require(script.Parent.roblox_packages.jecs)
+local jecs = require(script.Parent.jecs)
 local common = require(script.common)
 
 local client = require(script.client)

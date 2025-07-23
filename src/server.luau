@@ -482,17 +482,134 @@ local function write_entity(
 	active: masking_controller.ActiveEntity,
 	variants: { any }
 )
-end
+	local storage = server.storage[entity]
 
-local function destroy(server: Server) end
-local function get_full(server: Server, member: Player) end
+	local all_pairs = 0
+	for relation in active[COMPONENT_TYPES.pair] do
+		local targets = storage.pairs[relation]
+		for target in targets do
+			write_entity_id(server, c, target, variants)
+			write_component_id(server, c, relation)
+		end
+		cursor.write_vlq(c, #targets)
+		all_pairs += 1
+	end
+	cursor.write_vlq(c, all_pairs)
+
+	local components = 0
+
+	local tags = 0
+	for tag in active[COMPONENT_TYPES.tag] do
+		local has_tag = storage.tags[tag]
+		if has_tag then
+			write_component_id(server, c, tag)
+			tags += 1
+		end
+	end
+	cursor.write_vlq(c, tags)
+
+	for component in active[COMPONENT_TYPES.component] do
+		local value = storage.values[component]
+		write_component_value(server, c, component, value, variants)
+		write_component_id(server, c, component)
+		components += 1
+	end
+	cursor.write_vlq(c, components)
+	write_entity_id(server, c, entity, variants)
+end
 
 type MemberPackets = {
 	buffers: { buffer },
 	variants: { { any } },
 	total_size: number,
 }
-local function collect_reliable(server: Server)
+
+local function append_packets(
+	packets: { [Player]: MemberPackets },
+	members: { any },
+	output: buffer,
+	variants: { { any } }
+)
+	local len = buffer.len(output)
+	for _, member in members do
+		local member_packets = packets[member]
+
+		if member_packets then
+			table.insert(member_packets.buffers, output)
+			table.insert(member_packets.variants, variants)
+			member_packets.total_size += len
+		else
+			member_packets = {
+				buffers = { output },
+				variants = { variants },
+				total_size = len,
+			}
+			packets[member] = member_packets
+		end
+	end
+end
+
+local function combine_packet_outputs(outputs: { buffer }, total_size: number): buffer
+	local combined = buffer.create(total_size + utils.vlq_span(#outputs))
+	local offset = 0
+
+	for _, output in outputs do
+		buffer.copy(combined, offset, output)
+		offset += buffer.len(output)
+	end
+	utils.push_vlq(combined, offset, total_size)
+	return combined
+end
+
+local function create_packet_iterator(packets: { [Player]: MemberPackets })
+	local iterated = nil
+	local function iterator()
+		local player, packets = next(packets, iterated)
+		if not player then
+			return nil :: any
+		end
+
+		iterated = player
+
+		local combined = combine_packet_outputs(packets.buffers, packets.total_size)
+		return player, combined, packets.variants
+	end
+	return iterator :: () -> (Player, buffer, { { any } })
+end
+
+local function get_full(server: Server, member: Player): (buffer, { { any } })
+	local index = server.masking.member_indexes[member]
+	if index == nil then
+		error "attempted to replicate a non registered member"
+	end
+	local buffers: { buffer } = {}
+	local all_variants: { { any } } = {}
+	local total_size = 0
+
+	for _, storage in server.masking.storages do
+		-- maybe edges to quickly find all relevant storages improves performance?
+		if not storage.mask.bitmask:get(index) then
+			continue
+		end
+		local c = cursor.new()
+		local variants = {}
+
+		local total_entities = 0
+		for entity, active in storage.active do
+			write_entity(server, c, entity, active, variants)
+			total_entities += 1
+		end
+		cursor.write_vlq(c, total_entities)
+
+		table.insert(buffers, cursor.close(c))
+		table.insert(all_variants, variants)
+		total_size += 1
+	end
+
+	return combine_packet_outputs(buffers, total_size), all_variants
+end
+
+local function collect_updates(server: Server)
 	local packets: { [Player]: MemberPackets } = {}
 
 	for _, storage in server.masking.storages do
@@ -516,8 +633,6 @@ local function collect_reliable(server: Server)
 		local storage_changes = storage.changes
 		local changed = 0
 		for entity, changes in storage_changes.changed do
-			local total_pairs = 0
-
 			local total_removed = 0
 			for component, value in changes.removed do
 				write_component_id(server, c, component)
@@ -525,6 +640,7 @@ local function collect_reliable(server: Server)
 			end
 			cursor.write_vlq(c, total_removed)
 
+			local total_pairs = 0
 			for relation, targets in changes.pairs do
 				local total_targets = 0
 
@@ -575,34 +691,76 @@ local function collect_reliable(server: Server)
 		cursor.write_vlq(c, total_added)
 
 		local output = cursor.close(c)
-		local len = buffer.len(output)
+		append_packets(packets, storage.mask.members, output, variants)
+	end
 
-		for _, member in storage.mask.members do
-			local member_packets = packets[member]
+	return create_packet_iterator(packets)
+end
 
-			if member_packets then
-				table.insert(member_packets.buffers, output)
-				table.insert(member_packets.variants, variants)
-				member_packets.total_size += len
-			else
-				member_packets = {
-					buffers = { output },
-					variants = { variants },
-					total_size = len,
-				}
-				packets[member] = member_packets
+local function collect_unreliable(server: Server)
+	-- todo: max packet size (for unreliables 1kb limit)
+
+	local packets: { [Player]: MemberPackets } = {}
+	local world = server.world
+
+	-- maybe more lookups to quickly iterate these too? ;-;
+	for _, mask_storage in server.masking.storages do
+		local c = cursor.new()
+		local variants = {}
+
+		local active = mask_storage.active
+		local total_entities = 0
+
+		for entity, actives in active do
+			local total_unreliable = 0
+			for component in actives.components[COMPONENT_TYPES.unreliable] do
+				local value = world:get(entity, component)
+				if value == nil then
+					continue
+				end
+
+				write_component_value(server, c, component, value, variants)
+				write_component_id(server, c, component)
+				total_unreliable += 1
 			end
+
+			if total_unreliable <= 0 then
+				continue
+			end
+			total_entities += 1
+			write_entity_id(server, c, entity, variants)
+			cursor.write_vlq(c, total_unreliable)
 		end
+
+		if total_entities <= 0 then
+			continue
+		end
+		cursor.write_vlq(c, total_entities)
+
+		local output = cursor.close(c)
+		append_packets(packets, mask_storage.mask.members, output, variants)
+	end
+
+	return create_packet_iterator(packets)
+end
+
+local function destroy(server: Server)
+	if server.inited == nil then
+		return warn "attempted to destroy a server twice"
+	end
+	server.inited = nil
+
+	for _, unhook in server.hooked do
+		unhook()
 	end
 end
-local function collect_unreliable(server: Server) end
 
 local server = {}
 server.__index = server
 server.init = init
 server.destroy = destroy
 server.get_full = get_full
-server.collect_reliable = collect_reliable
+server.collect_updates = collect_updates
 server.collect_unreliable = collect_unreliable
 
 local function create(components: common.Components): Server

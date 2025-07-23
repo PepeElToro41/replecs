@@ -1,7 +1,7 @@
 --!native
 --!optimize 2
 
-local jecs = require(script.Parent.Parent.roblox_packages.jecs)
+local jecs = require(script.Parent.Parent.jecs)
 local common = require(script.Parent.common)
 local utils = require(script.Parent.utils)
 
@@ -19,11 +19,18 @@ export type Client = {
 	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
 
 	init: (self: Client, world: jecs.World) -> (),
-	apply_changes: (self: Client, buffer, variants: { any }?) -> (),
+	apply_updates: (self: Client, buffer, variants: { any }?) -> (),
+	apply_unreliable: (self: Client, buffer, variants: { any }?) -> (),
 	apply_full: (self: Client, buf: buffer, variants: { any }?) -> (),
 }
 
-local function get_entity(client: Client, server_id: number): jecs.Entity
+local ENTITY_ID_TYPES = {
+	id = 1,
+	custom = 2,
+	shared = 3,
+}
+
+local function get_or_create_entity(client: Client, server_id: number): jecs.Entity
 	local server_entity = client.server_ids[server_id]
 	if server_entity then
 		return server_entity
@@ -44,7 +51,7 @@ local function read_component_id(client: Client, c: Cursor)
 	return component
 end
 
-local function read_component_value(client: Client, c: Cursor, variants: { any }): (jecs.Entity, any)
+local function read_component_value(client: Client, c: Cursor, variants: { any }?): (jecs.Entity, any)
 	local component = read_component_id(client, c)
 	local serdes = client.shared.serdes[component]
 	if serdes then
@@ -55,39 +62,37 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 		return component, output
 	else
 		local variant_id = cursor.read_vlq(c)
-		local value = variants[variant_id]
+		local value = (variants :: { any })[variant_id]
 		return component, value
 	end
 end
 
-local function read_entity_id(client: Client, c: Cursor, variants: { any })
+local function read_entity_id(client: Client, c: Cursor, variants: { any }?)
 	local id_type = cursor.readu8(c)
 
-	if id_type == 0 then
-		-- server id
-		c.offset += 1 -- read full 4 bytes
-		local server_id = cursor.readu32(c) // 256 -- but keep only 3 bytes
-		local entity = get_entity(client, server_id)
+	if id_type == ENTITY_ID_TYPES.id then
+		local server_id = cursor.readu24(c)
+		local entity = get_or_create_entity(client, server_id)
 		return entity
-	elseif id_type == 1 then
-		-- custom id
+	elseif id_type == ENTITY_ID_TYPES.custom then
 		local component, value = read_component_value(client, c, variants)
 		local custom_getter = client.custom_ids[component]
 		if not custom_getter then
 			error(
-				"received a custom id for a non custom component, consider adding custom_id to: "
-					.. client.world:get(component, jecs.Name) :: string
+				`received a custom id for a non custom component, consider adding custom_id to component: {client.world:get(
+					component,
+					jecs.Name
+				) or "(no name)"} id: {component}`
 			)
 		end
 		return custom_getter(value)
-	elseif id_type == 2 then
-		-- shared component
+	elseif id_type == ENTITY_ID_TYPES.shared then
 		return read_component_id(client, c)
 	end
 	error("malformed entity id" .. cursor.readu32(c))
 end
 
-local function read_entity(client: Client, c: Cursor, variants: { any })
+local function read_entity(client: Client, c: Cursor, variants: { any }?)
 	local entity = read_entity_id(client, c, variants)
 
 	local total_tags = cursor.read_vlq(c)
@@ -105,62 +110,72 @@ local function read_entity(client: Client, c: Cursor, variants: { any })
 	local total_pairs = cursor.read_vlq(c)
 	for i = 1, total_pairs do
 		local relation = read_component_id(client, c)
-		local target = read_entity_id(client, c, variants)
-		client.world:add(entity, jecs.pair(relation, target))
+		local total_targets = cursor.read_vlq(c)
+
+		for i = 1, total_targets do
+			local target = read_entity_id(client, c, variants)
+			client.world:add(entity, jecs.pair(relation, target))
+		end
 	end
 end
 
-local function apply_changes(client: Client, buf: buffer, variants: { any }?)
+local function apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
-	local total_added = cursor.read_vlq(c)
+	local total_packets = cursor.read_vlq(c)
 
-	for i = 1, total_added do
-		read_entity(client, c, variants :: { any })
-	end
+	for i = 1, total_packets do
+		local variants = all_variants and all_variants[i]
+		local total_added = cursor.read_vlq(c)
 
-	local total_deleted = cursor.read_vlq(c)
-	for i = 1, total_deleted do
-		local entity = read_entity_id(client, c, variants :: { any })
-		client.world:delete(entity)
-	end
-
-	local total_changed = cursor.read_vlq(c)
-	for i = 1, total_changed do
-		local entity = read_entity_id(client, c, variants :: { any })
-		local total_tagged = cursor.read_vlq(c)
-		for i = 1, total_tagged do
-			local tag = read_component_id(client, c)
-			client.world:add(entity, tag)
+		for i = 1, total_added do
+			read_entity(client, c, variants)
 		end
 
-		local total_removed = cursor.read_vlq(c)
-		for i = 1, total_removed do
-			local component = read_component_id(client, c)
-			client.world:remove(entity, component)
+		local total_deleted = cursor.read_vlq(c)
+		for i = 1, total_deleted do
+			local entity = read_entity_id(client, c, variants :: { any })
+			client.world:delete(entity)
 		end
 
-		local total_components = cursor.read_vlq(c)
-		for i = 1, total_components do
-			local component, value = read_component_value(client, c, variants :: { any })
-			client.world:set(entity, component, value)
-		end
+		local total_changed = cursor.read_vlq(c)
+		for i = 1, total_changed do
+			local entity = read_entity_id(client, c, variants :: { any })
+			local total_tagged = cursor.read_vlq(c)
+			for i = 1, total_tagged do
+				local tag = read_component_id(client, c)
+				client.world:add(entity, tag)
+			end
 
-		local total_pairs = cursor.read_vlq(c)
-		for i = 1, total_pairs do
-			local got_removed = cursor.readu8(c) == 0
-			if got_removed then
+			local total_removed = cursor.read_vlq(c)
+			for i = 1, total_removed do
 				local component = read_component_id(client, c)
-				-- TODO: Potentially support multiple pairs for the same relation (but who does that anyway?)
-				utils.remove_all_relations(client.world, entity, component)
-			else
-				c.offset += 1 -- go back
-				local relation = read_component_id(client, c)
-				local target = read_entity_id(client, c, variants :: { any })
-				client.world:add(entity, jecs.pair(relation, target))
+				client.world:remove(entity, component)
+			end
+
+			local total_components = cursor.read_vlq(c)
+			for i = 1, total_components do
+				local component, value = read_component_value(client, c, variants :: { any })
+				client.world:set(entity, component, value)
+			end
+
+			local total_pairs = cursor.read_vlq(c)
+			for i = 1, total_pairs do
+				local got_removed = cursor.readu8(c) == 0
+				if got_removed then
+					local component = read_component_id(client, c)
+					utils.remove_all_relations(client.world, entity, component)
+				else
+					c.offset += 1 -- go back
+					local relation = read_component_id(client, c)
+					local target = read_entity_id(client, c, variants :: { any })
+					client.world:add(entity, jecs.pair(relation, target))
+				end
 			end
 		end
 	end
 end
+
+local function apply_unreliable(client: Client, buf: buffer, variants: { { any } }?) end
 
 local function apply_full(client: Client, buf: buffer, variants: { any }?)
 	local c = cursor.from(buf)
@@ -185,7 +200,8 @@ end
 local client = {}
 client.__index = client
 client.init = init
-client.apply_changes = apply_changes
+client.apply_updates = apply_updates
+client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
 
 local function create(components: common.Components): Client

@@ -169,6 +169,7 @@ local COMPONENT_TYPES = {
 	component = 1,
 	tag = 2,
 	pair = 3,
+	unreliable = 4,
 }
 
 local masking_controller = {}
