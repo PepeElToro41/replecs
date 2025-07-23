@@ -3,6 +3,7 @@ local replecs = require(ReplicatedStorage.roblox_packages.replecs)
 local player_masking = require(ReplicatedStorage.roblox_packages.replecs.masking)
 local utils = require(ReplicatedStorage.roblox_packages.replecs.utils)
 local jecs = require(ReplicatedStorage.roblox_packages.jecs)
+local observers = require(script.Parent.observers)
 
 local function table_size(t: {}): number
 	local count = 0
@@ -765,14 +766,207 @@ return function()
 		it("should pospone all components when an entity stops", function() end)
 	end)
 	describe("server -> client replication", function()
+		local world: jecs.World = nil :: any
 		local server: replecs.Server = nil :: any
 
 		beforeEach(function()
+			world = observers(jecs.world())
 			server = replecs.create(world, "server").server
-			server:init()
 		end)
 		afterEach(function()
-			-- server:destroy()
+			server:destroy()
+		end)
+
+		local function create_test_components(test_world: jecs.World)
+			local components = {} :: { jecs.Entity<any> }
+			for i = 1, 6 do
+				local component = test_world:component()
+				test_world:add(component, replecs.shared)
+				test_world:set(component, jecs.Name, "component" .. i)
+
+				table.insert(components, component)
+			end
+
+			return components
+		end
+
+		local function create_test_tags(test_world: jecs.World)
+			local tags = {} :: { jecs.Entity<number> }
+			for i = 1, 6 do
+				local tag = test_world:entity()
+				test_world:add(tag, replecs.shared)
+				test_world:set(tag, jecs.Name, "tag" .. i)
+
+				table.insert(tags, tag)
+			end
+
+			return tags
+		end
+
+		local function create_members_data(count: number?)
+			local members = {}
+			local lookup = {}
+			local worlds = {}
+			local c_components = {}
+			local c_tags = {}
+
+			for i = 1, (count or 3) do
+				local new_world = observers(jecs.world())
+				local components = create_test_components(new_world)
+				local tags = create_test_tags(new_world)
+				local replicator = replecs.create(new_world, "client").client
+
+				local member = {
+					world = new_world,
+					client = replicator,
+					components = components,
+					tags = tags,
+				}
+				server.masking:register_member(member)
+				table.insert(members, member)
+				table.insert(worlds, new_world)
+				table.insert(c_components, components)
+				table.insert(c_tags, tags)
+
+				lookup[member] = i
+				replicator:init()
+			end
+			return members, worlds, c_components, c_tags, lookup
+		end
+		local function activate_members(members: any)
+			for _, member in members do
+				server.masking:activate_member(member)
+			end
+		end
+
+		it("should send full components to all players", function()
+			local components = create_test_components(world)
+			server:init()
+
+			local members, worlds, c_components = create_members_data()
+			activate_members(members)
+
+			local entity1 = world:entity()
+			local entity2 = world:entity()
+
+			world:add(entity1, server.components.networked)
+
+			world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+			world:set(entity1, components[1], "foo")
+
+			world:add(entity2, server.components.networked)
+
+			world:add(entity2, jecs.pair(server.components.reliable, components[2]))
+			world:set(entity2, components[2], "bar")
+
+			for index in members do
+				local buf, variants = server:get_full(members[index] :: any)
+				members[index].client:apply_full(buf, variants)
+				local replicated1 = members[index].client.server_ids[entity1 :: number]
+				local replicated2 = members[index].client.server_ids[entity2 :: number]
+
+				expect(replicated1).to.be.ok()
+				expect(worlds[index]:get(replicated1, c_components[index][1])).to.be.equal "foo"
+				expect(worlds[index]:get(replicated2, c_components[index][2])).to.be.equal "bar"
+
+				expect(worlds[index]:get(replicated1, c_components[index][2])).to.be.never.ok()
+				expect(worlds[index]:get(replicated2, c_components[index][1])).to.be.never.ok()
+			end
+		end)
+		it("should send full tags to all players", function()
+			create_test_components(world)
+			local tags = create_test_tags(world)
+			server:init()
+
+			local members, worlds, _, c_tags = create_members_data()
+			activate_members(members)
+
+			local entity1 = world:entity()
+			local entity2 = world:entity()
+
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
+			world:add(entity1, tags[1])
+
+			world:add(entity2, server.components.networked)
+			world:add(entity2, jecs.pair(server.components.reliable, tags[2]))
+			world:add(entity2, tags[2])
+
+			for index in members do
+				local buf, variants = server:get_full(members[index] :: any)
+				members[index].client:apply_full(buf, variants)
+				local replicated1 = members[index].client.server_ids[entity1 :: number]
+				local replicated2 = members[index].client.server_ids[entity2 :: number]
+
+				expect(replicated1).to.be.ok()
+				expect(worlds[index]:has(replicated1, c_tags[index][1])).to.be.equal(true)
+				expect(worlds[index]:has(replicated2, c_tags[index][2])).to.be.equal(true)
+
+				expect(worlds[index]:has(replicated1, c_tags[index][2])).to.be.equal(false)
+				expect(worlds[index]:has(replicated2, c_tags[index][1])).to.be.equal(false)
+			end
+		end)
+		itFOCUS("should send full pairs to all players", function()
+			create_test_components(world)
+			local tags = create_test_tags(world)
+			server:init()
+
+			local members, worlds, _, c_tags = create_members_data()
+			activate_members(members)
+
+			local entity1 = world:entity()
+			local entity2 = world:entity()
+
+			local target1 = world:entity()
+			world:add(target1, server.components.networked)
+			local target2 = world:entity()
+			world:add(target1, server.components.networked)
+			local target3 = world:entity()
+			world:add(target1, server.components.networked)
+			local target4 = world:entity()
+			world:add(target1, server.components.networked)
+
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.pair, tags[1]))
+			world:add(entity2, jecs.pair(tags[1], target1))
+			world:add(entity2, jecs.pair(tags[1], target2))
+			world:add(entity2, jecs.pair(tags[1], target3))
+
+			world:add(entity2, server.components.networked)
+			world:add(entity2, jecs.pair(server.components.pair, tags[2]))
+			world:add(entity2, jecs.pair(tags[2], target3))
+			world:add(entity2, jecs.pair(tags[2], target4))
+
+			for index in members do
+				local buf, variants = server:get_full(members[index] :: any)
+				members[index].client:apply_full(buf, variants)
+				local replicated1 = members[index].client.server_ids[entity1 :: number]
+				local replicated2 = members[index].client.server_ids[entity2 :: number]
+
+				local r_target1 = members[index].client.server_ids[target1 :: number]
+				local r_target2 = members[index].client.server_ids[target2 :: number]
+				local r_target3 = members[index].client.server_ids[target3 :: number]
+				local r_target4 = members[index].client.server_ids[target4 :: number]
+
+				expect(replicated1).to.be.ok()
+				expect(replicated2).to.be.ok()
+				expect(target1).to.be.ok()
+				expect(target2).to.be.ok()
+				expect(target3).to.be.ok()
+				expect(target4).to.be.ok()
+
+				expect(worlds[index]:has(replicated1, jecs.pair(c_tags[index][1], r_target1))).to.be.equal(true)
+				expect(worlds[index]:has(replicated1, jecs.pair(c_tags[index][1], r_target2))).to.be.equal(true)
+				expect(worlds[index]:has(replicated1, jecs.pair(c_tags[index][1], r_target3))).to.be.equal(true)
+				expect(worlds[index]:has(replicated2, jecs.pair(c_tags[index][2], r_target3))).to.be.equal(true)
+				expect(worlds[index]:has(replicated2, jecs.pair(c_tags[index][2], r_target4))).to.be.equal(true)
+
+				expect(worlds[index]:has(replicated1, jecs.pair(c_tags[index][2], r_target3))).to.be.equal(false)
+				expect(worlds[index]:has(replicated1, jecs.pair(c_tags[index][2], r_target4))).to.be.equal(false)
+				expect(worlds[index]:has(replicated1, jecs.pair(c_tags[index][1], r_target1))).to.be.equal(false)
+				expect(worlds[index]:has(replicated2, jecs.pair(c_tags[index][2], r_target2))).to.be.equal(false)
+				expect(worlds[index]:has(replicated2, jecs.pair(c_tags[index][2], r_target3))).to.be.equal(false)
+			end
 		end)
 	end)
 

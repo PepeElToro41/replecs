@@ -35,14 +35,14 @@ function replecs.create(world: jecs.World, forced: ("client" | "server" | "both"
 
 	if forced then
 		if forced == "server" or forced == "both" then
-			lib.server = server.create(world, lib.components)
+			lib.server = server.create(world, replecs)
 		end
 		if forced == "client" or forced == "both" then
 			lib.client = client.create(world, replecs)
 		end
 	else
 		if RunService:IsServer() then
-			lib.server = server.create(world, lib.components)
+			lib.server = server.create(world, replecs)
 		end
 		if RunService:IsClient() then
 			lib.client = client.create(world, replecs)

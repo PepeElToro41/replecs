@@ -495,7 +495,14 @@ utils.bitmask = {
 }
 
 function utils.create_shared_lookup(world: jecs.World, components: common.Components)
-	local shared = {} :: common.Shared
+	local shared: common.Shared = {
+		lookup = {},
+		serdes = {},
+		bytespan = {},
+		ids = {},
+		components = {},
+	}
+	print("COMPONENTS", components)
 
 	for component, name in world:query(jecs.Name):with(components.shared):iter() do
 		shared.lookup[name] = component
@@ -513,13 +520,15 @@ function utils.create_shared_lookup(world: jecs.World, components: common.Compon
 	local component_ids = {}
 	local id_components = {}
 
-	for name in shared do
+	for name in shared.lookup do
 		table.insert(keys, name)
 	end
+	table.sort(keys)
 
 	for id, name in keys do
-		component_ids[shared[name]] = id
-		id_components[id] = shared[name]
+		local component = shared.lookup[name]
+		component_ids[shared.lookup[name]] = id
+		id_components[id] = component
 	end
 
 	component_ids[jecs.ChildOf] = #keys + 1

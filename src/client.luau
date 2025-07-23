@@ -21,7 +21,7 @@ export type Client = {
 	ordered_creation: boolean,
 	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
 
-	init: (self: Client, world: jecs.World) -> (),
+	init: (self: Client) -> (),
 	destroy: (self: Client) -> (),
 	after_replication: (self: Client, callback: () -> ()) -> (),
 
@@ -122,6 +122,7 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	end
 
 	local total_pairs = cursor.read_vlq(c)
+	print("TOTAL PAIRS", total_pairs)
 	for i = 1, total_pairs do
 		local relation = read_component_id(client, c)
 		local total_targets = cursor.read_vlq(c)
@@ -254,6 +255,7 @@ local function apply_full(client: Client, buf: buffer, all_variants: { { any } }
 	local c = cursor.from(buf)
 
 	local total_packets = cursor.read_vlq(c)
+	print("TOTAL PACKETS: " .. total_packets)
 	for a = 1, total_packets do
 		local total_entities = cursor.read_vlq(c)
 		local variants = all_variants and all_variants[a]
@@ -312,10 +314,15 @@ client.apply_full = apply_full
 local function create(world: jecs.World, components: common.Components): Client
 	local self = {} :: Client
 
-	self.shared = {} :: common.Shared
 	self.components = components
 	self.ordered_creation = true
 	self.custom_ids = {}
+	self.server_ids = {}
+	self.client_ids = {}
+	self.world = world
+	self.inited = false
+	self.is_replicating = false
+	self.after_replication_callbacks = {}
 
 	return setmetatable(self, client) :: any
 end

@@ -97,6 +97,9 @@ export type MaskingController = {
 	storages: Storages,
 	lookups: LookupsList,
 
+	register_member: (self: MaskingController, member: Member) -> (),
+	activate_member: (self: MaskingController, member: Member) -> (),
+
 	register_stop_entity: (self: MaskingController, entity: jecs.Entity) -> (),
 	register_stop_component: (
 		self: MaskingController,

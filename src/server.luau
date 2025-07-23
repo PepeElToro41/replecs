@@ -42,7 +42,7 @@ export type Server = {
 	hooked: { () -> () },
 	masking: masking_controller.MaskingController,
 
-	init: (self: Server, world: jecs.World) -> (),
+	init: (self: Server) -> (),
 	destroy: (self: Server) -> (),
 
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
@@ -360,7 +360,7 @@ local function write_entity(
 	local storage = server.storage[entity]
 
 	local all_pairs = 0
-	for relation in active[COMPONENT_TYPES.pair] do
+	for relation in active.components[COMPONENT_TYPES.pair] do
 		local targets = storage.pairs[relation]
 		for target in targets do
 			write_entity_id(server, c, target, variants)
@@ -372,9 +372,15 @@ local function write_entity(
 	cursor.write_vlq(c, all_pairs)
 
 	local components = 0
+	for component in active.components[COMPONENT_TYPES.component] do
+		local value = storage.values[component]
+		write_component_value(server, c, component, value, variants)
+		components += 1
+	end
+	cursor.write_vlq(c, components)
 
 	local tags = 0
-	for tag in active[COMPONENT_TYPES.tag] do
+	for tag in active.components[COMPONENT_TYPES.tag] do
 		local has_tag = storage.tags[tag]
 		if has_tag then
 			write_component_id(server, c, tag)
@@ -383,12 +389,6 @@ local function write_entity(
 	end
 	cursor.write_vlq(c, tags)
 
-	for component in active[COMPONENT_TYPES.component] do
-		local value = storage.values[component]
-		write_component_value(server, c, component, value, variants)
-		components += 1
-	end
-	cursor.write_vlq(c, components)
 	write_entity_id(server, c, entity, variants)
 end
 
@@ -405,6 +405,7 @@ local function append_packet(
 	variants: { { any } }
 )
 	local len = buffer.len(output)
+	print("ADDING LEN", len)
 	for _, member in members do
 		local member_packets = packets[member]
 
@@ -431,7 +432,11 @@ local function combine_packet_outputs(outputs: { buffer }, total_size: number): 
 		buffer.copy(combined, offset, output)
 		offset += buffer.len(output)
 	end
-	utils.push_vlq(combined, offset, total_size)
+	cursor.write_vlq({
+		offset = offset,
+		buffer = combined,
+	}, #outputs)
+
 	return combined
 end
 
@@ -452,6 +457,8 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets })
 end
 
 local function get_full(server: Server, member: Player): (buffer, { { any } })
+	print("GETTING FULL", server.storage)
+
 	local index = server.masking.member_indexes[member]
 	if index == nil then
 		utils.logerror "attempted to replicate for a non registered member"
@@ -475,9 +482,10 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		end
 		cursor.write_vlq(c, total_entities)
 
-		table.insert(buffers, cursor.close(c))
+		local output = cursor.close(c)
+		table.insert(buffers, output)
 		table.insert(all_variants, variants)
-		total_size += 1
+		total_size += buffer.len(output)
 	end
 
 	return combine_packet_outputs(buffers, total_size), all_variants
