@@ -19,8 +19,8 @@ export type Client = {
 	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
 
 	init: (self: Client, world: jecs.World) -> (),
-	apply_updates: (self: Client, buffer, variants: { any }?) -> (),
-	apply_unreliable: (self: Client, buffer, variants: { any }?) -> (),
+	apply_updates: (self: Client, buf: buffer, variants: { any }?) -> (),
+	apply_unreliable: (self: Client, buf: buffer, variants: { any }?) -> (),
 	apply_full: (self: Client, buf: buffer, variants: { any }?) -> (),
 }
 
