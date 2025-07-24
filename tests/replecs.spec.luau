@@ -773,6 +773,8 @@ return function()
 		it("should merge two masks correctly", function() end)
 		it("should pospone all components when an entity stops", function() end)
 	end)
+	describe("replecs server", function() end)
+	describe("replecs client", function() end)
 	describe("server -> client replication", function()
 		local world: jecs.World = nil :: any
 		local server: replecs.Server = nil :: any
@@ -1130,7 +1132,7 @@ return function()
 			expect(client_component(members[1], entity1, 1)).to.be.equal(nil)
 			expect(client_has_component(members[1], entity1, 1)).to.be.equal(true)
 		end)
-		itFOCUS("should allow custom serdes for component values", function()
+		it("should allow custom serdes for component values", function()
 			local serdes = {
 				serialize = function(value: Vector3)
 					local buf = buffer.create(3)
@@ -1173,14 +1175,88 @@ return function()
 			create_test_tags(world)
 			server:init()
 
-			local members = create_members_data(4)
+			local members = create_members_data(2)
 			activate_members(members)
+			init_member_clients(members)
 
-			local entity2 = world:entity()
-			world:add(entity2, server.components.networked)
-			world:add(entity2, jecs.pair(server.components.reliable, components[2]))
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+			world:set(entity1, components[1], "one")
+
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
+			end
+
+			world:set(entity1, components[1], "two")
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_component(member, entity1, 1)).to.be.equal "two"
+			end
+			world:set(entity1, components[1], "three")
+			world:set(entity1, components[1], "four")
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_component(member, entity1, 1)).to.be.equal "four"
+			end
 		end)
-		it("shoud send tag changes to all players", function() end)
+		it("shoud send tag changes to all players", function()
+			create_test_components(world)
+			local tags = create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(2)
+			activate_members(members)
+			init_member_clients(members)
+
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
+			world:add(entity1, jecs.pair(server.components.reliable, tags[2]))
+			world:add(entity1, jecs.pair(server.components.reliable, tags[3]))
+
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
+			end
+
+			world:add(entity1, tags[1])
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_tag(member, entity1, 1)).to.be.equal(true)
+				expect(client_tag(member, entity1, 2)).to.be.equal(false)
+			end
+			world:add(entity1, tags[2])
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_tag(member, entity1, 1)).to.be.equal(true)
+				expect(client_tag(member, entity1, 2)).to.be.equal(true)
+			end
+
+			world:remove(entity1, tags[1])
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_tag(member, entity1, 1)).to.be.equal(false)
+				expect(client_tag(member, entity1, 2)).to.be.equal(true)
+			end
+
+			world:remove(entity1, tags[2])
+
+			world:add(entity1, tags[3])
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_tag(member, entity1, 1)).to.be.equal(false)
+				expect(client_tag(member, entity1, 2)).to.be.equal(false)
+				expect(client_tag(member, entity1, 3)).to.be.equal(true)
+			end
+		end)
 		it("should send pair changes to all players", function() end)
 	end)
 end

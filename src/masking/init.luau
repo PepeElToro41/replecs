@@ -1050,26 +1050,6 @@ function masking_controller.allocate_pair_removal(
 	targets[target] = false
 end
 
-function masking_controller.mark_entity_deletion(masking: MaskingInternal, entity: Entity) end
-
-function masking_controller.mark_component_deletion(
-	masking: MaskingInternal,
-	entity: Entity,
-	component: Entity,
-	component_type: number
-)
-end
-
-function masking_controller.revive_entity(masking: MaskingInternal, entity: Entity) end
-
-function masking_controller.revive_component(
-	masking: MaskingInternal,
-	entity: Entity,
-	component: Entity,
-	component_type: number
-)
-end
-
 function masking_controller.create_generator_from_filter(masking: MaskingInternal, filter: MemberFilter): MaskGenerator
 	local is_include = is_include_filter(filter)
 	if is_include then

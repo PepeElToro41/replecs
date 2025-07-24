@@ -152,6 +152,7 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
+	print("TOTAL PACKETS", total_packets)
 	for a = 1, total_packets do
 		local variants = all_variants and all_variants[variant_start - a]
 		local total_added = cursor.read_vlq(c)
@@ -161,18 +162,13 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		end
 
 		local total_changed = cursor.read_vlq(c)
+		print("TOTAL CHANGED", total_changed)
 		for i = 1, total_changed do
 			local entity = process_entity_id(client, c, variants)
 			local total_tagged = cursor.read_vlq(c)
 			for i = 1, total_tagged do
 				local tag = read_component_id(client, c)
 				client.world:add(entity, tag)
-			end
-
-			local total_removed = cursor.read_vlq(c)
-			for i = 1, total_removed do
-				local component = read_component_id(client, c)
-				client.world:remove(entity, component)
 			end
 
 			local total_components = cursor.read_vlq(c)
@@ -201,6 +197,13 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 						client.world:remove(entity, PAIR(relation, target))
 					end
 				end
+			end
+
+			local total_removed = cursor.read_vlq(c)
+			print("TOTAL REMOVED", total_removed)
+			for i = 1, total_removed do
+				local component = read_component_id(client, c)
+				client.world:remove(entity, component)
 			end
 		end
 

@@ -183,6 +183,7 @@ local function track_component(server: Server, component: Entity<any>)
 		if track_type == TRACK_TYPES.component then
 			allocate_component_change(server, entity, component, value)
 		elseif track_type == TRACK_TYPES.tag then
+			print("ALLOCATING TAG ADDITION", entity, component)
 			allocate_tag_addition(server, entity, component)
 		else
 			if not IS_PAIR(id) then
@@ -209,6 +210,7 @@ local function track_component(server: Server, component: Entity<any>)
 		if track_type == TRACK_TYPES.component then
 			allocate_component_removal(server, entity, component)
 		elseif track_type == TRACK_TYPES.tag then
+			print("ALLOCATING TAG REMOVAL", entity, component)
 			allocate_tag_removal(server, entity, component)
 		else
 			if not IS_PAIR(id) then
@@ -518,15 +520,20 @@ local function collect_updates(server: Server)
 		local c = cursor.new()
 		local variants = {}
 
+		print("SENDING CHANGED", storage.changes)
+
 		local total_deleted = 0
-		for entity in storage.deletions.entities do
+		local entity_deletions = storage.deletions.entities
+		for entity in entity_deletions do
 			write_entity_id(server, c, entity, variants)
 			total_deleted += 1
 		end
+		table.clear(entity_deletions)
 		cursor.write_vlq(c, total_deleted)
 
 		local total_component_deleted = 0
-		for entity, deleted in storage.deletions.components do
+		local component_deletions = storage.deletions.components
+		for entity, deleted in component_deletions do
 			local total_pairs = 0
 			for relation in deleted[COMPONENT_TYPES.pair] do
 				write_component_id(server, c, relation)
@@ -551,6 +558,7 @@ local function collect_updates(server: Server)
 			write_entity_id(server, c, entity, variants)
 			total_component_deleted += 1
 		end
+		table.clear(component_deletions)
 		cursor.write_vlq(c, total_component_deleted)
 
 		local storage_changes = storage.changes
@@ -598,6 +606,7 @@ local function collect_updates(server: Server)
 			write_entity_id(server, c, entity, variants)
 			changed += 1
 		end
+		table.clear(storage_changes.changed)
 		cursor.write_vlq(c, changed)
 
 		local total_added = 0
@@ -610,11 +619,13 @@ local function collect_updates(server: Server)
 			write_entity(server, c, entity, active, variants)
 			total_added += 1
 		end
+		table.clear(storage_changes.added)
 		cursor.write_vlq(c, total_added)
 
 		local output = cursor.close(c)
 		append_packet(packets, storage.mask.members, output, variants)
 	end
+	table.clear(server.additions)
 
 	return create_packet_iterator(packets)
 end
@@ -739,7 +750,6 @@ function init(server: Server)
 			masking:set_component(entity, component, COMPONENT_TYPES.tag, filter)
 		end
 	end))
-
 	hook(hooks.removed(world, components.reliable, function(entity, id)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
@@ -779,16 +789,11 @@ function init(server: Server)
 		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
 	end))
 
-	hook(hooks.removed(world, components.__alive_tracking__, function(entity) end))
-
 	hook(hooks.added(world, components.custom_id, function(entity, id)
 		if not IS_PAIR(id) then
-			utils.logerror "custom_id should be used with a relationship"
-		end
-		local target = PAIR_SECOND(world, id)
-		if not target then
 			utils.logerror "custom_id should be used with a relationship in the server"
 		end
+		local target = PAIR_SECOND(world, id)
 		if server.custom_ids[entity] then
 			utils.logwarn("attempted to register a custom_id twice for the same entity", debug.traceback())
 			return
@@ -796,8 +801,12 @@ function init(server: Server)
 
 		server.custom_ids[entity] = target
 	end))
-
 	hook(hooks.removed(world, components.custom_id, function(entity, id)
+		server.custom_ids[entity] = nil
+	end))
+
+	hook(hooks.removed(world, components.__alive_tracking__, function(entity)
+		-- TODO: cleanup entity garbage on deletion
 		server.custom_ids[entity] = nil
 	end))
 end
