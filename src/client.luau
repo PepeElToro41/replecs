@@ -52,6 +52,7 @@ local function read_component_id(client: Client, c: Cursor)
 	local shared_id = cursor.readu8(c)
 	local component = client.shared.components[shared_id]
 	if not component then
+		print("NON SHARED COMPONENT", shared_id, client.shared.components)
 		error "received a non shared component"
 	end
 	return component
@@ -110,12 +111,14 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	local entity = process_entity_id(client, c, variants)
 
 	local total_tags = cursor.read_vlq(c)
+	print("TOTAL TAGS", total_tags)
 	for i = 1, total_tags do
 		local tag = read_component_id(client, c)
 		client.world:add(entity, tag)
 	end
 
 	local total_components = cursor.read_vlq(c)
+	print("TOTAL COMPONENTS", total_tags)
 	for i = 1, total_components do
 		local component, value = read_component_value(client, c, variants)
 		client.world:set(entity, component, value)
@@ -126,6 +129,7 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	for i = 1, total_pairs do
 		local relation = read_component_id(client, c)
 		local total_targets = cursor.read_vlq(c)
+		print("TOTAL TARGETS", total_targets)
 
 		for i = 1, total_targets do
 			local target = process_entity_id(client, c, variants)
@@ -253,9 +257,8 @@ end
 
 local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
-
 	local total_packets = cursor.read_vlq(c)
-	print("TOTAL PACKETS: " .. total_packets)
+
 	for a = 1, total_packets do
 		local total_entities = cursor.read_vlq(c)
 		local variants = all_variants and all_variants[a]

@@ -47,17 +47,20 @@ function cursor.write_buffer(c: Cursor, buf: buffer)
 end
 
 function cursor.writeu8(c: Cursor, value: number)
+	print("WRITING U8", value)
 	cursor.tryalloc(c, 1)
 	buffer.writeu8(c.buffer, c.offset, value)
 	c.offset += 1
 end
 
 function cursor.writeu16(c: Cursor, value: number)
+	print("WRITING U8", value)
 	cursor.tryalloc(c, 2)
 	buffer.writeu16(c.buffer, c.offset, value)
 	c.offset += 2
 end
 function cursor.writeu24(c: Cursor, value: number)
+	print("WRITING U24", value)
 	cursor.tryalloc(c, 3)
 	buffer.writeu8(c.buffer, c.offset, value)
 	buffer.writeu16(c.buffer, c.offset + 1, value // 256)
@@ -65,12 +68,14 @@ function cursor.writeu24(c: Cursor, value: number)
 end
 
 function cursor.writeu32(c: Cursor, value: number)
+	print("WRITING U32", value)
 	cursor.tryalloc(c, 4)
 	buffer.writeu32(c.buffer, c.offset, value :: any)
 	c.offset += 4
 end
 
 function cursor.writei8(c: Cursor, value: number)
+	print("WRITING i8", value)
 	cursor.tryalloc(c, 1)
 	buffer.writei8(c.buffer, c.offset, value)
 	c.offset += 1
@@ -97,11 +102,13 @@ end
 
 function cursor.readu8(c: Cursor): number
 	c.offset -= 1
+	print("READING U8", buffer.readu8(c.buffer, c.offset))
 	return buffer.readu8(c.buffer, c.offset)
 end
 
 function cursor.readu16(c: Cursor): number
 	c.offset -= 2
+	print("READING U16", buffer.readu16(c.buffer, c.offset))
 	return buffer.readu16(c.buffer, c.offset)
 end
 
@@ -109,6 +116,7 @@ function cursor.readu24(c: Cursor): number
 	c.offset -= 3
 	local one = buffer.readu8(c.buffer, c.offset)
 	local two = buffer.readu16(c.buffer, c.offset + 1)
+	print("READING U24", one + two * 256)
 	return one + two * 256
 end
 function cursor.readu32(c: Cursor): number
@@ -118,6 +126,7 @@ end
 
 function cursor.readi8(c: Cursor): number
 	c.offset -= 1
+	print("READING i8", buffer.readi8(c.buffer, c.offset))
 	return buffer.readi8(c.buffer, c.offset)
 end
 
@@ -131,10 +140,11 @@ function cursor.readi32(c: Cursor): number
 end
 
 function cursor.write_vlq(c: Cursor, value: number)
-	local x0 = value // 1 % 128
-	local x1 = value // 0x80 % 128
-	local x2 = value // 0x4000 % 128
-	local x3 = value // 0x200000 % 128
+	print("WRITING VLQ", value)
+	local x0 = value // 128 ^ 0 % 128
+	local x1 = value // 128 ^ 1 % 128
+	local x2 = value // 128 ^ 2 % 128
+	local x3 = value // 128 ^ 3 % 128
 
 	if x3 ~= 0 then
 		cursor.tryalloc(c, 4)
@@ -154,18 +164,21 @@ end
 function cursor.read_vlq(c: Cursor): number
 	local b = cursor.readu8(c)
 	if b >= 128 then
+		print("READING VLQ", b - 128)
 		return b - 128
 	end
 	local x = b
 
 	b = cursor.readu8(c)
 	if b >= 128 then
+		print("READING VLQ", x + (b - 128) * 128)
 		return x + (b - 128) * 128
 	end
 	x += b * 128
 
 	b = cursor.readu8(c)
 	if b >= 128 then
+		print("READING VLQ", x + (b - 128) * 128 ^ 2)
 		return x + (b - 128) * 128 ^ 2
 	end
 	x += b * 128 ^ 2
@@ -568,55 +581,6 @@ function utils.read_number(buf: buffer, offset: number, span: number): (number, 
 	else
 		return buffer.readu32(buf, offset), offset + 4
 	end
-end
-
-function utils.push_vlq(buf: buffer, offset: number, length: number): number
-	local b1 = length % 128
-	local b2 = length // 128 % 128
-	local b3 = length // 0x4000 % 128
-	local b4 = length // 0x200000 % 128
-
-	if length < 0x80 then
-		buffer.writeu8(buf, offset, b1)
-		return offset + 1
-	elseif length < 0x4000 then
-		buffer.writeu8(buf, offset, b2 + 0x80)
-		buffer.writeu8(buf, offset + 1, b1)
-		return offset + 2
-	elseif length < 0x200000 then
-		buffer.writeu8(buf, offset, b3 + 0x80)
-		buffer.writeu8(buf, offset + 1, b2 + 0x80)
-		buffer.writeu8(buf, offset + 2, b1)
-		return offset + 3
-	elseif length < 0x10000000 then
-		buffer.writeu8(buf, offset, b4 + 0x80)
-		buffer.writeu8(buf, offset + 1, b3 + 0x80)
-		buffer.writeu8(buf, offset + 2, b2 + 0x80)
-		buffer.writeu8(buf, offset + 3, b1)
-		return offset + 4
-	else
-		error "vlq length too large"
-	end
-end
-
-function utils.pop_vlq(buf: buffer, offset: number): (number, number)
-	local b1 = buffer.readu8(buf, offset)
-	if b1 < 128 then
-		--
-		return b1, offset + 1
-	end
-	local b2 = buffer.readu8(buf, offset + 1)
-	if b2 < 128 then
-		--
-		return (b1 - 128) * 120 + b2, offset + 2
-	end
-	local b3 = buffer.readu8(buf, offset + 2)
-	if b3 < 128 then
-		--
-		return ((b1 - 128) * 128 + (b2 - 128)) * 128 + b3, offset + 3
-	end
-	local b4 = buffer.readu8(buf, offset + 3)
-	return (((b1 - 128) * 128 + (b2 - 128)) * 128 + (b3 - 128)) * 128 + b4, offset + 4
 end
 
 function utils.remove_all_relations(world: jecs.World, entity: jecs.Entity, relation: jecs.Entity)

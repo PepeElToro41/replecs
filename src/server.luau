@@ -91,6 +91,7 @@ end
 
 local function allocate_component_change(server: Server, entity: jecs.Entity, component: jecs.Entity, value: any)
 	local storage = get_or_set_entity_storage(server, entity)
+
 	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
 
 	storage.values[component] = non_nil
@@ -362,11 +363,14 @@ local function write_entity(
 	local all_pairs = 0
 	for relation in active.components[COMPONENT_TYPES.pair] do
 		local targets = storage.pairs[relation]
+		local total_targets = 0
+
 		for target in targets do
 			write_entity_id(server, c, target, variants)
-			write_component_id(server, c, relation)
+			total_targets += 1
 		end
-		cursor.write_vlq(c, #targets)
+		cursor.write_vlq(c, total_targets)
+		write_component_id(server, c, relation)
 		all_pairs += 1
 	end
 	cursor.write_vlq(c, all_pairs)
@@ -388,7 +392,6 @@ local function write_entity(
 		end
 	end
 	cursor.write_vlq(c, tags)
-
 	write_entity_id(server, c, entity, variants)
 end
 
@@ -405,7 +408,6 @@ local function append_packet(
 	variants: { { any } }
 )
 	local len = buffer.len(output)
-	print("ADDING LEN", len)
 	for _, member in members do
 		local member_packets = packets[member]
 
@@ -457,8 +459,6 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets })
 end
 
 local function get_full(server: Server, member: Player): (buffer, { { any } })
-	print("GETTING FULL", server.storage)
-
 	local index = server.masking.member_indexes[member]
 	if index == nil then
 		utils.logerror "attempted to replicate for a non registered member"
