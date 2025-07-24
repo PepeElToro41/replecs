@@ -309,7 +309,7 @@ end
 local function write_component_value(server: Server, c: Cursor, component: jecs.Entity, value: any, variants: { any })
 	local serdes = server.shared.serdes[component]
 	if serdes then
-		local output = serdes.serialize(value)
+		local output = serdes.serialize(if value == NIL_COMPONENT_VALUE then nil else value)
 
 		local bytespan = server.shared.bytespan[component]
 		cursor.write_buffer(c, output)
@@ -325,8 +325,13 @@ local function write_component_value(server: Server, c: Cursor, component: jecs.
 			cursor.write_vlq(c, len)
 		end
 	else
-		table.insert(variants, value)
-		cursor.write_vlq(c, #variants)
+		if value == NIL_COMPONENT_VALUE then
+			-- this is zero for vlq
+			cursor.writeu8(c, 128)
+		else
+			table.insert(variants, value :: any)
+			cursor.write_vlq(c, #variants)
+		end
 	end
 
 	write_component_id(server, c, component)

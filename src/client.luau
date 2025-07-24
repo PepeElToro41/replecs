@@ -61,6 +61,7 @@ end
 local function read_component_value(client: Client, c: Cursor, variants: { any }?): (jecs.Entity, any)
 	local component = read_component_id(client, c)
 	local serdes = client.shared.serdes[component]
+
 	if serdes then
 		local bytespan = client.shared.bytespan[component] or cursor.read_vlq(c)
 
@@ -69,8 +70,10 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 		return component, output
 	else
 		local variant_id = cursor.read_vlq(c)
+		if variant_id == 0 then
+			return component, nil
+		end
 		local value = (variants :: { any })[variant_id]
-		print("VALUE VARIANT", value, variant_id, variants)
 		return component, value
 	end
 end

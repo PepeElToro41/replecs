@@ -827,6 +827,15 @@ return function()
 			end
 			return nil
 		end
+		local function client_has_component(member: MemberData, server_entity: jecs.Entity, component_index: number)
+			local component = member.components[component_index]
+			local entity = client_entity(member, server_entity)
+			if entity then
+				return member.world:has(entity, component)
+			end
+			return false
+		end
+
 		local function client_tag(member: MemberData, server_entity: jecs.Entity, tag_index: number): boolean?
 			local tag = member.tags[tag_index]
 			local entity = client_entity(member, server_entity)
@@ -875,11 +884,14 @@ return function()
 				table.insert(worlds, new_world)
 				table.insert(c_components, components)
 				table.insert(c_tags, tags)
-
 				lookup[member] = i
-				replicator:init()
 			end
 			return members, worlds, c_components, c_tags, lookup
+		end
+		local function init_member_clients(members: { MemberData })
+			for _, member in members do
+				member.client:init()
+			end
 		end
 
 		local function activate_members(members)
@@ -894,6 +906,7 @@ return function()
 
 			local members = create_members_data()
 			activate_members(members)
+			init_member_clients(members)
 
 			local entity1 = world:entity()
 			local entity2 = world:entity()
@@ -927,6 +940,7 @@ return function()
 
 			local members = create_members_data()
 			activate_members(members)
+			init_member_clients(members)
 
 			local entity1 = world:entity()
 			local entity2 = world:entity()
@@ -960,6 +974,7 @@ return function()
 
 			local members = create_members_data()
 			activate_members(members)
+			init_member_clients(members)
 
 			local entity1 = world:entity()
 			local entity2 = world:entity()
@@ -1012,6 +1027,7 @@ return function()
 
 			local members = create_members_data(4)
 			activate_members(members)
+			init_member_clients(members)
 
 			local entity1 = world:entity()
 			local entity2 = world:entity()
@@ -1050,13 +1066,14 @@ return function()
 			expect(client_component(members[3], entity2, 2)).to.be.equal "bar"
 			expect(client_component(members[4], entity2, 2)).to.be.equal "bar"
 		end)
-		itFOCUS("should send full entity with component filters", function()
+		it("should send full entity with component filters", function()
 			local components = create_test_components(world)
 			create_test_tags(world)
 			server:init()
 
 			local members = create_members_data(4)
 			activate_members(members)
+			init_member_clients(members)
 
 			local entity1 = world:entity()
 			local entity2 = world:entity()
@@ -1093,6 +1110,64 @@ return function()
 			expect(client_component(members[3], entity2, 2)).to.be.equal "bar"
 			expect(client_component(members[4], entity2, 2)).to.be.equal "bar"
 		end)
+		it("should correctly send nil values in components", function()
+			local components = create_test_components(world)
+			create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(4)
+			activate_members(members)
+			init_member_clients(members)
+
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+			world:set(entity1, components[1], nil)
+
+			local buf, variants = server:get_full(members[1] :: any)
+			members[1].client:apply_full(buf, variants)
+
+			expect(client_component(members[1], entity1, 1)).to.be.equal(nil)
+			expect(client_has_component(members[1], entity1, 1)).to.be.equal(true)
+		end)
+		itFOCUS("should allow custom serdes for component values", function()
+			local serdes = {
+				serialize = function(value: Vector3)
+					local buf = buffer.create(3)
+					buffer.writeu8(buf, 0, value.X)
+					buffer.writeu8(buf, 1, value.Y)
+					buffer.writeu8(buf, 2, value.Z)
+					return buf
+				end,
+				deserialize = function(buf: buffer)
+					-- lets write it backwards to know this function was called
+					return Vector3.new(buffer.readu8(buf, 2), buffer.readu8(buf, 1), buffer.readu8(buf, 0))
+				end,
+			}
+
+			local components = create_test_components(world)
+			world:set(components[1], replecs.serdes, serdes)
+			--world:set(components[1], replecs.bytespan, 3)
+			create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(1)
+			members[1].world:set(members[1].components[1], replecs.serdes, serdes)
+			--members[1].world:set(members[1].components[1], replecs.bytespan, 3)
+			activate_members(members)
+			init_member_clients(members)
+
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+			world:set(entity1, components[1], Vector3.new(10, 20, 30))
+
+			local buf, variants = server:get_full(members[1] :: any)
+			print("SIZE", buffer.len(buf))
+			members[1].client:apply_full(buf, variants)
+
+			expect(client_component(members[1], entity1, 1)).to.be.equal(Vector3.new(30, 20, 10))
+		end)
 		it("should send component changes to all players", function()
 			local components = create_test_components(world)
 			create_test_tags(world)
@@ -1101,7 +1176,6 @@ return function()
 			local members = create_members_data(4)
 			activate_members(members)
 
-			local entity1 = world:entity()
 			local entity2 = world:entity()
 			world:add(entity2, server.components.networked)
 			world:add(entity2, jecs.pair(server.components.reliable, components[2]))
