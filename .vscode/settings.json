@@ -12,4 +12,5 @@
     },
     "luau-lsp.sourcemap.generatorCommand": "rojo sourcemap serve.project.json -o sourcemap.json --watch",
     "luau-lsp.sourcemap.sourcemapFile": "sourcemap.json",
+    "luau-lsp.fflags.enableNewSolver": true,
 }
