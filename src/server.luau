@@ -172,7 +172,7 @@ local function track_component(server: Server, component: jecs.Entity<any>)
 			allocate_tag_addition(server, entity, component)
 		else
 			if not jecs.IS_PAIR(id) then
-				return utils.logerror "a non-pair tag was added to a pair tracked component"
+				utils.logerror "a non-pair tag was added to a pair tracked component"
 			end
 			allocate_pair_addition(server, entity, component, jecs.pair_second(world, id))
 		end
@@ -198,7 +198,7 @@ local function track_component(server: Server, component: jecs.Entity<any>)
 			allocate_tag_removal(server, entity, component)
 		else
 			if not jecs.IS_PAIR(id) then
-				return utils.logerror "a non-pair tag was removed for a pair tracked component"
+				utils.logerror "a non-pair tag was removed for a pair tracked component"
 			end
 			allocate_pair_removal(server, entity, component, jecs.pair_second(world, id))
 		end
@@ -270,7 +270,7 @@ end
 local function untrack_entity_component(server: Server, entity: jecs.Entity, component: jecs.Entity<any>): number?
 	local info = server.track_info.components[component]
 	if not info then
-		return
+		return nil
 	end
 	local listen_type = info[entity]
 	info[entity] = nil
@@ -345,7 +345,7 @@ local function write_entity_id(server: Server, c: Cursor, entity: jecs.Entity, v
 			cursor.writeu8(c, shared_id)
 			cursor.writei8(c, ENTITY_ID_TYPES.shared * (multiply or 1))
 		else
-			cursor.writeu24(c, jecs.ECS_ID(entity :: number))
+			cursor.writeu24(c, jecs.ECS_ID(entity :: any))
 			cursor.writei8(c, ENTITY_ID_TYPES.id * (multiply or 1))
 		end
 	end
@@ -421,7 +421,7 @@ local function append_packet(
 				variants = { variants },
 				total_size = len,
 			}
-			packets[member] = member_packets
+			packets[member] = member_packets :: MemberPackets
 		end
 	end
 end
@@ -443,13 +443,12 @@ local function combine_packet_outputs(outputs: { buffer }, total_size: number): 
 end
 
 local function create_packet_iterator(packets: { [Player]: MemberPackets })
-	local iterated = nil
+	local iterated: Player? = nil
 	local function iterator()
 		local player, packets = next(packets, iterated)
 		if not player then
 			return nil :: any
 		end
-
 		iterated = player
 
 		local combined = combine_packet_outputs(packets.buffers, packets.total_size)
@@ -467,6 +466,7 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 	local all_variants: { { any } } = {}
 	local total_size = 0
 
+	print "-------------------------  STARTING  -------------------------"
 	-- maybe edges to quickly find all relevant storages improves performance?
 	for _, storage in server.masking.storages do
 		if not storage.mask.bitmask:get(index) then
@@ -487,6 +487,7 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		table.insert(all_variants, variants)
 		total_size += buffer.len(output)
 	end
+	print "-------------------------  FINAL  -------------------------"
 
 	return combine_packet_outputs(buffers, total_size), all_variants
 end
@@ -645,14 +646,23 @@ local function collect_unreliable(server: Server)
 	return create_packet_iterator(packets)
 end
 
-local function init(server: Server)
-	if server.inited then
-		return warn "attempted to init a server twice"
+local function check_created(server: Server)
+	if server.inited == true then
+		warn "attempted to init a server twice"
+		return false
 	end
 	if server.inited == nil then
-		return warn "attempted to re-init a destroyed server"
+		warn "attempted to create a server twice"
+		return false
 	end
-	server.inited = true
+	return true
+end
+
+function init(server: Server)
+	if not check_created(server) then
+		return
+	end
+	server.inited = true :: any
 
 	local world = server.world
 	local hooks = server.hooks
@@ -687,11 +697,11 @@ local function init(server: Server)
 
 	hook(hooks.added(world, components.reliable, function(entity, id, filter)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "reliable should be used with a pair relationship"
+			utils.logerror "reliable should be used with a pair relationship"
 		end
 		local component = jecs.pair_second(world, id)
 
-		local component_type = track_entity_component(server, entity, component)
+		local component_type = track_entity_component(server :: Server, entity, component)
 		masking:unregister_stop_component(entity, component, component_type)
 		masking:start_component(entity, component, component_type, filter)
 		if server.additions[entity] then
@@ -700,7 +710,7 @@ local function init(server: Server)
 	end))
 	hook(hooks.changed(world, components.reliable, function(entity, id, filter)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "reliable should be used with a pair relationship"
+			utils.logerror "reliable should be used with a pair relationship"
 		end
 		local component = jecs.pair_second(world, id)
 
@@ -713,7 +723,7 @@ local function init(server: Server)
 
 	hook(hooks.removed(world, components.reliable, function(entity, id)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "reliable should be used with a pair relationship"
+			utils.logerror "reliable should be used with a pair relationship"
 		end
 		local component = jecs.pair_second(world, id)
 		local component_type = untrack_entity_component(server, entity, component)
@@ -726,7 +736,7 @@ local function init(server: Server)
 
 	hook(hooks.added(world, components.pair, function(entity, id, filter)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "pair should be used with a relationship"
+			utils.logerror "pair should be used with a relationship"
 		end
 		local relation = jecs.pair_second(world, id)
 		track_entity_pair(server, entity, relation)
@@ -735,14 +745,14 @@ local function init(server: Server)
 	end))
 	hook(hooks.changed(world, components.pair, function(entity, id, filter)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "reliable should be used with a pair relationship"
+			utils.logerror "reliable should be used with a pair relationship"
 		end
 		local relation = jecs.pair_second(world, id)
 		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
 	end))
 	hook(hooks.removed(world, components.pair, function(entity, id)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "reliable should be used with a pair relationship"
+			utils.logerror "reliable should be used with a pair relationship"
 		end
 		local relation = jecs.pair_second(world, entity)
 		untrack_entity_pair(server, entity, relation)
@@ -754,14 +764,15 @@ local function init(server: Server)
 
 	hook(hooks.added(world, components.custom_id, function(entity, id)
 		if not jecs.IS_PAIR(id) then
-			return utils.logerror "custom_id should be used with a relationship"
+			utils.logerror "custom_id should be used with a relationship"
 		end
 		local target = jecs.pair_second(world, id)
 		if not target then
-			return utils.logerror "custom_id should be used with a relationship in the server"
+			utils.logerror "custom_id should be used with a relationship in the server"
 		end
 		if server.custom_ids[entity] then
-			return utils.logwarn("attempted to register a custom_id twice for the same entity", debug.traceback())
+			utils.logwarn("attempted to register a custom_id twice for the same entity", debug.traceback())
+			return
 		end
 
 		server.custom_ids[entity] = target
@@ -776,7 +787,7 @@ local function destroy(server: Server)
 	if server.inited == nil then
 		return warn "attempted to destroy a server twice"
 	end
-	server.inited = nil
+	server.inited = nil :: any
 
 	for _, unhook in server.hooked do
 		unhook()

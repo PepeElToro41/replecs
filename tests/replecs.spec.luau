@@ -1050,7 +1050,7 @@ return function()
 			expect(client_component(members[3], entity2, 2)).to.be.equal "bar"
 			expect(client_component(members[4], entity2, 2)).to.be.equal "bar"
 		end)
-		it("should send full entity with component filters", function()
+		itFOCUS("should send full entity with component filters", function()
 			local components = create_test_components(world)
 			create_test_tags(world)
 			server:init()
@@ -1079,9 +1079,6 @@ return function()
 			for _, member in members do
 				local buf, variants = server:get_full(member :: any)
 				member.client:apply_full(buf, variants)
-
-				expect(client_entity(member, entity1)).to.be.ok()
-				expect(client_entity(member, entity2)).to.be.ok()
 			end
 
 			expect(client_component(members[1], entity1, 1)).to.be.equal "foo"

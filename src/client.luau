@@ -70,6 +70,7 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 	else
 		local variant_id = cursor.read_vlq(c)
 		local value = (variants :: { any })[variant_id]
+		print("VALUE VARIANT", value, variant_id, variants)
 		return component, value
 	end
 end
@@ -111,25 +112,21 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	local entity = process_entity_id(client, c, variants)
 
 	local total_tags = cursor.read_vlq(c)
-	print("TOTAL TAGS", total_tags)
 	for i = 1, total_tags do
 		local tag = read_component_id(client, c)
 		client.world:add(entity, tag)
 	end
 
 	local total_components = cursor.read_vlq(c)
-	print("TOTAL COMPONENTS", total_tags)
 	for i = 1, total_components do
 		local component, value = read_component_value(client, c, variants)
 		client.world:set(entity, component, value)
 	end
 
 	local total_pairs = cursor.read_vlq(c)
-	print("TOTAL PAIRS", total_pairs)
 	for i = 1, total_pairs do
 		local relation = read_component_id(client, c)
 		local total_targets = cursor.read_vlq(c)
-		print("TOTAL TARGETS", total_targets)
 
 		for i = 1, total_targets do
 			local target = process_entity_id(client, c, variants)
@@ -141,9 +138,10 @@ end
 local function apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	local total_packets = cursor.read_vlq(c)
+	local variant_start = (all_variants and #all_variants + 1) :: number
 
-	for i = 1, total_packets do
-		local variants = all_variants and all_variants[i]
+	for a = 1, total_packets do
+		local variants = all_variants and all_variants[variant_start - a]
 		local total_added = cursor.read_vlq(c)
 
 		for i = 1, total_added do
@@ -233,9 +231,11 @@ end
 local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	local total_packets = cursor.read_vlq(c)
+	local variant_start = (all_variants and #all_variants + 1) :: number
+
 	for a = 1, total_packets do
 		local total_entities = cursor.read_vlq(c)
-		local variants = all_variants and all_variants[a]
+		local variants = all_variants and all_variants[variant_start - a]
 
 		for e = 1, total_entities do
 			local entity = read_entity_id(client, c, variants)
@@ -258,10 +258,11 @@ end
 local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	local total_packets = cursor.read_vlq(c)
+	local variant_start = (all_variants and #all_variants + 1) :: number
 
 	for a = 1, total_packets do
 		local total_entities = cursor.read_vlq(c)
-		local variants = all_variants and all_variants[a]
+		local variants = all_variants and all_variants[variant_start - a]
 
 		for e = 1, total_entities do
 			process_entity(client, c, variants)
