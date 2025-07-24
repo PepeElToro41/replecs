@@ -8,9 +8,8 @@ roblox.toml
 lune_packages
 luau_packages
 roblox_packages
+Packages/
 
 **/sourcemap.json
 **/darklua-sourcemap.json
 
-# Added by cargo
-/target
