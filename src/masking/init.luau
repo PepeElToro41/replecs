@@ -422,7 +422,7 @@ function dissect_component_changes(changes: EntityChanges, shared_index: Compone
 		end
 	end
 	for entity, entity_changes in changes.tagged do
-		local is_shared = shared_index[COMPONENT_TYPES.tag]
+		local is_shared = shared_index[COMPONENT_TYPES.tag] and shared_index[COMPONENT_TYPES.tag][entity]
 		if is_shared then
 			new_changes = new_changes or create_new_changes()
 			new_changes.tagged[entity] = entity_changes
@@ -430,7 +430,7 @@ function dissect_component_changes(changes: EntityChanges, shared_index: Compone
 		end
 	end
 	for entity, entity_changes in changes.pairs do
-		local is_shared = shared_index[COMPONENT_TYPES.pair]
+		local is_shared = shared_index[COMPONENT_TYPES.pair] and shared_index[COMPONENT_TYPES.pair][entity]
 		if is_shared then
 			new_changes = new_changes or create_new_changes()
 			new_changes.pairs[entity] = entity_changes
@@ -559,6 +559,27 @@ function masking_controller.move_component_storage(
 
 	set_component_index_entry(target_storage.shared_with, entity, component, component_type, true)
 	remove_component_index_entry(storage.shared_with, entity, component, component_type)
+
+	local changes = storage.changes.changed[entity]
+	if changes then
+		local target_changes = get_or_set_changed(target_storage, entity)
+		if component_type == COMPONENT_TYPES.component then
+			target_changes.component[component] = changes.component[component]
+			target_changes.removed[component] = changes.removed[component]
+
+			changes.component[component] = nil
+			changes.removed[component] = nil
+		elseif component_type == COMPONENT_TYPES.tag then
+			target_changes.tagged[component] = changes.tagged[component]
+			target_changes.removed[component] = changes.removed[component]
+
+			changes.tagged[component] = nil
+			changes.removed[component] = nil
+		elseif component_type == COMPONENT_TYPES.pair then
+			target_changes.pairs[component] = changes.pairs[component]
+			changes.pairs[component] = nil
+		end
+	end
 
 	--todo: move changes
 
