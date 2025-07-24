@@ -8,18 +8,21 @@ local utils = require(script.Parent.utils)
 local cursor = utils.cursor
 type Cursor = utils.Cursor
 
+type Entity<T = any> = jecs.Entity<T>
+type World = jecs.World
+
 export type Client = {
-	world: jecs.World,
+	world: World,
 	inited: boolean?,
 	is_replicating: boolean,
 	after_replication_callbacks: { () -> () },
 
 	components: common.Components,
 	shared: common.Shared,
-	server_ids: { [number]: jecs.Entity },
-	client_ids: { [jecs.Entity]: number },
+	server_ids: { [number]: Entity },
+	client_ids: { [Entity]: number },
 	ordered_creation: boolean,
-	custom_ids: { [jecs.Entity]: (any) -> jecs.Entity },
+	custom_ids: { [Entity]: (any) -> Entity },
 
 	init: (self: Client) -> (),
 	destroy: (self: Client) -> (),
@@ -36,7 +39,13 @@ local ENTITY_ID_TYPES = {
 	shared = 3,
 }
 
-local function get_or_create_entity(client: Client, server_id: number): jecs.Entity
+local ECS_NAME = jecs.Name
+
+local function PAIR(first: Entity, second: Entity): Entity
+	return jecs.pair(first, second)
+end
+
+local function get_or_create_entity(client: Client, server_id: number): Entity
 	local server_entity = client.server_ids[server_id]
 	if server_entity then
 		return server_entity
@@ -58,7 +67,7 @@ local function read_component_id(client: Client, c: Cursor)
 	return component
 end
 
-local function read_component_value(client: Client, c: Cursor, variants: { any }?): (jecs.Entity, any)
+local function read_component_value(client: Client, c: Cursor, variants: { any }?): (Entity, any)
 	local component = read_component_id(client, c)
 	local serdes = client.shared.serdes[component]
 
@@ -78,7 +87,7 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 	end
 end
 
-local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (jecs.Entity?, number?)
+local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (Entity?, number?)
 	local id_type = cursor.readi8(c)
 
 	if id_type == ENTITY_ID_TYPES.id then
@@ -91,7 +100,7 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (j
 			error(
 				`received a custom id for a non custom component, consider adding custom_id to component: {client.world:get(
 					component,
-					jecs.Name
+					ECS_NAME
 				) or "(no name)"} id: {component}`
 			)
 		end
@@ -133,7 +142,7 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 
 		for i = 1, total_targets do
 			local target = process_entity_id(client, c, variants)
-			client.world:add(entity, jecs.pair(relation, target))
+			client.world:add(entity, PAIR(relation, target))
 		end
 	end
 end
@@ -187,9 +196,9 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 					local target = process_entity_id(client, c, variants)
 
 					if id_type > 0 then
-						client.world:add(entity, jecs.pair(relation, target))
+						client.world:add(entity, PAIR(relation, target))
 					elseif id_type < 0 then
-						client.world:remove(entity, jecs.pair(relation, target))
+						client.world:remove(entity, PAIR(relation, target))
 					end
 				end
 			end
@@ -287,7 +296,7 @@ local function init(client: Client)
 
 	client.shared = utils.create_shared_lookup(world, components)
 
-	for component, custom_id_get in world:query(components.custom_id):with(components.shared, jecs.Name) do
+	for component, custom_id_get in world:query(components.custom_id):with(components.shared, ECS_NAME) do
 		client.custom_ids[component] = custom_id_get
 	end
 end
@@ -318,7 +327,7 @@ client.apply_updates = apply_updates
 client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
 
-local function create(world: jecs.World, components: common.Components): Client
+local function create(world: World, components: common.Components): Client
 	local self = {} :: Client
 
 	self.components = components

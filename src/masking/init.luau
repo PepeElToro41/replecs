@@ -2,6 +2,8 @@ local jecs = require(script.Parent.Parent.jecs)
 local utils = require(script.Parent.utils)
 local mask_generator = require(script.mask_generator)
 
+type Entity<T = any> = jecs.Entity<T>
+
 type Bitmask = utils.Bitmask
 type MaskGenerator = mask_generator.MaskGenerator
 
@@ -14,10 +16,10 @@ type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
 type ComponentIndex<T> = {
-	[number]: { [jecs.Entity]: T },
+	[number]: { [Entity]: T },
 }
 type EntityComponentIndex<T> = {
-	[jecs.Entity]: ComponentIndex<T>,
+	[Entity]: ComponentIndex<T>,
 }
 
 type Lookup = {
@@ -31,18 +33,18 @@ type ComponentLookup = Lookup & {
 }
 
 export type EntityChanges = {
-	tagged: { [jecs.Entity]: boolean },
-	component: { [jecs.Entity]: any },
-	removed: { [jecs.Entity]: boolean },
-	pairs: { [jecs.Entity]: Set<jecs.Entity> },
+	tagged: { [Entity]: boolean },
+	component: { [Entity]: any },
+	removed: { [Entity]: boolean },
+	pairs: { [Entity]: Set<Entity> },
 }
 
 type LookupsList = {
-	entities: Map<jecs.Entity, Lookup>,
+	entities: Map<Entity, Lookup>,
 	components: EntityComponentIndex<ComponentLookup>,
 
 	deletions: {
-		entities: Map<jecs.Entity, Lookup>,
+		entities: Map<Entity, Lookup>,
 		components: EntityComponentIndex<Lookup>,
 	},
 
@@ -67,17 +69,17 @@ type StorageGroup = {
 	is_empty: boolean,
 
 	deletions: {
-		entities: Set<jecs.Entity>,
+		entities: Set<Entity>,
 		components: EntityComponentIndex<boolean>,
 	},
 	deletions_count: number,
 
-	active: Map<jecs.Entity, ActiveEntity>, -- set of active entities
+	active: Map<Entity, ActiveEntity>, -- set of active entities
 	active_count: number,
 
 	changes: {
-		added: Map<jecs.Entity, boolean>,
-		changed: Map<jecs.Entity, EntityChanges>,
+		added: Map<Entity, boolean>,
+		changed: Map<Entity, EntityChanges>,
 	},
 }
 
@@ -100,72 +102,57 @@ export type MaskingController = {
 	register_member: (self: MaskingController, member: Member) -> (),
 	activate_member: (self: MaskingController, member: Member) -> (),
 
-	register_stop_entity: (self: MaskingController, entity: jecs.Entity) -> (),
+	register_stop_entity: (self: MaskingController, entity: Entity) -> (),
 	register_stop_component: (
 		self: MaskingController,
-		entity: jecs.Entity,
-		component: jecs.Entity,
+		entity: Entity,
+		component: Entity,
 		component_type: number
 	) -> (),
-	unregister_stop_entity: (self: MaskingController, entity: jecs.Entity) -> (),
+	unregister_stop_entity: (self: MaskingController, entity: Entity) -> (),
 	unregister_stop_component: (
 		self: MaskingController,
-		entity: jecs.Entity,
-		component: jecs.Entity,
+		entity: Entity,
+		component: Entity,
 		component_type: number
 	) -> (),
 
-	propagate_entity_addition: (self: MaskingController, entity: jecs.Entity) -> (),
+	propagate_entity_addition: (self: MaskingController, entity: Entity) -> (),
 
-	start_entity: (self: MaskingController, entity: jecs.Entity, filter: MemberFilter?) -> (),
-	set_entity: (self: MaskingController, entity: jecs.Entity, filter: MemberFilter?) -> (),
-	stop_entity: (self: MaskingController, entity: jecs.Entity) -> (),
+	start_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
+	set_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
+	stop_entity: (self: MaskingController, entity: Entity) -> (),
 
 	start_component: (
 		self: MaskingController,
-		entity: jecs.Entity,
-		component: jecs.Entity,
+		entity: Entity,
+		component: Entity,
 		component_type: number,
 		filter: MemberFilter?
 	) -> (),
 	set_component: (
 		self: MaskingController,
-		entity: jecs.Entity,
-		component: jecs.Entity,
+		entity: Entity,
+		component: Entity,
 		component_type: number,
 		filter: MemberFilter?
 	) -> (),
-	stop_component: (
-		self: MaskingController,
-		entity: jecs.Entity,
-		component: jecs.Entity,
-		component_type: number
-	) -> (),
+	stop_component: (self: MaskingController, entity: Entity, component: Entity, component_type: number) -> (),
 
 	allocate_entity_addition: (
 		self: MaskingController,
-		entity: jecs.Entity,
-		component: jecs.Entity,
+		entity: Entity,
+		component: Entity,
 		component_type: number
 	) -> (),
 
-	allocate_component_change: (self: MaskingController, entity: jecs.Entity, component: jecs.Entity, value: any) -> (),
-	allocate_tag_addition: (self: MaskingController, entity: jecs.Entity, tag: jecs.Entity) -> (),
-	allocate_pair_addition: (
-		self: MaskingController,
-		entity: jecs.Entity,
-		relation: jecs.Entity,
-		target: jecs.Entity
-	) -> (),
+	allocate_component_change: (self: MaskingController, entity: Entity, component: Entity, value: any) -> (),
+	allocate_tag_addition: (self: MaskingController, entity: Entity, tag: Entity) -> (),
+	allocate_pair_addition: (self: MaskingController, entity: Entity, relation: Entity, target: Entity) -> (),
 
-	allocate_component_removal: (self: MaskingController, entity: jecs.Entity, component: jecs.Entity) -> (),
-	allocate_tag_removal: (self: MaskingController, entity: jecs.Entity, tag: jecs.Entity) -> (),
-	allocate_pair_removal: (
-		self: MaskingController,
-		entity: jecs.Entity,
-		relation: jecs.Entity,
-		target: jecs.Entity
-	) -> (),
+	allocate_component_removal: (self: MaskingController, entity: Entity, component: Entity) -> (),
+	allocate_tag_removal: (self: MaskingController, entity: Entity, tag: Entity) -> (),
+	allocate_pair_removal: (self: MaskingController, entity: Entity, relation: Entity, target: Entity) -> (),
 }
 
 local COMPONENT_TYPES = {
@@ -203,7 +190,7 @@ local function create_entity_changes(): EntityChanges
 	}
 end
 
-local function get_or_set_changes(storage: StorageGroup, entity: jecs.Entity)
+local function get_or_set_changes(storage: StorageGroup, entity: Entity)
 	local changes: EntityChanges = storage.changes.changed[entity]
 	if changes == nil then
 		changes = create_entity_changes()
@@ -284,8 +271,8 @@ end
 
 local function get_component_index_entry<T>(
 	index: EntityComponentIndex<T>,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 ): T?
 	local entity_index = index[entity]
@@ -299,8 +286,8 @@ end
 
 local function set_component_index_entry<T>(
 	index: EntityComponentIndex<T>,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	value: T
 )
@@ -314,8 +301,8 @@ end
 
 local function remove_component_index_entry(
 	index: EntityComponentIndex<any>,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local entity_index = index[entity]
@@ -329,7 +316,7 @@ masking_controller.get_component_index_entry = get_component_index_entry
 masking_controller.set_component_index_entry = set_component_index_entry
 masking_controller.remove_component_index_entry = remove_component_index_entry
 
-local function get_or_set_changed(storage: StorageGroup, entity: jecs.Entity, changed: EntityChanges?): EntityChanges
+local function get_or_set_changed(storage: StorageGroup, entity: Entity, changed: EntityChanges?): EntityChanges
 	local storage_changed = storage.changes.changed[entity]
 	if storage_changed == nil then
 		storage_changed = changed or create_new_changes()
@@ -338,7 +325,7 @@ local function get_or_set_changed(storage: StorageGroup, entity: jecs.Entity, ch
 	return storage_changed
 end
 
-local function get_or_set_active(storage: StorageGroup, entity: jecs.Entity, active: ActiveEntity?): ActiveEntity
+local function get_or_set_active(storage: StorageGroup, entity: Entity, active: ActiveEntity?): ActiveEntity
 	local storage_active = storage.active[entity]
 	if storage_active == nil then
 		storage_active = active or create_new_active()
@@ -348,7 +335,7 @@ local function get_or_set_active(storage: StorageGroup, entity: jecs.Entity, act
 	return storage_active
 end
 
-local function remove_active(storage: StorageGroup, entity: jecs.Entity): ActiveEntity
+local function remove_active(storage: StorageGroup, entity: Entity): ActiveEntity
 	local active = storage.active[entity]
 	if active then
 		storage.active[entity] = nil
@@ -359,7 +346,7 @@ local function remove_active(storage: StorageGroup, entity: jecs.Entity): Active
 	return utils.logerror "attempted to remove an entity that wasn't active"
 end
 
-local function get_or_set_component_active(active: ActiveEntity, component: jecs.Entity, component_type: number)
+local function get_or_set_component_active(active: ActiveEntity, component: Entity, component_type: number)
 	local components = active.components[component_type]
 	if components[component] == nil then
 		components[component] = true
@@ -367,12 +354,7 @@ local function get_or_set_component_active(active: ActiveEntity, component: jecs
 	end
 end
 
-local function remove_component_active(
-	storage: StorageGroup,
-	entity: jecs.Entity,
-	component: jecs.Entity,
-	component_type: number
-)
+local function remove_component_active(storage: StorageGroup, entity: Entity, component: Entity, component_type: number)
 	local active = storage.active[entity]
 	if not active then
 		return
@@ -391,7 +373,7 @@ end
 
 local function dissect_component_actives(
 	storage: StorageGroup,
-	entity: jecs.Entity,
+	entity: Entity,
 	shared_index: ComponentIndex<boolean>
 ): ActiveEntity?
 	local new_active: ActiveEntity
@@ -462,8 +444,8 @@ end
 
 function masking_controller.merge_component_filter(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local component_lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
@@ -489,7 +471,7 @@ end
 
 function masking_controller.move_entity_storage(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
+	entity: Entity,
 	storage: StorageGroup,
 	target: Bitmask
 )
@@ -541,8 +523,8 @@ end
 
 function masking_controller.move_component_storage(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	storage: StorageGroup,
 	target: Bitmask
@@ -588,8 +570,8 @@ end
 
 function masking_controller.bind_component_generator(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	base_generator: MaskGenerator
 )
@@ -619,7 +601,7 @@ function masking_controller.bind_component_generator(
 	return generator
 end
 
-function masking_controller.rebind_component_generators(masking: MaskingInternal, entity: jecs.Entity)
+function masking_controller.rebind_component_generators(masking: MaskingInternal, entity: Entity)
 	local component_lookups = masking.lookups.components[entity]
 	if component_lookups then
 		for component_type, lookups in component_lookups do
@@ -637,8 +619,8 @@ end
 
 function masking_controller.get_or_pospone_entity_lookup(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	filter: MemberFilter?
 ): Lookup?
@@ -655,7 +637,7 @@ function masking_controller.get_or_pospone_entity_lookup(
 	return nil
 end
 
-function masking_controller.register_stop_entity(masking: MaskingInternal, entity: jecs.Entity)
+function masking_controller.register_stop_entity(masking: MaskingInternal, entity: Entity)
 	local lookup = masking.lookups.entities[entity]
 	local storage = lookup.storage_group
 
@@ -668,8 +650,8 @@ end
 
 function masking_controller.register_stop_component(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local lookup =
@@ -690,7 +672,7 @@ function masking_controller.register_stop_component(
 		storage.deletions_count += 1
 	end
 end
-function masking_controller.unregister_stop_entity(masking: MaskingInternal, entity: jecs.Entity)
+function masking_controller.unregister_stop_entity(masking: MaskingInternal, entity: Entity)
 	local deletion_lookup = masking.lookups.deletions.entities[entity]
 	if not deletion_lookup then
 		return
@@ -705,8 +687,8 @@ end
 
 function masking_controller.unregister_stop_component(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local deletion_lookup =
@@ -725,7 +707,7 @@ function masking_controller.unregister_stop_component(
 	end
 end
 
-function masking_controller.propagate_entity_addition(masking: MaskingInternal, entity: jecs.Entity)
+function masking_controller.propagate_entity_addition(masking: MaskingInternal, entity: Entity)
 	local entity_lookup = masking.lookups.entities[entity]
 	if entity_lookup then
 		entity_lookup.storage_group.changes.added[entity] = true
@@ -741,7 +723,7 @@ function masking_controller.propagate_entity_addition(masking: MaskingInternal, 
 	end
 end
 
-function masking_controller.update_entity_filter(masking: MaskingInternal, entity: jecs.Entity, filter: MemberFilter?)
+function masking_controller.update_entity_filter(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
 	local generator: MaskGenerator
 	if filter then
 		generator = masking:create_generator_from_filter(filter)
@@ -763,7 +745,7 @@ function masking_controller.update_entity_filter(masking: MaskingInternal, entit
 	return generator
 end
 
-function masking_controller.start_entity(masking: MaskingInternal, entity: jecs.Entity, filter: MemberFilter?)
+function masking_controller.start_entity(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
 	local generator = masking:update_entity_filter(entity, filter)
 
 	local storage_group = masking:get_or_create_storage_group(generator.bitmask)
@@ -787,7 +769,7 @@ function masking_controller.start_entity(masking: MaskingInternal, entity: jecs.
 	end
 end
 
-function masking_controller.set_entity(masking: MaskingInternal, entity: jecs.Entity, filter: MemberFilter?)
+function masking_controller.set_entity(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
 		utils.logerror "attempted to modify the filter of an unactive entity"
@@ -803,7 +785,7 @@ function masking_controller.set_entity(masking: MaskingInternal, entity: jecs.En
 	masking:rebind_component_generators(entity)
 end
 
-function masking_controller.stop_entity(masking: MaskingInternal, entity: jecs.Entity)
+function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
 		utils.logerror "attemped to stop an unactive entity"
@@ -840,8 +822,8 @@ end
 
 function masking_controller.update_component_filter(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	filter: MemberFilter
 )
@@ -852,8 +834,8 @@ end
 
 function masking_controller.start_component(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	filter: MemberFilter?
 )
@@ -884,8 +866,8 @@ end
 
 function masking_controller.set_component(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number,
 	filter: MemberFilter?
 )
@@ -944,8 +926,8 @@ end
 
 function masking_controller.stop_component(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
@@ -966,8 +948,8 @@ end
 
 function masking_controller.get_component_storage_group(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local component_lookup = masking_controller.get_component_index_entry(
@@ -989,8 +971,8 @@ end
 
 function masking_controller.allocate_entity_addition(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 	local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
@@ -1001,8 +983,8 @@ end
 
 function masking_controller.allocate_component_change(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	value: any
 )
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
@@ -1010,7 +992,7 @@ function masking_controller.allocate_component_change(
 	changes.component[component] = value
 end
 
-function masking_controller.allocate_tag_addition(masking: MaskingInternal, entity: jecs.Entity, tag: jecs.Entity)
+function masking_controller.allocate_tag_addition(masking: MaskingInternal, entity: Entity, tag: Entity)
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
 	local changes = get_or_set_changes(storage, entity)
 	changes.tagged[tag] = true
@@ -1018,9 +1000,9 @@ end
 
 function masking_controller.allocate_pair_addition(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	relation: jecs.Entity,
-	target: jecs.Entity
+	entity: Entity,
+	relation: Entity,
+	target: Entity
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.pair)
 	local changes = get_or_set_changes(storage, entity)
@@ -1032,11 +1014,7 @@ function masking_controller.allocate_pair_addition(
 	targets[target] = true
 end
 
-function masking_controller.allocate_component_removal(
-	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity
-)
+function masking_controller.allocate_component_removal(masking: MaskingInternal, entity: Entity, component: Entity)
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changes(storage, entity)
 
@@ -1046,7 +1024,7 @@ function masking_controller.allocate_component_removal(
 	changes.removed[component] = true
 end
 
-function masking_controller.allocate_tag_removal(masking: MaskingInternal, entity: jecs.Entity, tag: jecs.Entity)
+function masking_controller.allocate_tag_removal(masking: MaskingInternal, entity: Entity, tag: Entity)
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
 	local changes = get_or_set_changes(storage, entity)
 
@@ -1058,9 +1036,9 @@ end
 
 function masking_controller.allocate_pair_removal(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	relation: jecs.Entity,
-	target: jecs.Entity
+	entity: Entity,
+	relation: Entity,
+	target: Entity
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.pair)
 	local changes = get_or_set_changes(storage, entity)
@@ -1072,22 +1050,22 @@ function masking_controller.allocate_pair_removal(
 	targets[target] = false
 end
 
-function masking_controller.mark_entity_deletion(masking: MaskingInternal, entity: jecs.Entity) end
+function masking_controller.mark_entity_deletion(masking: MaskingInternal, entity: Entity) end
 
 function masking_controller.mark_component_deletion(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 end
 
-function masking_controller.revive_entity(masking: MaskingInternal, entity: jecs.Entity) end
+function masking_controller.revive_entity(masking: MaskingInternal, entity: Entity) end
 
 function masking_controller.revive_component(
 	masking: MaskingInternal,
-	entity: jecs.Entity,
-	component: jecs.Entity,
+	entity: Entity,
+	component: Entity,
 	component_type: number
 )
 end

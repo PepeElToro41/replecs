@@ -4,12 +4,23 @@
 local jecs = require(script.Parent.Parent.jecs)
 local common = require(script.Parent.common)
 
-local utils = {}
+type World = jecs.World
+type Entity<T = any> = jecs.Entity<T>
 
 export type Cursor = {
 	offset: number,
 	buffer: buffer,
 }
+
+local ECS_NAME = jecs.Name
+local CHILD_OF = jecs.ChildOf
+local WILDCARD = jecs.Wildcard
+
+function PAIR(first: Entity, second: Entity): Entity
+	return jecs.pair(first, second)
+end
+
+local utils = {}
 
 local cursor = {}
 
@@ -507,7 +518,7 @@ utils.bitmask = {
 	from_set = bitmask.from_set,
 }
 
-function utils.create_shared_lookup(world: jecs.World, components: common.Components)
+function utils.create_shared_lookup(world: World, components: common.Components)
 	local shared: common.Shared = {
 		lookup = {},
 		serdes = {},
@@ -515,17 +526,16 @@ function utils.create_shared_lookup(world: jecs.World, components: common.Compon
 		ids = {},
 		components = {},
 	}
-	print("COMPONENTS", components)
 
-	for component, name in world:query(jecs.Name):with(components.shared):iter() do
+	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
 		shared.lookup[name] = component
 	end
 
-	for component, serdes in world:query(components.serdes):with(components.shared, jecs.Name):iter() do
+	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
 		shared.serdes[component] = serdes
 	end
 
-	for component, bytespan in world:query(components.bytespan):with(components.shared, jecs.Name):iter() do
+	for component, bytespan in world:query(components.bytespan):with(components.shared, ECS_NAME):iter() do
 		shared.bytespan[component] = bytespan
 	end
 
@@ -544,7 +554,7 @@ function utils.create_shared_lookup(world: jecs.World, components: common.Compon
 		id_components[id] = component
 	end
 
-	component_ids[jecs.ChildOf] = #keys + 1
+	component_ids[CHILD_OF] = #keys + 1
 
 	shared.ids = component_ids
 	shared.components = id_components
@@ -583,14 +593,14 @@ function utils.read_number(buf: buffer, offset: number, span: number): (number, 
 	end
 end
 
-function utils.remove_all_relations(world: jecs.World, entity: jecs.Entity, relation: jecs.Entity)
+function utils.remove_all_relations(world: World, entity: Entity, relation: Entity)
 	local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
 	if not entity_index then
 		return
 	end
 	local archetype = entity_index.archetype
 
-	local wildcard = jecs.pair(relation, jecs.Wildcard) :: any
+	local wildcard = PAIR(relation, WILDCARD) :: any
 	local idr = world.component_index[wildcard]
 	if not idr then
 		return
@@ -618,8 +628,8 @@ function utils.logwarn(...: string)
 	warn("REPLECS WARN - " .. table.concat({ ... }, " "))
 end
 
-function utils.logcomponent(world: jecs.World, component: jecs.Entity)
-	return ` name: {world:get(component, jecs.Name) or "(no name)"} id: {component}`
+function utils.logcomponent(world: World, component: Entity)
+	return ` name: {world:get(component, ECS_NAME) or "(no name)"} id: {component}`
 end
 
 return utils
