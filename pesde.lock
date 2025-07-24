@@ -127,9 +127,9 @@ pathfs = [{ name = "jiwonz/pathfs", version = "^0.3.0", index = "https://github.
 result = [{ name = "lukadev_0/result", version = "^1.2.0", index = "https://github.com/pesde-pkg/index" }, "peer"]
 unzip = [{ name = "0x5eal/unzip", version = "^0.1.0", index = "https://github.com/pesde-pkg/index", target = "luau" }, "standard"]
 
-[graph."wally#ukendio/jecs@0.7.3 roblox"]
-direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.7.2", index = "default" }, "standard"]
+[graph."wally#ukendio/jecs@0.9.0-rc.5 roblox"]
+direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.9.0-rc.5", index = "default" }, "standard"]
 
-[graph."wally#ukendio/jecs@0.7.3 roblox".pkg_ref]
+[graph."wally#ukendio/jecs@0.9.0-rc.5 roblox".pkg_ref]
 ref_ty = "wally"
 index_url = "https://github.com/UpliftGames/wally-index"

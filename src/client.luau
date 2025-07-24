@@ -91,9 +91,9 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (j
 				) or "(no name)"} id: {component}`
 			)
 		end
-		return custom_getter(value)
+		return custom_getter(value), nil
 	elseif id_type == ENTITY_ID_TYPES.shared then
-		return read_component_id(client, c)
+		return read_component_id(client, c), nil
 	end
 	error("malformed entity id" .. cursor.readu32(c))
 end
@@ -270,13 +270,13 @@ local function apply_full(client: Client, buf: buffer, all_variants: { { any } }
 end
 
 local function init(client: Client)
-	if client.inited then
+	if client.inited == true then
 		return warn "attempted to init a client twice"
 	end
 	if client.inited == nil then
 		return warn "attempted to re-init a destroyed client"
 	end
-	client.inited = true
+	client.inited = true :: any
 
 	local world = client.world
 	local components = client.components
@@ -300,7 +300,7 @@ local function destroy(client: Client)
 	if client.inited == nil then
 		return warn "attempted to destroy a client twice"
 	end
-	client.inited = nil
+	client.inited = nil :: any
 	-- I'll add any logic here if I need to clean up something
 	-- right now this is kind of useless
 end

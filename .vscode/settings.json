@@ -11,7 +11,5 @@
         "editor.defaultFormatter": "JohnnyMorganz.stylua"
     },
     "luau-lsp.sourcemap.generatorCommand": "rojo sourcemap serve.project.json -o sourcemap.json --watch",
-    "luau-lsp.sourcemap.enabled": true,
     "luau-lsp.sourcemap.sourcemapFile": "sourcemap.json",
-    "luau-lsp.sourcemap.autogenerate": true,
 }

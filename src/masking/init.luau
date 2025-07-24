@@ -184,14 +184,14 @@ function masking_controller.get_members_from_bitmask(controller: MaskingInternal
 	local members: { Member } = {}
 	for player, index in controller.member_indexes do
 		if bitmask:get(index) then
-			table.insert(members, player)
+			table.insert(members, player :: any)
 		end
 	end
 	return members
 end
 
-local function create_component_indexes()
-	return { {}, {}, {}, {} }
+local function create_component_indexes<T>()
+	return { {}, {}, {}, {} } :: ComponentIndex<T>
 end
 
 local function create_entity_changes(): EntityChanges
@@ -256,7 +256,7 @@ local function is_include_filter(filter: MemberFilter): boolean
 end
 local function create_new_active(): ActiveEntity
 	return {
-		components = create_component_indexes(),
+		components = create_component_indexes() :: ComponentIndex<boolean>,
 		component_count = 0,
 		is_entity_mask = false,
 	}
@@ -294,7 +294,7 @@ local function get_component_index_entry<T>(
 	end
 	local component_index = entity_index[component_type]
 
-	return component_index and component_index[component]
+	return component_index and component_index[component] :: T?
 end
 
 local function set_component_index_entry<T>(
@@ -394,7 +394,7 @@ local function dissect_component_actives(
 	entity: jecs.Entity,
 	shared_index: ComponentIndex<boolean>
 ): ActiveEntity?
-	local new_active
+	local new_active: ActiveEntity
 	local active = storage.active[entity]
 
 	for component_type, components in active.components do
@@ -411,7 +411,7 @@ local function dissect_component_actives(
 	return new_active
 end
 function dissect_component_changes(changes: EntityChanges, shared_index: ComponentIndex<boolean>)
-	local new_changes
+	local new_changes: EntityChanges
 
 	for component, change in changes.component do
 		local is_shared = shared_index[COMPONENT_TYPES.component] and shared_index[COMPONENT_TYPES.component][component]
@@ -472,7 +472,7 @@ function masking_controller.merge_component_filter(
 		utils.logerror "attempted to merge a component filter to an unactive entity"
 	end
 
-	if component_lookup then
+	if component_lookup ~= nil then
 		local new_storage = masking:move_component_storage(
 			entity,
 			component,
@@ -657,7 +657,7 @@ function masking_controller.register_stop_component(
 
 	local deletions = storage.deletions.components[entity]
 	if deletions == nil then
-		deletions = create_component_indexes()
+		deletions = create_component_indexes() :: ComponentIndex<boolean>
 		deletions[component_type][component] = true
 		storage.deletions.components[entity] = deletions
 		storage.deletions_count += 1
@@ -749,11 +749,12 @@ function masking_controller.start_entity(masking: MaskingInternal, entity: jecs.
 	local active = get_or_set_active(storage_group, entity)
 	active.is_entity_mask = true
 
-	masking.lookups.entities[entity] = {
+	local new_lookup: Lookup = {
 		generator = generator,
 		filter = filter,
 		storage_group = storage_group,
 	}
+	masking.lookups.entities[entity] = new_lookup
 
 	local posponed = masking.lookups.posponed[entity]
 	if posponed then
@@ -874,7 +875,7 @@ function masking_controller.set_component(
 	local component_lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
 
 	if filter == nil then
-		if component_lookup then
+		if component_lookup ~= nil then
 			component_lookup.band_generator:destroy()
 			component_lookup.generator:destroy()
 
@@ -885,7 +886,7 @@ function masking_controller.set_component(
 
 	local generator, band_generator = masking:update_component_filter(entity, component, component_type, filter)
 
-	if component_lookup then
+	if component_lookup ~= nil then
 		component_lookup.band_generator:destroy()
 		component_lookup.generator:destroy()
 
@@ -927,7 +928,7 @@ function masking_controller.stop_component(
 	component_type: number
 )
 	local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
-	if lookup then
+	if lookup ~= nil then
 		lookup.band_generator:destroy()
 		lookup.generator:destroy()
 
@@ -954,7 +955,7 @@ function masking_controller.get_component_storage_group(
 		component,
 		COMPONENT_TYPES.component
 	)
-	if component_lookup then
+	if component_lookup ~= nil then
 		return component_lookup.storage_group
 	else
 		local entity_lookup = masking.lookups.entities[entity]
@@ -972,7 +973,7 @@ function masking_controller.allocate_entity_addition(
 	component_type: number
 )
 	local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
-	if lookup then
+	if lookup ~= nil then
 		lookup.storage_group.changes.added[entity] = true
 	end
 end
@@ -1073,9 +1074,9 @@ end
 function masking_controller.create_generator_from_filter(masking: MaskingInternal, filter: MemberFilter): MaskGenerator
 	local is_include = is_include_filter(filter)
 	if is_include then
-		return masking:create_include_generator(filter)
+		return masking:create_include_generator(filter) :: MaskGenerator
 	else
-		return masking:create_exclude_generator(filter)
+		return masking:create_exclude_generator(filter) :: MaskGenerator
 	end
 end
 

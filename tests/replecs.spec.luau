@@ -6,7 +6,7 @@ local utils = require(ReplicatedStorage.roblox_packages.replecs.utils)
 local jecs = require(ReplicatedStorage.roblox_packages.jecs)
 local observers = require(script.Parent.observers)
 
-local function table_size(t: {}): number
+local function table_size(t: { any }): number
 	local count = 0
 	for _ in t do
 		count += 1
@@ -15,7 +15,7 @@ local function table_size(t: {}): number
 end
 
 type MemberData = {
-	world: jecs.World,
+	world: observers.PatchedWorld,
 	client: client.Client,
 	components: { jecs.Entity },
 	tags: { jecs.Entity },
@@ -337,7 +337,7 @@ return function()
 			end
 		end
 
-		local function check_component_is_merged(entity: jecs.Entity, component: jecs.Entity<number>, hash: string)
+		local function check_component_is_merged(entity: jecs.Entity, component: jecs.Entity, hash: string)
 			local entity_lookup = masking.lookups.entities[entity]
 			if not entity_lookup then
 				error "entity lookup not found"
@@ -358,7 +358,7 @@ return function()
 			end
 		end
 
-		local function check_component_is_not_active(entity: jecs.Entity, component: jecs.Entity<number>)
+		local function check_component_is_not_active(entity: jecs.Entity, component: jecs.Entity)
 			local entities = masking.lookups.components[entity]
 			if entities then
 				expect(entities[1][component]).to.never.be.ok()
@@ -493,7 +493,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: jecs.Entity<number>
+			local component = world:component()
 			masking:start_entity(entity, {
 				[member0] = true,
 				[member1] = true,
@@ -513,7 +513,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: jecs.Entity<number>
+			local component = world:component()
 			masking:start_entity(entity, {
 				[member0] = true,
 				[member2] = true,
@@ -536,7 +536,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: jecs.Entity<number>
+			local component = world:component()
 
 			masking:start_component(entity, component, 1, {
 				[member0] = true,
@@ -560,7 +560,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: jecs.Entity<number>
+			local component = world:component()
 
 			masking:start_entity(entity, {
 				[member0] = true,
@@ -609,7 +609,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: jecs.Entity<number>
+			local component = world:component()
 
 			masking:start_entity(entity, {
 				[member0] = true,
@@ -634,7 +634,7 @@ return function()
 			active_all_members(masking)
 
 			local entity = world:entity()
-			local component = world:component() :: jecs.Entity<number>
+			local component = world:component()
 
 			masking:start_entity(entity, {
 				[member0] = true,
@@ -812,7 +812,7 @@ return function()
 		end
 
 		local function client_entity(member: MemberData, server_entity: jecs.Entity): jecs.Entity?
-			local entity = member.client.server_ids[server_entity :: number]
+			local entity = member.client.server_ids[server_entity :: any]
 			if entity and member.world:contains(entity) then
 				return entity
 			end
@@ -882,7 +882,7 @@ return function()
 			return members, worlds, c_components, c_tags, lookup
 		end
 
-		local function activate_members(members: any)
+		local function activate_members(members)
 			for _, member in members do
 				server.masking:activate_member(member)
 			end
@@ -1030,9 +1030,9 @@ return function()
 			world:add(entity2, jecs.pair(server.components.reliable, components[2]))
 			world:set(entity2, components[2], "bar")
 
-			for index in members do
-				local buf, variants = server:get_full(members[index] :: any)
-				members[index].client:apply_full(buf, variants)
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
 			end
 
 			expect(client_entity(members[1], entity1)).to.be.ok()
@@ -1076,12 +1076,12 @@ return function()
 			})
 			world:set(entity2, components[2], "bar")
 
-			for index in members do
-				local buf, variants = server:get_full(members[index] :: any)
-				members[index].client:apply_full(buf, variants)
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
 
-				expect(client_entity(members[index], entity1)).to.be.ok()
-				expect(client_entity(members[index], entity2)).to.be.ok()
+				expect(client_entity(member, entity1)).to.be.ok()
+				expect(client_entity(member, entity2)).to.be.ok()
 			end
 
 			expect(client_component(members[1], entity1, 1)).to.be.equal "foo"
@@ -1096,7 +1096,19 @@ return function()
 			expect(client_component(members[3], entity2, 2)).to.be.equal "bar"
 			expect(client_component(members[4], entity2, 2)).to.be.equal "bar"
 		end)
-		it("should send component changes to all players", function() end)
+		it("should send component changes to all players", function()
+			local components = create_test_components(world)
+			create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(4)
+			activate_members(members)
+
+			local entity1 = world:entity()
+			local entity2 = world:entity()
+			world:add(entity2, server.components.networked)
+			world:add(entity2, jecs.pair(server.components.reliable, components[2]))
+		end)
 		it("shoud send tag changes to all players", function() end)
 		it("should send pair changes to all players", function() end)
 	end)
