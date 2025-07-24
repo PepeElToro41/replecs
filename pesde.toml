@@ -1,6 +1,6 @@
 name = "pepeeltoro41/replecs"
 authors = ["PepeElToro41"]
-description = "Replication library for Jecs"
+description = "Networking library for Jecs"
 includes = ["pesde.toml", "README.md", "LICENSE.md", "src"]
 license = "MIT"
 repository = "https://github.com/PepeElToro41/replecs"
