@@ -9,11 +9,10 @@ export type Server = server.Server
 export type Client = client.Client
 
 export type Replecs = {
-	components: common.Components,
 	server: Server,
 	client: Client,
 
-	after_replication: (self: any, callback: () -> ()) -> (),
+	after_replication: (self: Replecs, callback: () -> ()) -> (),
 }
 
 type MemberFilter = {
@@ -34,37 +33,34 @@ local replecs = {
 }
 replecs.__index = replecs
 
-function replecs.create(world: jecs.World?, forced: ("client" | "server" | "both")?): Replecs
+jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
+jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
+jecs.meta(replecs.custom_id, jecs.Name, "replecs.custom_id")
+jecs.meta(replecs.networked, jecs.Name, "replecs.networked")
+jecs.meta(replecs.reliable, jecs.Name, "replecs.reliable")
+jecs.meta(replecs.unreliable, jecs.Name, "replecs.unreliable")
+jecs.meta(replecs.pair, jecs.Name, "replecs.pair")
+jecs.meta(replecs.shared, jecs.Name, "replecs.shared")
+
+function replecs.create_server(world: jecs.World?): Server
+	return server.create(world, replecs)
+end
+
+function replecs.create_client(world: jecs.World?): Client
+	return client.create(world, replecs)
+end
+
+function replecs.create(world: jecs.World?): Replecs
 	local lib = {} :: Replecs
 
-	if forced then
-		if forced == "server" or forced == "both" then
-			lib.server = server.create(world, replecs)
-		end
-		if forced == "client" or forced == "both" then
-			lib.client = client.create(world, replecs)
-		end
-	else
-		if RunService:IsServer() then
-			lib.server = server.create(world, replecs)
-		end
-		if RunService:IsClient() then
-			lib.client = client.create(world, replecs)
-		end
+	if RunService:IsServer() then
+		lib.server = server.create(world, replecs)
+	end
+	if RunService:IsClient() then
+		lib.client = client.create(world, replecs)
 	end
 
 	return setmetatable(lib, replecs) :: any
-end
-
-function replecs.add_names()
-	jecs.meta(replecs.serdes, jecs.Name, "serdes")
-	jecs.meta(replecs.bytespan, jecs.Name, "bytespan")
-	jecs.meta(replecs.custom_id, jecs.Name, "custom_id")
-	jecs.meta(replecs.networked, jecs.Name, "networked")
-	jecs.meta(replecs.reliable, jecs.Name, "reliable")
-	jecs.meta(replecs.unreliable, jecs.Name, "unreliable")
-	jecs.meta(replecs.pair, jecs.Name, "pair")
-	jecs.meta(replecs.shared, jecs.Name, "shared")
 end
 
 function replecs.after_replication(lib: Replecs, callback: () -> ())

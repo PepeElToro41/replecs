@@ -781,7 +781,7 @@ return function()
 
 		beforeEach(function()
 			world = observers(jecs.world())
-			server = replecs.create(world, "server").server
+			server = replecs.create_server(world)
 		end)
 		afterEach(function()
 			server:destroy()
@@ -872,7 +872,7 @@ return function()
 				local new_world = observers(jecs.world())
 				local components = create_test_components(new_world)
 				local tags = create_test_tags(new_world)
-				local replicator = replecs.create(new_world, "client").client
+				local replicator = replecs.create_client(new_world)
 
 				local member_mt = {
 					world = new_world,
