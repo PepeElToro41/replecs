@@ -519,7 +519,6 @@ local function collect_updates(server: Server)
 	for _, storage in server.masking.storages do
 		local c = cursor.new()
 		local variants = {}
-		print("COLLECTING UPDATES", storage)
 
 		local total_deleted = 0
 		local entity_deletions = storage.deletions.entities
@@ -700,7 +699,13 @@ function init(server: Server, _world: World?)
 		error "Providing a world is required to start replecs"
 	end
 
-	local hooks = server.hooks
+	local hooks = {
+		added = (world :: any).added,
+		changed = (world :: any).changed,
+		removed = (world :: any).removed,
+	}
+	server.hooks = hooks
+
 	local components = server.components
 	local masking = server.masking
 
@@ -849,12 +854,6 @@ local function create(world: World?, components: common.Components): Server
 		entities = {},
 		components = {},
 	}
-	server.hooks = {
-		added = (world :: any).added,
-		changed = (world :: any).changed,
-		removed = (world :: any).removed,
-	}
-
 	self.inited = false
 	self.masking = masking_controller.create()
 	self.alive_tracked = {}
