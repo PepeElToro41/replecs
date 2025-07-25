@@ -221,7 +221,6 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			end
 
 			local total_pairs = cursor.read_vlq(c)
-			print("TOTAL PAIRS", total_pairs)
 			for i = 1, total_pairs do
 				local relation = read_component_id(client, c)
 				utils.remove_all_relations(client.world, entity, relation)
@@ -255,13 +254,13 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
-				local component_id, value = read_component_value(client, c)
+				local component_id, value = read_component_value(client, c, variants)
 				client.world:set(entity, component_id, value)
 			else
 				-- dont apply unreliable updates to entities that dont exist in the client yet
 				-- but we still need to process the values to keep the cursor in the right place
 				for u = 1, total_unreliable do
-					read_component_value(client, c)
+					read_component_value(client, c, variants)
 				end
 			end
 		end

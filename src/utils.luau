@@ -58,20 +58,17 @@ function cursor.write_buffer(c: Cursor, buf: buffer)
 end
 
 function cursor.writeu8(c: Cursor, value: number)
-	print("WRITING U8", value)
 	cursor.tryalloc(c, 1)
 	buffer.writeu8(c.buffer, c.offset, value)
 	c.offset += 1
 end
 
 function cursor.writeu16(c: Cursor, value: number)
-	print("WRITING U8", value)
 	cursor.tryalloc(c, 2)
 	buffer.writeu16(c.buffer, c.offset, value)
 	c.offset += 2
 end
 function cursor.writeu24(c: Cursor, value: number)
-	print("WRITING U24", value)
 	cursor.tryalloc(c, 3)
 	buffer.writeu8(c.buffer, c.offset, value)
 	buffer.writeu16(c.buffer, c.offset + 1, value // 256)
@@ -79,14 +76,12 @@ function cursor.writeu24(c: Cursor, value: number)
 end
 
 function cursor.writeu32(c: Cursor, value: number)
-	print("WRITING U32", value)
 	cursor.tryalloc(c, 4)
 	buffer.writeu32(c.buffer, c.offset, value :: any)
 	c.offset += 4
 end
 
 function cursor.writei8(c: Cursor, value: number)
-	print("WRITING i8", value)
 	cursor.tryalloc(c, 1)
 	buffer.writei8(c.buffer, c.offset, value)
 	c.offset += 1
@@ -113,13 +108,11 @@ end
 
 function cursor.readu8(c: Cursor): number
 	c.offset -= 1
-	print("READING U8", buffer.readu8(c.buffer, c.offset))
 	return buffer.readu8(c.buffer, c.offset)
 end
 
 function cursor.readu16(c: Cursor): number
 	c.offset -= 2
-	print("READING U16", buffer.readu16(c.buffer, c.offset))
 	return buffer.readu16(c.buffer, c.offset)
 end
 
@@ -127,7 +120,6 @@ function cursor.readu24(c: Cursor): number
 	c.offset -= 3
 	local one = buffer.readu8(c.buffer, c.offset)
 	local two = buffer.readu16(c.buffer, c.offset + 1)
-	print("READING U24", one + two * 256)
 	return one + two * 256
 end
 function cursor.readu32(c: Cursor): number
@@ -137,7 +129,6 @@ end
 
 function cursor.readi8(c: Cursor): number
 	c.offset -= 1
-	print("READING i8", buffer.readi8(c.buffer, c.offset))
 	return buffer.readi8(c.buffer, c.offset)
 end
 
@@ -151,7 +142,6 @@ function cursor.readi32(c: Cursor): number
 end
 
 function cursor.write_vlq(c: Cursor, value: number)
-	print("WRITING VLQ", value)
 	local x0 = value // 128 ^ 0 % 128
 	local x1 = value // 128 ^ 1 % 128
 	local x2 = value // 128 ^ 2 % 128
@@ -175,21 +165,18 @@ end
 function cursor.read_vlq(c: Cursor): number
 	local b = cursor.readu8(c)
 	if b >= 128 then
-		print("READING VLQ", b - 128)
 		return b - 128
 	end
 	local x = b
 
 	b = cursor.readu8(c)
 	if b >= 128 then
-		print("READING VLQ", x + (b - 128) * 128)
 		return x + (b - 128) * 128
 	end
 	x += b * 128
 
 	b = cursor.readu8(c)
 	if b >= 128 then
-		print("READING VLQ", x + (b - 128) * 128 ^ 2)
 		return x + (b - 128) * 128 ^ 2
 	end
 	x += b * 128 ^ 2

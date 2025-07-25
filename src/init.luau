@@ -56,6 +56,17 @@ function replecs.create(world: jecs.World?, forced: ("client" | "server" | "both
 	return setmetatable(lib, replecs) :: any
 end
 
+function replecs.add_names()
+	jecs.meta(replecs.serdes, jecs.Name, "serdes")
+	jecs.meta(replecs.bytespan, jecs.Name, "bytespan")
+	jecs.meta(replecs.custom_id, jecs.Name, "custom_id")
+	jecs.meta(replecs.networked, jecs.Name, "networked")
+	jecs.meta(replecs.reliable, jecs.Name, "reliable")
+	jecs.meta(replecs.unreliable, jecs.Name, "unreliable")
+	jecs.meta(replecs.pair, jecs.Name, "pair")
+	jecs.meta(replecs.shared, jecs.Name, "shared")
+end
+
 function replecs.after_replication(lib: Replecs, callback: () -> ())
 	local lib_client = lib.client
 	if lib_client then

@@ -44,6 +44,7 @@ export type Server = {
 	storage: Storage,
 	hooked: { () -> () },
 	masking: masking_controller.MaskingController,
+	connections: { RBXScriptConnection },
 
 	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
@@ -51,6 +52,8 @@ export type Server = {
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
 	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
+	mark_player_ready: (self: Server, player: Player) -> (),
+	is_player_ready: (self: Server, player: Player) -> boolean,
 }
 
 local cursor = utils.cursor
@@ -183,7 +186,6 @@ local function track_component(server: Server, component: Entity<any>)
 		if track_type == TRACK_TYPES.component then
 			allocate_component_change(server, entity, component, value)
 		elseif track_type == TRACK_TYPES.tag then
-			print("ALLOCATING TAG ADDITION", entity, component)
 			allocate_tag_addition(server, entity, component)
 		else
 			if not IS_PAIR(id) then
@@ -197,7 +199,6 @@ local function track_component(server: Server, component: Entity<any>)
 		if not track_type then
 			return
 		end
-
 		-- no check here because only components can trigger changed (I think?)
 		allocate_component_change(server, entity, component, value)
 	end))
@@ -210,7 +211,6 @@ local function track_component(server: Server, component: Entity<any>)
 		if track_type == TRACK_TYPES.component then
 			allocate_component_removal(server, entity, component)
 		elseif track_type == TRACK_TYPES.tag then
-			print("ALLOCATING TAG REMOVAL", entity, component)
 			allocate_tag_removal(server, entity, component)
 		else
 			if not IS_PAIR(id) then
@@ -487,7 +487,6 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 	local all_variants: { { any } } = {}
 	local total_size = 0
 
-	print "-------------------------  STARTING  -------------------------"
 	-- maybe edges to quickly find all relevant storages improves performance?
 	for _, storage in server.masking.storages do
 		if not storage.mask.bitmask:get(index) then
@@ -508,7 +507,6 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		table.insert(all_variants, variants)
 		total_size += buffer.len(output)
 	end
-	print "-------------------------  FINAL  -------------------------"
 
 	return combine_packet_outputs(buffers, total_size), all_variants
 end
@@ -630,7 +628,6 @@ end
 
 local function collect_unreliable(server: Server)
 	-- todo: max packet size (for unreliables 1kb limit)
-
 	local packets: { [Player]: MemberPackets } = {}
 	local world = server.world
 
@@ -799,6 +796,34 @@ function init(server: Server, _world: World?)
 		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
 	end))
 
+	hook(hooks.added(world, components.unreliable, function(entity, id, filter)
+		if not IS_PAIR(id) then
+			utils.logerror "unreliable should be used with a pair relationship"
+		end
+		local component = PAIR_SECOND(world, id)
+		masking:unregister_stop_component(entity, component, COMPONENT_TYPES.unreliable)
+		masking:start_component(entity, component, COMPONENT_TYPES.unreliable, filter)
+		if server.additions[entity] then
+			masking:allocate_entity_addition(entity, component, COMPONENT_TYPES.unreliable)
+		end
+	end))
+	hook(hooks.changed(world, components.unreliable, function(entity, id, filter)
+		if not IS_PAIR(id) then
+			utils.logerror "unreliable should be used with a pair relationship"
+		end
+		local component = PAIR_SECOND(world, id)
+		masking:set_component(entity, component, COMPONENT_TYPES.unreliable, filter)
+	end))
+	hook(hooks.removed(world, components.unreliable, function(entity, id)
+		if not IS_PAIR(id) then
+			utils.logerror "unreliable should be used with a pair relationship"
+		end
+		local component = PAIR_SECOND(world, id)
+		untrack_entity_component(server, entity, component, COMPONENT_TYPES.unreliable)
+		masking:register_stop_component(entity, component, COMPONENT_TYPES.unreliable)
+		masking:stop_component(entity, component, COMPONENT_TYPES.unreliable)
+	end))
+
 	hook(hooks.added(world, components.custom_id, function(entity, id)
 		if not IS_PAIR(id) then
 			utils.logerror "custom_id should be used with a relationship in the server"
@@ -819,6 +844,26 @@ function init(server: Server, _world: World?)
 		-- TODO: cleanup entity garbage on deletion
 		server.custom_ids[entity] = nil
 	end))
+
+	if game and game:GetService("RunService"):IsServer() then
+		local added = game:GetService("Players").PlayerAdded:Connect(function(player)
+			server.masking:register_member(player)
+		end)
+		local removed = game:GetService("Players").PlayerRemoving:Connect(function(player)
+			server.masking:unregister_member(player)
+		end)
+
+		table.insert(server.connections, added)
+		table.insert(server.connections, removed)
+	end
+end
+
+local function mark_player_ready(server: Server, player: Player)
+	server.masking:activate_member(player)
+end
+
+local function is_player_ready(server: Server, player: Player): boolean
+	return server.masking:member_is_active(player)
 end
 
 local function destroy(server: Server)
@@ -830,6 +875,9 @@ local function destroy(server: Server)
 	for _, unhook in server.hooked do
 		unhook()
 	end
+	for _, connection in server.connections do
+		connection:Disconnect()
+	end
 end
 
 local server = {}
@@ -839,6 +887,8 @@ server.destroy = destroy
 server.get_full = get_full
 server.collect_updates = collect_updates
 server.collect_unreliable = collect_unreliable
+server.mark_player_ready = mark_player_ready
+server.is_player_ready = is_player_ready
 
 local function create(world: World?, components: common.Components): Server
 	local self = {} :: Server
@@ -854,6 +904,7 @@ local function create(world: World?, components: common.Components): Server
 		entities = {},
 		components = {},
 	}
+	self.connections = {}
 	self.inited = false
 	self.masking = masking_controller.create()
 	self.alive_tracked = {}
