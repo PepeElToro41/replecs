@@ -24,7 +24,7 @@ export type Client = {
 	ordered_creation: boolean,
 	custom_ids: { [Entity]: (any) -> Entity },
 
-	init: (self: Client) -> (),
+	init: (self: Client, world: World?) -> (),
 	destroy: (self: Client) -> (),
 	after_replication: (self: Client, callback: () -> ()) -> (),
 
@@ -283,7 +283,7 @@ local function apply_full(client: Client, buf: buffer, all_variants: { { any } }
 	end
 end
 
-local function init(client: Client)
+local function init(client: Client, _world: World?)
 	if client.inited == true then
 		return warn "attempted to init a client twice"
 	end
@@ -292,7 +292,13 @@ local function init(client: Client)
 	end
 	client.inited = true :: any
 
-	local world = client.world
+	local world = _world or client.world
+	client.world = world
+
+	if not world then
+		error "Providing a world is required to start replecs"
+	end
+
 	local components = client.components
 
 	client.shared = utils.create_shared_lookup(world, components)

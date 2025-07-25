@@ -45,7 +45,7 @@ export type Server = {
 	hooked: { () -> () },
 	masking: masking_controller.MaskingController,
 
-	init: (self: Server) -> (),
+	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
 
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
@@ -687,14 +687,14 @@ local function check_created(server: Server)
 	return true
 end
 
-function init(server: Server, world: World?)
+function init(server: Server, _world: World?)
 	if not check_created(server) then
 		return
 	end
 	server.inited = true :: any
 
-	world = world or server.world
-	server.world = world :: any
+	local world = _world or server.world
+	server.world = world
 
 	if not world then
 		error "Providing a world is required to start replecs"
