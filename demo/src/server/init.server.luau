@@ -1,7 +1,4 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local replecs = require(ReplicatedStorage.packages.replecs)
-replecs.add_names()
-
 local players = require(ReplicatedStorage.code.players)
 local systems_order = require(script.systems_order)
 local start = require(ReplicatedStorage.code.start)
