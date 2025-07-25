@@ -32,6 +32,14 @@ local replecs = {
 	__alive_tracking__ = jecs.tag(),
 }
 replecs.__index = replecs
+replecs.Serdes = replecs.serdes
+replecs.Bytespan = replecs.bytespan
+replecs.CustomId = replecs.custom_id
+replecs.Networked = replecs.networked
+replecs.Reliable = replecs.reliable
+replecs.Unreliable = replecs.unreliable
+replecs.Pair = replecs.pair
+replecs.Shared = replecs.shared
 
 jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
 jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
