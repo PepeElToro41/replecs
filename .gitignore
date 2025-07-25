@@ -9,6 +9,7 @@ lune_packages
 luau_packages
 roblox_packages
 Packages/
+.pesde
 
 **/sourcemap.json
 **/darklua-sourcemap.json
