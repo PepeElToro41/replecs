@@ -100,7 +100,9 @@ export type MaskingController = {
 	lookups: LookupsList,
 
 	register_member: (self: MaskingController, member: Member) -> (),
+	unregister_member: (self: MaskingController, member: Member) -> (),
 	activate_member: (self: MaskingController, member: Member) -> (),
+	member_is_active: (self: MaskingController, member: Member) -> boolean,
 
 	register_stop_entity: (self: MaskingController, entity: Entity) -> (),
 	register_stop_component: (
@@ -1078,6 +1080,7 @@ function masking_controller.create_exclude_generator(masking: MaskingInternal, e
 	return generator
 end
 
+-- TODO: check for players existing and register them if they don't
 function masking_controller.create_include_generator(masking: MaskingInternal, filter: MemberFilter): MaskGenerator
 	local bitmask = utils.bitmask.from_set(masking.member_indexes, filter, masking.member_count)
 	local active = masking.active_members_generator
@@ -1089,6 +1092,7 @@ function masking_controller.create_include_generator(masking: MaskingInternal, f
 
 	return generator
 end
+
 function masking_controller.create_all_members_generator(masking: MaskingInternal): MaskGenerator
 	local filter: MemberFilter = {}
 	for member in masking.member_indexes do
@@ -1115,6 +1119,10 @@ function masking_controller.create_active_generator(masking: MaskingController):
 end
 
 function masking_controller.register_member(masking: MaskingInternal, member: Member)
+	if masking.member_indexes[member] then
+		return
+	end
+
 	local current = masking.member_count
 	masking.member_indexes[member] = current
 	masking.member_count += 1
@@ -1122,6 +1130,17 @@ function masking_controller.register_member(masking: MaskingInternal, member: Me
 	masking.unreplicated[member] = true
 	masking.unactive_members_generator.bitmask:set(current)
 	masking.all_members_generator.bitmask:set(current)
+	masking.active_members_generator:compute()
+end
+
+function masking_controller.unregister_member(masking: MaskingInternal, member: Member)
+	local index = masking.member_indexes[member]
+	if index == nil then
+		return
+	end
+	masking.member_indexes[member] = nil
+	masking.member_count -= 1
+	masking.all_members_generator.bitmask:clear(index)
 	masking.active_members_generator:compute()
 end
 
@@ -1135,6 +1154,15 @@ function masking_controller.activate_member(masking: MaskingInternal, member: Me
 	masking.unreplicated[member] = nil
 	masking.unactive_members_generator.bitmask:clear(index)
 	masking.active_members_generator:compute()
+end
+
+function masking_controller.member_is_active(masking: MaskingInternal, member: Member): boolean
+	local index = masking.member_indexes[member]
+	if index == nil then
+		return false
+	end
+
+	return masking.active_members_generator.bitmask:get(index)
 end
 
 local function create(): MaskingController

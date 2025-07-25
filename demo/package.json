@@ -9,8 +9,8 @@
       "test": "tests"
    },
    "scripts": {
-      "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json"
-    },
+      "serve": "rojo sourcemap default.project.json -o sourcemap.json --watch || rojo serve default.project.json"
+   },
    "repository": {
       "type": "git",
       "url": "git+https://github.com/PepeElToro41/replecs.git"

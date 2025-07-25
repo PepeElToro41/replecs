@@ -5,30 +5,29 @@
         "ServerScriptService": {
             "$className": "ServerScriptService",
             "code": {
-                "$path": "server"
+                "$path": "src/server"
             }
         },
         "ReplicatedStorage": {
             "$className": "ReplicatedStorage",
-            "roblox_packages": {
-                "$path": "../roblox_packages",
+            "packages": {
+                "$path": "roblox_packages",
                 "replecs": {
                     "$path": "../src"
                 }
             },
             "code": {
-                "$path": "shared"
+                "$path": "src/shared"
             }
         },
         "StarterPlayer": {
             "$className": "StarterPlayer",
-        "StarterPlayerScripts": {
-            "$className": "StarterPlayerScripts",
-            "code": {
-                "$path": "client"
+            "StarterPlayerScripts": {
+                "$className": "StarterPlayerScripts",
+                "code": {
+                    "$path": "src/client"
+                }
             }
         }
-    }
-        
     }
 }
