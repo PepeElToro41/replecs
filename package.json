@@ -9,7 +9,8 @@
       "test": "tests"
    },
    "scripts": {
-      "test": "test"
+      "serve:test": "rojo serve serve.project.json",
+      "serve:demo": "rojo serve demo/default.project.json"
    },
    "repository": {
       "type": "git",
@@ -29,6 +30,6 @@
       "prettier": "^3.2.5"
    },
    "dependencies": {
-      "@rbxts/jecs": "0.6.1"
+      "@rbxts/jecs": "0.8.3"
    }
 }

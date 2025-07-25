@@ -1,0 +1,34 @@
+{
+    "name": "replecs-demo",
+    "tree": {
+        "$className": "DataModel",
+        "ServerScriptService": {
+            "$className": "ServerScriptService",
+            "code": {
+                "$path": "server"
+            }
+        },
+        "ReplicatedStorage": {
+            "$className": "ReplicatedStorage",
+            "roblox_packages": {
+                "$path": "../roblox_packages",
+                "replecs": {
+                    "$path": "../src"
+                }
+            },
+            "code": {
+                "$path": "shared"
+            }
+        },
+        "StarterPlayer": {
+            "$className": "StarterPlayer",
+        "StarterPlayerScripts": {
+            "$className": "StarterPlayerScripts",
+            "code": {
+                "$path": "client"
+            }
+        }
+    }
+        
+    }
+}
