@@ -654,9 +654,7 @@ function masking_controller.register_stop_component(
 	component: Entity,
 	component_type: number
 )
-	local lookup =
-		get_component_index_entry(masking.lookups.components, entity, component, component_type) :: ComponentLookup
-	local storage = lookup.storage_group
+	local storage = masking:get_component_storage_group(entity, component, component_type) :: StorageGroup
 
 	local deletions = storage.deletions.components[entity]
 	if deletions == nil then
@@ -766,6 +764,7 @@ function masking_controller.start_entity(masking: MaskingInternal, entity: Entit
 				masking:start_component(entity, component, component_type, component_filter)
 			end
 		end
+		masking.lookups.posponed[entity] = nil
 	end
 end
 
@@ -800,7 +799,11 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 				component_lookup.band_generator:destroy()
 				component_lookup.generator:destroy()
 				remove_component_active(component_lookup.storage_group, entity, component, component_type)
-				component_lookup.storage_group.shared_with[entity] = nil
+
+				local component_storage = component_lookup.storage_group
+				component_storage.shared_with[entity] = nil
+				component_storage.changes.added[entity] = nil
+				component_storage.changes.changed[entity] = nil
 
 				if posponed == nil then
 					posponed = create_component_indexes()
@@ -951,7 +954,7 @@ function masking_controller.get_component_storage_group(
 	entity: Entity,
 	component: Entity,
 	component_type: number
-)
+): StorageGroup
 	local component_lookup = masking_controller.get_component_index_entry(
 		masking.lookups.components,
 		entity,
@@ -1048,6 +1051,10 @@ function masking_controller.allocate_pair_removal(
 		changes.pairs[relation] = targets
 	end
 	targets[target] = false
+end
+
+function masking_controller.compact_members()
+	-- TODO: implement
 end
 
 function masking_controller.create_generator_from_filter(masking: MaskingInternal, filter: MemberFilter): MaskGenerator

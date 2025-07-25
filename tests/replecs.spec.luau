@@ -837,7 +837,6 @@ return function()
 			end
 			return false
 		end
-
 		local function client_tag(member: MemberData, server_entity: jecs.Entity, tag_index: number): boolean?
 			local tag = member.tags[tag_index]
 			local entity = client_entity(member, server_entity)
@@ -875,12 +874,15 @@ return function()
 				local tags = create_test_tags(new_world)
 				local replicator = replecs.create(new_world, "client").client
 
-				local member = {
+				local member_mt = {
 					world = new_world,
 					client = replicator,
 					components = components,
 					tags = tags,
 				}
+				local member = newproxy(true)
+				getmetatable(member).__index = member_mt
+
 				server.masking:register_member(member)
 				table.insert(members, member)
 				table.insert(worlds, new_world)
@@ -1165,7 +1167,6 @@ return function()
 			world:set(entity1, components[1], Vector3.new(10, 20, 30))
 
 			local buf, variants = server:get_full(members[1] :: any)
-			print("SIZE", buffer.len(buf))
 			members[1].client:apply_full(buf, variants)
 
 			expect(client_component(members[1], entity1, 1)).to.be.equal(Vector3.new(30, 20, 10))
@@ -1214,9 +1215,9 @@ return function()
 
 			local entity1 = world:entity()
 			world:add(entity1, server.components.networked)
-			world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
-			world:add(entity1, jecs.pair(server.components.reliable, tags[2]))
-			world:add(entity1, jecs.pair(server.components.reliable, tags[3]))
+			world:set(entity1, jecs.pair(server.components.reliable, tags[1]))
+			world:set(entity1, jecs.pair(server.components.reliable, tags[2]))
+			world:set(entity1, jecs.pair(server.components.reliable, tags[3]))
 
 			for _, member in members do
 				local buf, variants = server:get_full(member :: any)
@@ -1257,6 +1258,159 @@ return function()
 				expect(client_tag(member, entity1, 3)).to.be.equal(true)
 			end
 		end)
-		it("should send pair changes to all players", function() end)
+		it("should send pair changes to all players", function()
+			create_test_components(world)
+			local tags = create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(4)
+			activate_members(members)
+			init_member_clients(members)
+
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.pair, tags[1]))
+
+			local r1 = world:entity()
+			local r2 = world:entity()
+			local r3 = world:entity()
+			world:add(r1, server.components.networked)
+			world:add(r2, server.components.networked)
+			world:add(r3, server.components.networked)
+
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
+			end
+
+			world:add(entity1, jecs.pair(tags[1], r1))
+
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_pair(member, entity1, 1, r1)).to.be.equal(true)
+				expect(client_pair(member, entity1, 1, r2)).to.be.equal(false)
+				expect(client_pair(member, entity1, 1, r2)).to.be.equal(false)
+			end
+			world:add(entity1, jecs.pair(tags[1], r2))
+
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_pair(member, entity1, 1, r1)).to.be.equal(true)
+				expect(client_pair(member, entity1, 1, r2)).to.be.equal(true)
+				expect(client_pair(member, entity1, 1, r3)).to.be.equal(false)
+			end
+			world:remove(entity1, jecs.pair(tags[1], r1))
+			world:add(entity1, jecs.pair(tags[1], r3))
+
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_pair(member, entity1, 1, r1)).to.be.equal(false)
+				expect(client_pair(member, entity1, 1, r2)).to.be.equal(true)
+				expect(client_pair(member, entity1, 1, r3)).to.be.equal(true)
+			end
+		end)
+		it("should remove entity when networked component is removed", function()
+			local components = create_test_components(world)
+			create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(2)
+			activate_members(members)
+			init_member_clients(members)
+
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+			world:set(entity1, components[1], "foo")
+
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
+			end
+			world:remove(entity1, server.components.networked)
+
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_entity(member, entity1)).to.be.equal(nil)
+			end
+			world:add(entity1, server.components.networked)
+			world:remove(entity1, server.components.networked)
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_entity(member, entity1)).to.be.equal(nil)
+			end
+		end)
+		it("should remove all data when component stops", function()
+			local components = create_test_components(world)
+			local tags = create_test_tags(world)
+			server:init()
+
+			local members = create_members_data(1)
+			activate_members(members)
+			init_member_clients(members)
+
+			local entity1 = world:entity()
+			world:add(entity1, server.components.networked)
+			world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+			world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
+			world:add(entity1, jecs.pair(server.components.pair, tags[2]))
+
+			local r1 = world:entity()
+			local r2 = world:entity()
+			world:add(r1, server.components.networked)
+			world:add(r2, server.components.networked)
+
+			world:set(entity1, components[1], "foo")
+			world:add(entity1, tags[1])
+			world:add(entity1, jecs.pair(tags[2], r1))
+			world:add(entity1, jecs.pair(tags[2], r2))
+
+			for _, member in members do
+				local buf, variants = server:get_full(member :: any)
+				member.client:apply_full(buf, variants)
+			end
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+			end
+
+			world:remove(entity1, jecs.pair(server.components.reliable, components[1]))
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_entity(member, entity1)).to.be.ok()
+				expect(client_has_component(member, entity1, 1)).to.be.equal(false)
+				expect(client_tag(member, entity1, 1)).to.be.equal(true)
+				expect(client_pair(member, entity1, 2, r1)).to.be.equal(true)
+				expect(client_pair(member, entity1, 2, r2)).to.be.equal(true)
+			end
+
+			world:remove(entity1, jecs.pair(server.components.reliable, tags[1]))
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_entity(member, entity1)).to.be.ok()
+				expect(client_has_component(member, entity1, 1)).to.be.equal(false)
+				expect(client_tag(member, entity1, 1)).to.be.equal(false)
+				expect(client_pair(member, entity1, 2, r1)).to.be.equal(true)
+				expect(client_pair(member, entity1, 2, r2)).to.be.equal(true)
+			end
+
+			world:remove(entity1, jecs.pair(server.components.pair, tags[2]))
+			for player, buf, changes in server:collect_updates() do
+				local member: MemberData = player :: any
+				member.client:apply_updates(buf, changes)
+				expect(client_entity(member, entity1)).to.be.ok()
+				expect(client_has_component(member, entity1, 1)).to.be.equal(false)
+				expect(client_tag(member, entity1, 1)).to.be.equal(false)
+				expect(client_pair(member, entity1, 2, r1)).to.be.equal(false)
+				expect(client_pair(member, entity1, 2, r2)).to.be.equal(false)
+			end
+		end)
 	end)
 end

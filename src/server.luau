@@ -519,8 +519,7 @@ local function collect_updates(server: Server)
 	for _, storage in server.masking.storages do
 		local c = cursor.new()
 		local variants = {}
-
-		print("SENDING CHANGED", storage.changes)
+		print("COLLECTING UPDATES", storage)
 
 		local total_deleted = 0
 		local entity_deletions = storage.deletions.entities
@@ -688,13 +687,19 @@ local function check_created(server: Server)
 	return true
 end
 
-function init(server: Server)
+function init(server: Server, world: World?)
 	if not check_created(server) then
 		return
 	end
 	server.inited = true :: any
 
-	local world = server.world
+	world = world or server.world
+	server.world = world :: any
+
+	if not world then
+		error "Providing a world is required to start replecs"
+	end
+
 	local hooks = server.hooks
 	local components = server.components
 	local masking = server.masking
@@ -783,7 +788,7 @@ function init(server: Server)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
 		end
-		local relation = PAIR_SECOND(world, entity)
+		local relation = PAIR_SECOND(world, id)
 		untrack_entity_pair(server, entity, relation)
 		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
 		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
@@ -830,14 +835,13 @@ server.get_full = get_full
 server.collect_updates = collect_updates
 server.collect_unreliable = collect_unreliable
 
-local function create(world: World, components: common.Components): Server
+local function create(world: World?, components: common.Components): Server
 	local self = {} :: Server
 
 	self.components = components
 
 	self.shared = {} :: common.Shared
-
-	server.world = world
+	self.world = world :: any
 	self.additions = {}
 	self.storage = {}
 	self.hooked = {}

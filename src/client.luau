@@ -152,7 +152,6 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
-	print("TOTAL PACKETS", total_packets)
 	for a = 1, total_packets do
 		local variants = all_variants and all_variants[variant_start - a]
 		local total_added = cursor.read_vlq(c)
@@ -162,7 +161,6 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		end
 
 		local total_changed = cursor.read_vlq(c)
-		print("TOTAL CHANGED", total_changed)
 		for i = 1, total_changed do
 			local entity = process_entity_id(client, c, variants)
 			local total_tagged = cursor.read_vlq(c)
@@ -200,7 +198,6 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			end
 
 			local total_removed = cursor.read_vlq(c)
-			print("TOTAL REMOVED", total_removed)
 			for i = 1, total_removed do
 				local component = read_component_id(client, c)
 				client.world:remove(entity, component)
@@ -224,20 +221,21 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			end
 
 			local total_pairs = cursor.read_vlq(c)
+			print("TOTAL PAIRS", total_pairs)
 			for i = 1, total_pairs do
 				local relation = read_component_id(client, c)
 				utils.remove_all_relations(client.world, entity, relation)
 			end
-
-			local component = read_component_id(client, c)
-			client.world:delete(component)
 		end
 
 		local total_deleted = cursor.read_vlq(c)
 		for i = 1, total_deleted do
-			local entity = read_entity_id(client, c, variants)
+			local entity, server_id = read_entity_id(client, c, variants)
 			if entity then
 				client.world:delete(entity)
+			end
+			if server_id then
+				client.server_ids[server_id] = nil
 			end
 		end
 	end
@@ -330,7 +328,7 @@ client.apply_updates = apply_updates
 client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
 
-local function create(world: World, components: common.Components): Client
+local function create(world: World?, components: common.Components): Client
 	local self = {} :: Client
 
 	self.components = components
@@ -338,7 +336,7 @@ local function create(world: World, components: common.Components): Client
 	self.custom_ids = {}
 	self.server_ids = {}
 	self.client_ids = {}
-	self.world = world
+	self.world = world :: any
 	self.inited = false
 	self.is_replicating = false
 	self.after_replication_callbacks = {}

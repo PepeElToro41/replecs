@@ -606,16 +606,18 @@ function utils.remove_all_relations(world: World, entity: Entity, relation: Enti
 		return
 	end
 
-	local total = idr.counts[wildcard]
-	if not total or total <= 0 then
+	local archetype_id = archetype.id
+	local count = idr.counts[archetype_id]
+	if not count then
 		return
 	end
-	local start = idr.records[wildcard]
+
+	local start = idr.records[archetype_id]
 	if not start then
 		return
 	end
 
-	for i = start, start + total - 1 do
+	for i = start, start + count - 1 do
 		local pair = archetype.types[i]
 		world:remove(entity, pair :: any)
 	end

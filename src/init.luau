@@ -16,11 +16,15 @@ export type Replecs = {
 	after_replication: (self: any, callback: () -> ()) -> (),
 }
 
+type MemberFilter = {
+	[Player]: boolean,
+}
+
 local replecs = {
 	shared = jecs.tag(),
-	networked = jecs.component() :: jecs.Entity<{ [Player]: boolean }?>,
-	reliable = jecs.tag(),
-	unreliable = jecs.tag(),
+	networked = jecs.component() :: jecs.Entity<MemberFilter?>,
+	reliable = jecs.component() :: jecs.Entity<MemberFilter?>,
+	unreliable = jecs.component() :: jecs.Entity<MemberFilter?>,
 	pair = jecs.tag(),
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
@@ -30,7 +34,7 @@ local replecs = {
 }
 replecs.__index = replecs
 
-function replecs.create(world: jecs.World, forced: ("client" | "server" | "both")?): Replecs
+function replecs.create(world: jecs.World?, forced: ("client" | "server" | "both")?): Replecs
 	local lib = {} :: Replecs
 
 	if forced then
