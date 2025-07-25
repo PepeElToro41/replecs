@@ -1,8 +1,5 @@
 local Players = game:GetService "Players"
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local replecs = require(ReplicatedStorage.packages.replecs)
-replecs.add_names()
-
 local c = require(ReplicatedStorage.code.components)
 local ref = require(ReplicatedStorage.code.ecs.ref)
 local players = require(ReplicatedStorage.code.players)
