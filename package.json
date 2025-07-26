@@ -1,5 +1,5 @@
 {
-   "name": "replecs",
+   "name": "@rbxts/replecs",
    "version": "0.0.1-rc.0",
    "description": "Replication library for Jecs",
    "main": "src/init.lua",
