@@ -8,6 +8,9 @@
       "doc": "docs",
       "test": "tests"
    },
+   "publishConfig": {
+      "access": "public"
+   },
    "files": [
       "out",
       "!**/*.tsbuildinfo",
