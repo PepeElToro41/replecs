@@ -35,8 +35,7 @@
       "typescript": "=5.5.3",
       "prettier": "^3.2.5"
    },
-   "peerDependencies": {
-      "@rbxts/jecs": "^0.8.3",
-      "@rbxts/jecs-addons": "0.1.0-rc.9"
+   "dependencies": {
+      "@rbxts/jecs": "^0.8.3"
    }
 }
