@@ -51,10 +51,20 @@ function cursor.tryalloc(cursor: Cursor, bytes: number)
 	end
 end
 
-function cursor.write_buffer(c: Cursor, buf: buffer)
-	cursor.tryalloc(c, buffer.len(buf))
-	buffer.copy(c.buffer, c.offset, buf, 0, buffer.len(buf))
-	c.offset += buffer.len(buf)
+function cursor.write_buffer(c: Cursor, buf: buffer, start: number?, count: number?)
+	if start == nil and count == nil then
+		cursor.tryalloc(c, buffer.len(buf))
+		buffer.copy(c.buffer, c.offset, buf, 0, buffer.len(buf))
+		c.offset += buffer.len(buf)
+	else
+		local len = buffer.len(buf)
+		local available = len - (start or 0)
+		local write_count = count and math.min(available, count) or available
+
+		cursor.tryalloc(c, write_count)
+		buffer.copy(c.buffer, c.offset, buf, start or 0, write_count)
+		c.offset += write_count
+	end
 end
 
 function cursor.writeu8(c: Cursor, value: number)

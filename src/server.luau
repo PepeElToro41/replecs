@@ -66,6 +66,7 @@ local TRACK_TYPES = {
 	tag = 2,
 	pair = 3,
 }
+local MAX_PACKET_SIZE = 900
 local ENTITY_ID_TYPES = {
 	id = 1,
 	custom = 2,
@@ -627,19 +628,55 @@ local function collect_updates(server: Server)
 end
 
 local function collect_unreliable(server: Server)
-	-- todo: max packet size (for unreliables 1kb limit)
-	local packets: { [Player]: MemberPackets } = {}
 	local world = server.world
+	local packets: { [Player]: MemberPackets } = {}
 
-	-- maybe more lookups to quickly iterate these too? ;-;
 	for _, mask_storage in server.masking.storages do
-		local c = cursor.new()
-		local variants = {}
-
 		local active = mask_storage.active
+
+		local c = cursor.new()
+		local variants = {} :: { { any } }
 		local total_entities = 0
 
+		local checkpoint_offset = 0
+		local checkpoint_variants_count = 0
+		local checkpoint_total_entities = 0
+
+		local function create_checkpoint()
+			checkpoint_offset = c.offset
+			checkpoint_variants_count = #variants
+			checkpoint_total_entities = total_entities
+		end
+
+		local function rollback_checkpoint()
+			c.offset = checkpoint_offset
+			local new_cursor = cursor.new()
+			cursor.write_buffer(new_cursor, c.buffer, checkpoint_offset)
+			c = new_cursor
+
+			local new_variants = {} :: { { any } }
+			for i = #variants, checkpoint_variants_count + 1, -1 do
+				table.insert(new_variants, 1, table.remove(variants))
+			end
+			variants = new_variants
+
+			total_entities = total_entities - checkpoint_total_entities
+		end
+
+		local function commit_checkpoint(commit_c, commit_variants, commit_total_entities)
+			if commit_total_entities <= 0 then
+				return
+			end
+
+			local output = cursor.close(commit_c)
+			cursor.write_vlq(c, commit_total_entities)
+
+			append_packet(packets, mask_storage.mask.members, output, commit_variants)
+		end
+
 		for entity, actives in active do
+			create_checkpoint()
+
 			local total_unreliable = 0
 			for component in actives.components[COMPONENT_TYPES.unreliable] do
 				local value = world:get(entity, component)
@@ -657,15 +694,17 @@ local function collect_unreliable(server: Server)
 			total_entities += 1
 			cursor.write_vlq(c, total_unreliable)
 			write_entity_id(server, c, entity, variants)
-		end
 
-		if total_entities <= 0 then
-			continue
+			local current_size = c.offset
+			if current_size > MAX_PACKET_SIZE then
+				local commit_cursor = c
+				local commit_variants = variants
+				local commit_total_entities = total_entities
+				rollback_checkpoint()
+				commit_checkpoint(commit_cursor, commit_variants, commit_total_entities)
+			end
 		end
-		cursor.write_vlq(c, total_entities)
-
-		local output = cursor.close(c)
-		append_packet(packets, mask_storage.mask.members, output, variants)
+		commit_checkpoint(c, variants, total_entities)
 	end
 
 	return create_packet_iterator(packets)
