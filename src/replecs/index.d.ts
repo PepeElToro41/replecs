@@ -77,14 +77,10 @@ declare namespace Replecs {
   }
 
   export interface Replecs extends Components {
-    client: Client;
-    server: Server;
-
     after_replication(world: ObserverWorld): void;
 
-    create_server(world: ObserverWorld | undefined): Server;
-    create_client(world: ObserverWorld | undefined): Client;
-    create(world: ObserverWorld | undefined): Replecs;
+    create_server: (world?: ObserverWorld) => Server;
+    create_client: (world?: ObserverWorld) => Client;
   }
 }
 
