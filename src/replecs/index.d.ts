@@ -1,21 +1,6 @@
 import type { Entity, Tag } from "@rbxts/jecs";
 import type { ObserverWorld } from "@rbxts/jecs-addons";
 
-// -------- Utility -------------
-type CapitalizeWord<S extends string> = S extends `${infer First}${infer Rest}`
-    ? `${Uppercase<First>}${Lowercase<Rest>}`
-    : S;
-
-type SnakeToPascal<S extends string> = S extends `${infer Head}_${infer Tail}`
-    ? `${CapitalizeWord<Head>}${SnakeToPascal<Tail>}`
-    : CapitalizeWord<S>;
-
-type PascalCaseKeys<T> = {
-    [K in keyof T as SnakeToPascal<K & string>]: T[K];
-};
-
-// -------- Replecs -----------
-
 declare namespace Replecs {
     export interface SerdesTable {
         serialize: (value: any) => buffer;
@@ -35,6 +20,16 @@ declare namespace Replecs {
         bytespan: Entity<number>;
         custom_id: Entity<(value: any) => Entity>;
         __alive_tracking__: Tag;
+
+        Shared: Tag;
+        Networked: Entity<MemberFilter | undefined>;
+        Reliable: Entity<MemberFilter | undefined>;
+        Unreliable: Entity<MemberFilter | undefined>;
+        Pair: Tag;
+
+        Serdes: Entity<SerdesTable>;
+        Bytespan: Entity<number>;
+        CustomId: Entity<(value: any) => Entity>;
     }
 
     export interface Client {
