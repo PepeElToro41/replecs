@@ -14,3 +14,4 @@ Packages/
 **/sourcemap.json
 **/darklua-sourcemap.json
 
+node_modules
