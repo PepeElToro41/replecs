@@ -1,3 +1,6 @@
+--!native
+--!optimize 2
+
 local utils = require(script.Parent.Parent.utils)
 
 type ComputeCallback = (generator: MaskGenerator) -> utils.Bitmask
@@ -40,7 +43,7 @@ function mask_generator.unmark_tracked(generator: GeneratorInternal, to_untrack:
 
 		if last and last ~= to_untrack then
 			generator.tracked_by[index] = last
-			generator.tracked_indexes[last] = index
+			generator.tracked_indexes[last :: GeneratorInternal] = index
 		end
 
 		generator.tracked_indexes[to_untrack] = nil
@@ -49,17 +52,17 @@ end
 
 function mask_generator.run_subscribed(generator: GeneratorInternal)
 	if generator.subscribed then
-		generator.subscribed(generator)
+		generator.subscribed(generator :: GeneratorInternal)
 	end
 end
 
 function mask_generator.compute(generator: GeneratorInternal)
 	if generator.compute_callback then
-		local result = generator.compute_callback(generator)
+		local result = generator.compute_callback(generator :: GeneratorInternal)
 		generator.bitmask = result
 	end
 	if generator.subscribed then
-		generator.subscribed(generator)
+		generator.subscribed(generator :: GeneratorInternal)
 	end
 
 	for _, tracking in generator.tracked_by do

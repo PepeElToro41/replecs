@@ -1,3 +1,6 @@
+--!native
+--!optimize 2
+
 local jecs = require(script.Parent.Parent.jecs)
 local utils = require(script.Parent.utils)
 local mask_generator = require(script.mask_generator)
@@ -90,6 +93,7 @@ type Storages = {
 export type MaskingController = {
 	member_count: number,
 	member_indexes: { [Member]: number },
+	compact_count: number,
 	unreplicated: Set<Member>,
 
 	all_members_generator: MaskGenerator,
@@ -1055,8 +1059,125 @@ function masking_controller.allocate_pair_removal(
 	targets[target] = false
 end
 
-function masking_controller.compact_members()
-	-- TODO: implement
+local function remap_bitmask(
+	bitmask: Bitmask,
+	from: { [Member]: number },
+	target: { [Member]: number },
+	size: number?
+): Bitmask
+	local result = utils.bitmask.create(size)
+	for member, index in target do
+		local old_index = from[member]
+		if old_index then
+			local old_bit = bitmask:get(old_index)
+			if old_bit then
+				result:set(index, old_bit)
+			else
+				result:clear(index)
+			end
+		end
+	end
+	return result
+end
+
+function masking_controller.merge_storages(
+	masking: MaskingController,
+	old_storage: StorageGroup,
+	new_storage: StorageGroup
+)
+	for entity, active in old_storage.active do
+		local new_active = get_or_set_active(new_storage, entity)
+		merge_component_actives(new_active, active)
+
+		if active.is_entity_mask then
+			local lookup = masking.lookups.entities[entity]
+			lookup.storage_group = new_storage
+			new_active.is_entity_mask = true
+		end
+	end
+	for entity, components in old_storage.shared_with do
+		for component_type, components in components do
+			for component in components do
+				set_component_index_entry(new_storage.shared_with, entity, component, component_type, true)
+
+				local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
+				if lookup ~= nil then
+					lookup.storage_group = new_storage
+				end
+			end
+		end
+	end
+	for entity, changes in old_storage.changes.changed do
+		local new_changes = get_or_set_changes(new_storage, entity)
+		merge_component_changes(new_changes, changes)
+	end
+	for entity in old_storage.deletions.entities do
+		new_storage.deletions.entities[entity] = true
+	end
+	for entity, components in old_storage.deletions.components do
+		for component_type, components in components do
+			for component in components do
+				set_component_index_entry(new_storage.deletions.components, entity, component, component_type, true)
+			end
+		end
+	end
+end
+
+function masking_controller.compact_members(masking: MaskingInternal)
+	-- we dont recompute as nothing should've changed
+	-- so this should be hopefully quite cheap
+	local old_indexes = masking.member_indexes
+	local new_indexes: { [Member]: number } = {}
+
+	local new_count = 0
+	for member in old_indexes do
+		new_indexes[member] = new_count
+		new_count += 1
+	end
+	masking.member_indexes = new_indexes
+	masking.member_count = new_count
+
+	for entity, lookup in masking.lookups.entities do
+		local generator = lookup.generator
+		generator.bitmask = remap_bitmask(generator.bitmask, old_indexes, new_indexes, new_count)
+	end
+
+	for entity, lookup in masking.lookups.components do
+		for component_type, lookups in lookup do
+			for component, lookup in lookups do
+				local generator = lookup.generator
+				generator.bitmask = remap_bitmask(generator.bitmask, old_indexes, new_indexes, new_count)
+
+				local band_generator = lookup.band_generator
+				band_generator.bitmask = remap_bitmask(band_generator.bitmask, old_indexes, new_indexes, new_count)
+			end
+		end
+	end
+
+	local all = masking.all_members_generator
+	local unactive = masking.unactive_members_generator
+	local active = masking.active_members_generator
+
+	all.bitmask = remap_bitmask(all.bitmask, old_indexes, new_indexes, new_count)
+	unactive.bitmask = remap_bitmask(unactive.bitmask, old_indexes, new_indexes, new_count)
+	active.bitmask = remap_bitmask(active.bitmask, old_indexes, new_indexes, new_count)
+
+	local new_storages: Storages = {}
+
+	for hash, storage in masking.storages do
+		local new_bitmask = remap_bitmask(storage.mask.bitmask, old_indexes, new_indexes, new_count)
+		storage.mask.bitmask = new_bitmask
+		local new_hash = new_bitmask:tostring()
+		storage.mask.hash = new_hash
+		storage.mask.members = masking:get_members_from_bitmask(new_bitmask)
+
+		local existing = new_storages[new_hash]
+		if existing then
+			masking:merge_storages(storage, existing)
+		else
+			new_storages[new_hash] = storage
+		end
+	end
 end
 
 function masking_controller.create_generator_from_filter(masking: MaskingInternal, filter: MemberFilter): MaskGenerator
@@ -1131,6 +1252,10 @@ function masking_controller.register_member(masking: MaskingInternal, member: Me
 	masking.unactive_members_generator.bitmask:set(current)
 	masking.all_members_generator.bitmask:set(current)
 	masking.active_members_generator:compute()
+
+	if masking.member_count >= masking.compact_count then
+		masking:compact_members()
+	end
 end
 
 function masking_controller.unregister_member(masking: MaskingInternal, member: Member)
@@ -1170,6 +1295,7 @@ local function create(): MaskingController
 
 	self.member_indexes = {}
 	self.member_count = 0
+	self.compact_count = 100
 	self.storages = {}
 	self.lookups = {
 		entities = {},

@@ -8,11 +8,11 @@ local server = require(script.server)
 export type Server = server.Server
 export type Client = client.Client
 
-export type Replecs = {
+export type ReplecsLib = {
 	server: Server,
 	client: Client,
 
-	after_replication: (self: Replecs, callback: () -> ()) -> (),
+	after_replication: (self: ReplecsLib, callback: () -> ()) -> (),
 }
 
 type MemberFilter = {
@@ -31,6 +31,7 @@ local replecs = {
 	custom_id = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
 	__alive_tracking__ = jecs.tag(),
 }
+
 replecs.__index = replecs
 replecs.Serdes = replecs.serdes
 replecs.Bytespan = replecs.bytespan
@@ -58,8 +59,8 @@ function replecs.create_client(world: jecs.World?): Client
 	return client.create(world, replecs)
 end
 
-function replecs.create(world: jecs.World?): Replecs
-	local lib = {} :: Replecs
+function replecs.create(world: jecs.World?): ReplecsLib
+	local lib = {} :: ReplecsLib
 
 	if RunService:IsServer() then
 		lib.server = server.create(world, replecs)
@@ -71,7 +72,7 @@ function replecs.create(world: jecs.World?): Replecs
 	return setmetatable(lib, replecs) :: any
 end
 
-function replecs.after_replication(lib: Replecs, callback: () -> ())
+function replecs.after_replication(lib: ReplecsLib, callback: () -> ())
 	local lib_client = lib.client
 	if lib_client then
 		lib_client:after_replication(callback)

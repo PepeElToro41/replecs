@@ -898,7 +898,7 @@ return function()
 			end
 		end
 
-		local function activate_members(members)
+		local function activate_members(members: { MemberData })
 			for _, member in members do
 				server.masking:activate_member(member)
 			end
