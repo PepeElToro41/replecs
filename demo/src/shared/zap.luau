@@ -123,10 +123,14 @@ if not RunService:IsRunning() then
 			Call = noop
 		}),
 		OnUnreliableUpdates = table.freeze({
-			SetCallback = noop
+			Iter = function()
+				return noop
+			end
 		}),
 		OnReliableUpdates = table.freeze({
-			SetCallback = noop
+			Iter = function()
+				return noop
+			end
 		}),
 	}) :: Events
 end
@@ -203,13 +207,39 @@ reliable.OnClientEvent:Connect(function(buff, inst)
 			else
 				value2 = nil
 			end
-			if reliable_events[0] then
-				task.spawn(reliable_events[0], value, value2)
-			else
-				table.insert(reliable_event_queue[0], { value, value2 })
-				if #reliable_event_queue[0] > 64 then
-					warn(`[ZAP] {#reliable_event_queue[0]} events in queue for OnReliableUpdates. Did you forget to attach a listener?`)
+			local queue = polling_queues_reliable[0]
+			-- `arguments` is a circular buffer.
+			-- `queue.arguments` can be replaced when it needs to grow.
+			-- It's indexed like `arguments[((index - 1) % queue_size) + 1] because Luau has 1-based indexing.
+			local arguments = queue.arguments
+			local queue_size = queue.queue_size
+			local read_cursor = queue.read_cursor
+			local write_cursor = queue.write_cursor
+			local unwrapped_write_end_cursor = write_cursor + 2
+			local write_end_cursor = ((unwrapped_write_end_cursor - 1) % queue_size) + 1
+			if (write_cursor < read_cursor and write_end_cursor >= read_cursor) or (unwrapped_write_end_cursor > queue_size and write_end_cursor >= read_cursor) then
+				local new_queue_size = queue_size * 2
+				local new_arguments = table.create(new_queue_size)
+				local new_write_cursor
+				if write_cursor >= read_cursor then
+					table.move(arguments, read_cursor, write_cursor, 1, new_arguments)
+					new_write_cursor = write_cursor - read_cursor + 1
+				else
+					table.move(arguments, read_cursor, queue_size, 1, new_arguments)
+					table.move(arguments, 1, write_cursor, (queue_size - read_cursor) + 1, new_arguments)
+					new_write_cursor = write_cursor + (queue_size - read_cursor) + 1
 				end
+				queue.arguments = new_arguments
+				queue.queue_size = new_queue_size
+				queue.read_cursor = 1
+				queue.write_cursor = new_write_cursor
+				new_arguments[new_write_cursor] = value
+				new_arguments[((new_write_cursor + 1 - 1) % new_queue_size) + 1] = value2
+				queue.write_cursor = ((write_cursor + 1) % new_queue_size) + 1
+			else
+				arguments[write_cursor] = value
+				arguments[((write_cursor + 1 - 1) % queue_size) + 1] = value2
+				queue.write_cursor = ((write_cursor + 1) % queue_size) + 1
 			end
 		elseif id == 1 then
 			local call_id = buffer.readu8(incoming_buff, read(1))
@@ -289,15 +319,86 @@ unreliable[1].OnClientEvent:Connect(function(buff, inst)
 	else
 		value2 = nil
 	end
-	if unreliable_events[0] then
-		task.spawn(unreliable_events[0], value, value2)
-	else
-		table.insert(unreliable_event_queue[0], { value, value2 })
-		if #unreliable_event_queue[0] > 64 then
-			warn(`[ZAP] {#unreliable_event_queue[0]} events in queue for OnUnreliableUpdates. Did you forget to attach a listener?`)
+	local queue = polling_queues_unreliable[0]
+	-- `arguments` is a circular buffer.
+	-- `queue.arguments` can be replaced when it needs to grow.
+	-- It's indexed like `arguments[((index - 1) % queue_size) + 1] because Luau has 1-based indexing.
+	local arguments = queue.arguments
+	local queue_size = queue.queue_size
+	local read_cursor = queue.read_cursor
+	local write_cursor = queue.write_cursor
+	local unwrapped_write_end_cursor = write_cursor + 2
+	local write_end_cursor = ((unwrapped_write_end_cursor - 1) % queue_size) + 1
+	if (write_cursor < read_cursor and write_end_cursor >= read_cursor) or (unwrapped_write_end_cursor > queue_size and write_end_cursor >= read_cursor) then
+		local new_queue_size = queue_size * 2
+		local new_arguments = table.create(new_queue_size)
+		local new_write_cursor
+		if write_cursor >= read_cursor then
+			table.move(arguments, read_cursor, write_cursor, 1, new_arguments)
+			new_write_cursor = write_cursor - read_cursor + 1
+		else
+			table.move(arguments, read_cursor, queue_size, 1, new_arguments)
+			table.move(arguments, 1, write_cursor, (queue_size - read_cursor) + 1, new_arguments)
+			new_write_cursor = write_cursor + (queue_size - read_cursor) + 1
 		end
+		queue.arguments = new_arguments
+		queue.queue_size = new_queue_size
+		queue.read_cursor = 1
+		queue.write_cursor = new_write_cursor
+		new_arguments[new_write_cursor] = value
+		new_arguments[((new_write_cursor + 1 - 1) % new_queue_size) + 1] = value2
+		queue.write_cursor = ((write_cursor + 1) % new_queue_size) + 1
+	else
+		arguments[write_cursor] = value
+		arguments[((write_cursor + 1 - 1) % queue_size) + 1] = value2
+		queue.write_cursor = ((write_cursor + 1) % queue_size) + 1
 	end
 end)
+
+polling_queues_unreliable[0] = {
+	arguments = table.create(200),
+	queue_size = 200,
+	read_cursor = 1,
+	write_cursor = 1,
+	iterator = function()
+		local queue = polling_queues_unreliable[0]
+		local index = 0
+		return function()
+			index += 1
+			if queue.read_cursor == queue.write_cursor then
+				return nil
+			end
+			local arguments = queue.arguments
+			local read_cursor = queue.read_cursor
+			local queue_size = queue.queue_size
+			local value_1_buf, value_2_variants = arguments[read_cursor], arguments[(read_cursor % queue_size) + 1]
+			queue.read_cursor = ((queue.read_cursor + 1) % queue.queue_size) + 1
+			return index, value_1_buf, value_2_variants
+		end
+	end,
+}
+polling_queues_reliable[0] = {
+	arguments = table.create(200),
+	queue_size = 200,
+	read_cursor = 1,
+	write_cursor = 1,
+	iterator = function()
+		local queue = polling_queues_reliable[0]
+		local index = 0
+		return function()
+			index += 1
+			if queue.read_cursor == queue.write_cursor then
+				return nil
+			end
+			local arguments = queue.arguments
+			local read_cursor = queue.read_cursor
+			local queue_size = queue.queue_size
+			local value_1_buf, value_2_variants = arguments[read_cursor], arguments[(read_cursor % queue_size) + 1]
+			queue.read_cursor = ((queue.read_cursor + 1) % queue.queue_size) + 1
+			return index, value_1_buf, value_2_variants
+		end
+	end,
+}
 table.freeze(polling_queues_reliable)
 table.freeze(polling_queues_unreliable)
 
@@ -320,28 +421,10 @@ local returns = {
 		end,
 	},
 	OnUnreliableUpdates = {
-		SetCallback = function(Callback: (buf: (buffer), variants: (({ ({ ((unknown)) }) })?)) -> ()): () -> ()
-			unreliable_events[0] = Callback
-			for _, value in unreliable_event_queue[0] do
-				task.spawn(Callback, unpack(value))
-			end
-			unreliable_event_queue[0] = {}
-			return function()
-				unreliable_events[0] = nil
-			end
-		end,
+		Iter = polling_queues_unreliable[0].iterator :: () -> (() -> (number, (buffer), (({ ({ ((unknown)) }) })?))),
 	},
 	OnReliableUpdates = {
-		SetCallback = function(Callback: (buf: (buffer), variants: (({ ({ ((unknown)) }) })?)) -> ()): () -> ()
-			reliable_events[0] = Callback
-			for _, value in reliable_event_queue[0] do
-				task.spawn(Callback, unpack(value))
-			end
-			reliable_event_queue[0] = {}
-			return function()
-				reliable_events[0] = nil
-			end
-		end,
+		Iter = polling_queues_reliable[0].iterator :: () -> (() -> (number, (buffer), (({ ({ ((unknown)) }) })?))),
 	},
 }
 type Events = typeof(returns)
