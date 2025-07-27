@@ -1,12 +1,6 @@
 {
-	"name": "replecs",
-	"tree": {
-        "$className": "Folder",
-        "roblox_packages": {
-            "$path": "roblox_packages",
-            "replecs": {
-                "$path": "src"
-            }
-        }
-	}
+   "name": "replecs",
+   "tree": {
+      "$path": "src"
+   }
 }
