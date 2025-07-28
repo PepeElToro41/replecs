@@ -244,7 +244,7 @@ function masking_controller.create_new_storage(
 end
 
 local function is_include_filter(filter: MemberFilter): boolean
-	for player, allow in filter do
+	for _, allow in filter do
 		if allow then
 			return true
 		else
@@ -730,8 +730,8 @@ function masking_controller.propagate_entity_addition(masking: MaskingInternal, 
 	if entity_lookup then
 		entity_lookup.storage_group.changes.added[entity] = true
 
-		for component_type, lookups in entity_lookup.filtered_components do
-			for component, lookup in lookups do
+		for _, lookups in entity_lookup.filtered_components do
+			for _, lookup in lookups do
 				lookup.storage_group.changes.added[entity] = true
 			end
 		end
@@ -1098,8 +1098,8 @@ function masking_controller.merge_storages(
 			new_active.is_entity_mask = true
 		end
 	end
-	for entity, components in old_storage.shared_with do
-		for component_type, components in components do
+	for entity, shared_components in old_storage.shared_with do
+		for component_type, components in shared_components do
 			for component in components do
 				set_component_index_entry(new_storage.shared_with, entity, component, component_type, true)
 
@@ -1117,8 +1117,8 @@ function masking_controller.merge_storages(
 	for entity in old_storage.deletions.entities do
 		new_storage.deletions.entities[entity] = true
 	end
-	for entity, components in old_storage.deletions.components do
-		for component_type, components in components do
+	for entity, deleted_components in old_storage.deletions.components do
+		for component_type, components in deleted_components do
 			for component in components do
 				set_component_index_entry(new_storage.deletions.components, entity, component, component_type, true)
 			end
@@ -1140,12 +1140,12 @@ function masking_controller.compact_members(masking: MaskingInternal)
 	masking.member_indexes = new_indexes
 	masking.member_count = new_count
 
-	for entity, entity_lookup in masking.lookups.entities do
+	for _, entity_lookup in masking.lookups.entities do
 		local generator = entity_lookup.generator
 		generator.bitmask = remap_bitmask(generator.bitmask, old_indexes, new_indexes, new_count)
 
-		for component_type, lookups in entity_lookup.filtered_components do
-			for component, component_lookup in lookups do
+		for _, lookups in entity_lookup.filtered_components do
+			for _, component_lookup in lookups do
 				local component_generator = component_lookup.generator
 				generator.bitmask = remap_bitmask(component_generator.bitmask, old_indexes, new_indexes, new_count)
 
@@ -1165,7 +1165,7 @@ function masking_controller.compact_members(masking: MaskingInternal)
 
 	local new_storages: Storages = {}
 
-	for hash, storage in masking.storages do
+	for _, storage in masking.storages do
 		local new_bitmask = remap_bitmask(storage.mask.bitmask, old_indexes, new_indexes, new_count)
 		storage.mask.bitmask = new_bitmask
 		local new_hash = new_bitmask:tostring()
