@@ -20,3 +20,5 @@ out
 
 demo/src/server/zap.luau
 demo/src/client/zap.luau
+
+.zed
