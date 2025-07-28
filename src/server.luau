@@ -195,7 +195,7 @@ local function track_component(server: Server, component: Entity<any>)
 			allocate_pair_addition(server, entity, component, PAIR_SECOND(world, id))
 		end
 	end))
-	hook(hooks.changed(world, component, function(entity, id, value)
+	hook(hooks.changed(world, component, function(entity, _id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -467,14 +467,14 @@ end
 local function create_packet_iterator(packets: { [Player]: MemberPackets })
 	local iterated: Player? = nil
 	local function iterator()
-		local player, packets = next(packets, iterated)
+		local player, data = next(packets, iterated)
 		if not player then
 			return nil :: any
 		end
 		iterated = player
 
-		local combined = combine_packet_outputs(packets.buffers, packets.total_size)
-		return player, combined, packets.variants
+		local combined = combine_packet_outputs(data.buffers, data.total_size)
+		return player, combined, data.variants
 	end
 	return iterator :: () -> (Player, buffer, { { any } })
 end
@@ -562,7 +562,7 @@ local function collect_updates(server: Server)
 		local changed = 0
 		for entity, changes in storage_changes.changed do
 			local total_removed = 0
-			for component, value in changes.removed do
+			for component in changes.removed do
 				write_component_id(server, c, component)
 				total_removed += 1
 			end
@@ -655,7 +655,7 @@ local function collect_unreliable(server: Server)
 			c = new_cursor
 
 			local new_variants = {} :: { { any } }
-			for i = #variants, checkpoint_variants_count + 1, -1 do
+			for _ = #variants, checkpoint_variants_count + 1, -1 do
 				table.insert(new_variants, 1, table.remove(variants))
 			end
 			variants = new_variants
@@ -751,7 +751,7 @@ function init(server: Server, _world: World?)
 		table.insert(server.hooked, unhook)
 	end
 
-	hook(hooks.added(world, components.networked, function(entity, id, filter)
+	hook(hooks.added(world, components.networked, function(entity, _id, filter)
 		masking:unregister_stop_entity(entity)
 		masking:start_entity(entity, filter)
 		masking:propagate_entity_addition(entity)
@@ -760,7 +760,7 @@ function init(server: Server, _world: World?)
 		server.track_info.entities[entity] = true
 		track_entity_lifetime(server, entity)
 	end))
-	hook(hooks.changed(world, components.networked, function(entity, id, filter)
+	hook(hooks.changed(world, components.networked, function(entity, _id, filter)
 		masking:set_entity(entity, filter)
 	end))
 	hook(hooks.removed(world, components.networked, function(entity)
@@ -859,7 +859,7 @@ function init(server: Server, _world: World?)
 			utils.logerror "unreliable should be used with a pair relationship"
 		end
 		local component = PAIR_SECOND(world, id)
-		untrack_entity_component(server, entity, component, COMPONENT_TYPES.unreliable)
+		untrack_entity_component(server, entity, component)
 		masking:register_stop_component(entity, component, COMPONENT_TYPES.unreliable)
 		masking:stop_component(entity, component, COMPONENT_TYPES.unreliable)
 	end))
@@ -876,7 +876,7 @@ function init(server: Server, _world: World?)
 
 		server.custom_ids[entity] = target
 	end))
-	hook(hooks.removed(world, components.custom_id, function(entity, id)
+	hook(hooks.removed(world, components.custom_id, function(entity)
 		server.custom_ids[entity] = nil
 	end))
 
