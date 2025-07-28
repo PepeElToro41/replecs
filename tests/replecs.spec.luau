@@ -201,7 +201,7 @@ TEST("mask generators", function()
 		local called = 0
 
 		generator.subscribed = function()
-			called = called + 1
+			called += 1
 			CHECK(generator.bitmask:tostring() == check_mask)
 		end
 		generator:run_subscribed()
@@ -224,7 +224,7 @@ TEST("mask generators", function()
 		local check_mask = ""
 		local called = 0
 		generator.subscribed = function()
-			called = called + 1
+			called += 1
 			local s = generator.bitmask:tostring()
 			if s ~= check_mask then
 				print(s)
@@ -251,7 +251,7 @@ TEST("mask generators", function()
 		}
 		local called = 0
 		generator.subscribed = function()
-			called = called + 1
+			called += 1
 		end
 		masking:activate_member(m0)
 		generator:destroy()
