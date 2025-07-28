@@ -20,8 +20,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Packages
-        run: pesde install
+      - name: Setup Pesde
+        uses: lumin-org/setup-pesde@v0.4.1
 
       - name: Build
         run: rojo build standalone.project.json -o replecs.rbxm
@@ -76,8 +76,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Packages
-        run: pesde install
+      - name: Setup Pesde
+        uses: lumin-org/setup-pesde@v0.4.1
 
       - name: Run Unit Tests
         id: run_tests
