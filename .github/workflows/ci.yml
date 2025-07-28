@@ -20,10 +20,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Packages
+        run: pesde install
+
       - name: Build
-        run: |
-          pesde install
-          rojo build standalone.project.json -o replecs.rbxm
+        run: rojo build standalone.project.json -o replecs.rbxm
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -74,6 +75,9 @@ jobs:
         uses: CompeyDev/setup-rokit@v0.1.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Packages
+        run: pesde install
 
       - name: Run Unit Tests
         id: run_tests
