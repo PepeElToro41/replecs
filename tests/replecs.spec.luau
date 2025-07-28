@@ -282,7 +282,8 @@ return function()
 				for entity, components in storage.shared_with do
 					for component_type, components in components do
 						for component in components do
-							local lookup = masking.lookups.components[entity][component_type][component]
+							local lookup =
+								masking.lookups.entities[entity].filtered_components[component_type][component]
 							expect(lookup.storage_group).to.be.equal(storage)
 						end
 					end
@@ -312,7 +313,7 @@ return function()
 		end
 		local function check_component_mask(entity: jecs.Entity, component: jecs.Entity, hash: string)
 			local storage = masking.storages[hash]
-			local lookup = masking.lookups.components[entity][1][component]
+			local lookup = masking.lookups.entities[entity].filtered_components[1][component]
 
 			expect(lookup).to.be.ok()
 			expect(lookup.storage_group).to.be.equal(storage)
@@ -345,9 +346,7 @@ return function()
 
 			expect(entity_lookup.storage_group).to.be.equal(masking.storages[hash])
 
-			if masking.lookups.components[entity] then
-				expect(masking.lookups.components[entity][1][component]).to.never.be.ok()
-			end
+			expect(entity_lookup.filtered_components[1][component]).to.never.be.ok()
 			expect(entity_lookup.storage_group.active[entity].components[1][component]).to.be.ok()
 			expect(entity_lookup.storage_group.active[entity].is_entity_mask).to.be.equal(true)
 
@@ -359,9 +358,9 @@ return function()
 		end
 
 		local function check_component_is_not_active(entity: jecs.Entity, component: jecs.Entity)
-			local entities = masking.lookups.components[entity]
-			if entities then
-				expect(entities[1][component]).to.never.be.ok()
+			local entity_lookup = masking.lookups.entities[entity]
+			if entity_lookup then
+				expect(entity_lookup.filtered_components[1][component]).to.never.be.ok()
 			end
 
 			for hash, check_storage in masking.storages do
@@ -531,7 +530,7 @@ return function()
 			})
 			check_component_mask(entity, component, mask_hash { 0, 1 })
 		end)
-		it("should pospone a component if entity is not active", function()
+		it("should postpone a component if entity is not active", function()
 			local member0, member1, member2 = register_members(masking)
 			active_all_members(masking)
 
@@ -543,9 +542,11 @@ return function()
 				[member1] = true,
 			})
 			check_component_is_not_active(entity, component)
-			expect(masking.lookups.posponed[entity][1][component]).to.be.ok()
+			expect(masking.lookups.postponed[entity][1][component]).to.be.ok()
 
-			masking:start_component(entity, component, 1, {
+			print("MASKING", masking)
+
+			masking:set_component(entity, component, 1, {
 				[member0] = true,
 			})
 			masking:start_entity(entity, {
@@ -553,6 +554,7 @@ return function()
 				[member1] = true,
 				[member2] = true,
 			})
+			print("MASKING 2", masking)
 			check_component_mask(entity, component, mask_hash { 0 })
 		end)
 		it("should merge component with entity when the filter gets removed", function()
@@ -722,6 +724,25 @@ return function()
 			check_component_is_not_active(entity, component)
 			check_entity_mask(entity, mask_hash { 0, 1, 2 })
 		end)
+		it("should postpone a component with no filter", function()
+			local member0, member1, member2, member3 = register_members(masking)
+			active_all_members(masking)
+
+			local entity = world:entity()
+			local component1 = world:component()
+			local component2 = world:component()
+
+			masking:start_component(entity, component1, 1, nil)
+			masking:start_component(entity, component2, 1, nil)
+
+			masking:start_entity(entity, {
+				[member0] = true,
+				[member1] = true,
+				[member2] = true,
+			})
+			check_component_is_merged(entity, component1, mask_hash { 0, 1, 2 })
+			check_component_is_merged(entity, component2, mask_hash { 0, 1, 2 })
+		end)
 		it("should be able to apply the same filter to an entity", function()
 			local member0, member1 = register_members(masking)
 			active_all_members(masking)
@@ -771,7 +792,7 @@ return function()
 			check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
 		end)
 		it("should merge two masks correctly", function() end)
-		it("should pospone all components when an entity stops", function() end)
+		it("should postpone all components when an entity stops", function() end)
 	end)
 	describe("replecs server", function() end)
 	describe("replecs client", function() end)

@@ -19,7 +19,7 @@ task.spawn(function()
 		world:set(new_cube, c.unix, os.clock())
 
 		world:add(new_cube, replecs.networked)
-		world:add(new_cube, jecs.pair(replecs.unreliable, c.transform))
+		world:add(new_cube, jecs.pair(replecs.reliable, c.transform))
 		world:add(new_cube, jecs.pair(replecs.reliable, c.color))
 		world:add(new_cube, jecs.pair(replecs.reliable, c.cube))
 		world:add(new_cube, jecs.pair(replecs.reliable, c.size))

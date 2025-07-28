@@ -800,6 +800,7 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
 		end
+
 		local component = PAIR_SECOND(world, id)
 		local component_type = untrack_entity_component(server, entity, component)
 		if not component_type then

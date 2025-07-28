@@ -17,3 +17,6 @@ Packages/
 node_modules
 include
 out
+
+demo/src/server/zap.luau
+demo/src/client/zap.luau

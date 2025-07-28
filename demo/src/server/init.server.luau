@@ -1,4 +1,6 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
+require(ReplicatedStorage.packages.replecs)
+
 local players = require(ReplicatedStorage.code.players)
 local systems_order = require(script.systems_order)
 local start = require(ReplicatedStorage.code.start)

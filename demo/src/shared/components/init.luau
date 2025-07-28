@@ -46,6 +46,7 @@ world:set(components.transform, replecs.serdes, {
 		return CFrame.new(buffer.readf32(buf, 0), buffer.readf32(buf, 4), buffer.readf32(buf, 8))
 	end,
 })
+
 world:set(components.transform, replecs.bytespan, 12)
 
 add_names(components)
