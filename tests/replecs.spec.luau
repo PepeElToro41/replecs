@@ -6,6 +6,8 @@ local jecs = require "@pkg/jecs"
 local observers = require "./observers"
 local testkit = require "./testkit"
 
+type Entity<T = any> = jecs.Entity<T>
+
 type MemberData = {
 	world: observers.PatchedWorld,
 	client: client.Client,

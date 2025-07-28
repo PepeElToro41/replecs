@@ -5,13 +5,9 @@ includes = ["pesde.toml", "README.md", "LICENSE.md", "src"]
 license = "MIT"
 repository = "https://github.com/PepeElToro41/replecs"
 version = "0.0.1"
-workspace_members = ["demo"]
 
 [indices]
 default = "https://github.com/pesde-pkg/index"
-
-[wally_indices]
-default = "https://github.com/UpliftGames/wally-index"
 
 [target]
 environment = "luau"
