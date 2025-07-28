@@ -3,7 +3,7 @@
 format = 2
 name = "pepeeltoro41/replecs"
 version = "0.0.1"
-target = "roblox"
+target = "luau"
 
 [workspace."pepeeltoro41/replecs_demo"]
 roblox = "demo"
@@ -73,6 +73,13 @@ index_url = "https://github.com/pesde-pkg/index"
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
 
+[graph."marked/jecs@0.9.0-rc.6 luau"]
+direct = ["jecs", { name = "marked/jecs", version = "^0.9.0-rc.5", index = "default" }, "standard"]
+
+[graph."marked/jecs@0.9.0-rc.6 luau".pkg_ref]
+ref_ty = "pesde"
+index_url = "https://github.com/pesde-pkg/index"
+
 [graph."pesde/rojo@7.5.1 lune".dependencies]
 core = ["pesde/toolchainlib@0.1.15 lune", "standard"]
 option = ["lukadev_0/option@1.2.0 lune", "standard"]
@@ -129,10 +136,3 @@ option = [{ name = "lukadev_0/option", version = "^1.2.0", index = "https://gith
 pathfs = [{ name = "jiwonz/pathfs", version = "^0.3.0", index = "https://github.com/pesde-pkg/index" }, "standard"]
 result = [{ name = "lukadev_0/result", version = "^1.2.0", index = "https://github.com/pesde-pkg/index" }, "peer"]
 unzip = [{ name = "0x5eal/unzip", version = "^0.1.0", index = "https://github.com/pesde-pkg/index", target = "luau" }, "standard"]
-
-[graph."wally#ukendio/jecs@0.9.0-rc.5 roblox"]
-direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.9.0-rc.5", index = "default" }, "standard"]
-
-[graph."wally#ukendio/jecs@0.9.0-rc.5 roblox".pkg_ref]
-ref_ty = "wally"
-index_url = "https://github.com/UpliftGames/wally-index"

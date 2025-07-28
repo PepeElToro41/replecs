@@ -1,9 +1,9 @@
 --!native
 --!optimize 2
 
-local jecs = require(script.Parent.Parent.jecs)
-local utils = require(script.Parent.utils)
-local mask_generator = require(script.mask_generator)
+local jecs = require "../jecs"
+local utils = require "./utils"
+local mask_generator = require "@self/mask_generator"
 
 type Entity<T = any> = jecs.Entity<T>
 
@@ -894,7 +894,6 @@ function masking_controller.set_component(
 	if lookup == nil then
 		return
 	end
-	print("LOOKUP", lookup, "TYPE", component_type)
 	local component_lookup = lookup.filtered_components[component_type][component]
 
 	if filter == nil then
