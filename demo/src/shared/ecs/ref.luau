@@ -53,7 +53,7 @@ function unlist(key: any)
 	if not key then
 		return
 	end
-	refs[world][key] = nil
+	refs[key] = nil
 end
 
 local metatable = {
