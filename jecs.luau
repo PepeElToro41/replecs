@@ -1,4 +1,4 @@
-local module = require "./luau_packages/jecs_luau"
+local module = require "./luau_packages/jecs"
 export type Archetype = module.Archetype
 export type QueryInner = module.QueryInner
 export type Entity<T = any> = module.Entity<T>

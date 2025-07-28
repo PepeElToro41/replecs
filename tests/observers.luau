@@ -1,5 +1,4 @@
-local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local jecs = require(ReplicatedStorage.roblox_packages.jecs)
+local jecs = require "@pkg/jecs"
 
 type Observer<T...> = {
 	callback: (jecs.Entity) -> (),
