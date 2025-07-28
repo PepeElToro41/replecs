@@ -73,6 +73,13 @@ index_url = "https://github.com/pesde-pkg/index"
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
 
+[graph."marked/jecs@0.9.0-rc.6 luau"]
+direct = ["jecs_luau", { name = "marked/jecs", version = "^0.9.0-rc.5", index = "default", target = "luau" }, "dev"]
+
+[graph."marked/jecs@0.9.0-rc.6 luau".pkg_ref]
+ref_ty = "pesde"
+index_url = "https://github.com/pesde-pkg/index"
+
 [graph."pesde/rojo@7.5.1 lune".dependencies]
 core = ["pesde/toolchainlib@0.1.15 lune", "standard"]
 option = ["lukadev_0/option@1.2.0 lune", "standard"]

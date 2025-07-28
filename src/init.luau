@@ -1,9 +1,8 @@
-local RunService = game:GetService "RunService"
-local jecs = require(script.Parent.jecs)
-local common = require(script.common)
+local jecs = require "./jecs"
+local common = require "@self/common"
 
-local client = require(script.client)
-local server = require(script.server)
+local client = require "@self/client"
+local server = require "@self/server"
 
 export type Server = server.Server
 export type Client = client.Client
@@ -60,6 +59,9 @@ function replecs.create_client(world: jecs.World?): Client
 end
 
 function replecs.create(world: jecs.World?): ReplecsLib
+	assert(game, "This is a Roblox specific function")
+
+	local RunService = game:GetService "RunService"
 	local lib = {} :: ReplecsLib
 
 	if RunService:IsServer() then

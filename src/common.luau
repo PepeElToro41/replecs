@@ -1,4 +1,4 @@
-local jecs = require(script.Parent.Parent.jecs)
+local jecs = require "../jecs"
 
 export type PlayerFilter = {
 	[Player]: boolean,

@@ -1,10 +1,10 @@
 --!optimize 2
 --!native
 
-local jecs = require(script.Parent.Parent.jecs)
-local utils = require(script.Parent.utils)
-local common = require(script.Parent.common)
-local masking_controller = require(script.Parent.masking)
+local jecs = require "../jecs"
+local utils = require "./utils"
+local common = require "./common"
+local masking_controller = require "./masking"
 
 type Cursor = utils.Cursor
 

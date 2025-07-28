@@ -1,8 +1,8 @@
 --!native
 --!optimize 2
 
-local jecs = require(script.Parent.Parent.jecs)
-local common = require(script.Parent.common)
+local jecs = require "../jecs"
+local common = require "./common"
 
 type World = jecs.World
 type Entity<T = any> = jecs.Entity<T>

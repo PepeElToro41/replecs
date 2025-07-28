@@ -24,6 +24,7 @@ lib = "src/init.luau"
 
 [dev_dependencies]
 scripts = { name = "pesde/scripts_rojo", version = "^0.1.0", target = "lune" }
+jecs_luau = { name = "marked/jecs", version = "^0.9.0-rc.5", target = "luau" }
 
 [dependencies]
 jecs = { wally = "ukendio/jecs", version = "^0.9.0-rc.5" }
