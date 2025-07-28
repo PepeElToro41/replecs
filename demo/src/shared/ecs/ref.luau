@@ -2,13 +2,14 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local Jecs = require(ReplicatedStorage.packages.jecs)
 local world = require(ReplicatedStorage.code.world)
+local jecs = require(ReplicatedStorage.packages.jecs)
 local refs: { [any]: any } = {}
 
 --- Gets an entity the given key references to.
 --- If the key is nil, an entirely new entity is created and returned.
 --- If the key doesn't reference an entity, a new entity is made for it to reference and returned.
 --- @param key any
-local function ref(key: any, initer: ((entity: Jecs.Entity) -> ())?)
+local function ref(key: any, initer: ((entity: Jecs.Entity) -> ())?): jecs.Entity
 	if not key then
 		return world:entity()
 	end

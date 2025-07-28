@@ -15,7 +15,7 @@ local replicator = require(script.replicator)
 import_paths(script.systems)
 import_paths(ReplicatedStorage.code.systems)
 
-replicator:init(world)
+replicator:init()
 start(systems_order)
 
 import_paths(script.controllers)

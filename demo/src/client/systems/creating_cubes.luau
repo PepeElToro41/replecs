@@ -16,6 +16,9 @@ function CREATING_CUBES()
 
 		new_cube.Parent = workspace
 		world:set(entity, c.basepart, new_cube)
+		world:set(entity, c.cleanup, function()
+			new_cube:Destroy()
+		end)
 	end
 end
 
