@@ -575,6 +575,7 @@ return function()
 			})
 			check_component_mask(entity, component, mask_hash { 0, 1 })
 			masking:set_component(entity, component, 1, nil)
+			print("MASK", masking)
 			check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
 		end)
 		it("should separate a component when a filter gets added when it wasnt added", function()
@@ -589,7 +590,7 @@ return function()
 				[member2] = true,
 			})
 
-			masking:set_component(entity, component, 0, nil)
+			masking:set_component(entity, component, 1, nil)
 			masking:set_component(entity, component, 1, {
 				[member0] = true,
 				[member1] = true,

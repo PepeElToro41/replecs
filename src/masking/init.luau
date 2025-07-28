@@ -476,8 +476,7 @@ function masking_controller.merge_component_filter(
 	end
 
 	if component_lookup ~= nil then
-		local current_storage = component_lookup.storage_group
-		masking:move_component_storage(
+		local new_storage = masking:move_component_storage(
 			entity,
 			component,
 			component_type,
@@ -485,7 +484,7 @@ function masking_controller.merge_component_filter(
 			entity_lookup.generator.bitmask
 		)
 		entity_lookup.filtered_components[component_type][component] = nil
-		remove_component_index_entry(current_storage.shared_with, entity, component, component_type)
+		remove_component_index_entry(new_storage.shared_with, entity, component, component_type)
 	else
 		get_or_set_component_active(entity_lookup.storage_group.active[entity], component, component_type)
 	end
@@ -895,6 +894,7 @@ function masking_controller.set_component(
 	if lookup == nil then
 		return
 	end
+	print("LOOKUP", lookup, "TYPE", component_type)
 	local component_lookup = lookup.filtered_components[component_type][component]
 
 	if filter == nil then
