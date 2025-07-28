@@ -38,16 +38,16 @@ function cursor.from(buf: buffer): Cursor
 	}
 end
 
-function cursor.tryalloc(cursor: Cursor, bytes: number)
-	local buf = cursor.buffer
-	local offset = cursor.offset
+function cursor.tryalloc(c: Cursor, bytes: number)
+	local buf = c.buffer
+	local offset = c.offset
 	local len = buffer.len(buf)
 
 	if len < offset + bytes then
 		local exponent = math.ceil(math.log((bytes + offset) / len, 1.5))
 		local new = buffer.create(len * 1.5 ^ exponent)
 		buffer.copy(new, 0, buf, 0)
-		cursor.buffer = new
+		c.buffer = new
 	end
 end
 
