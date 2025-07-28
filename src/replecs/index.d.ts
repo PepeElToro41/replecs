@@ -25,6 +25,14 @@ declare namespace Replecs {
    }
 
    type MemberFilter = Map<Player, boolean>;
+   type Member = unknown;
+
+   interface MaskingController {
+      register_member(member: Member): void;
+      unregister_member(member: Member): void;
+      active_member(member: Member): void;
+      member_is_active(member: Member): void;
+   }
 
    export interface Components {
       shared: Tag;
@@ -69,12 +77,12 @@ declare namespace Replecs {
       destroy(): void;
 
       get_full(player: Player): LuaTuple<[buffer, any[][]]>;
-      collect_updates(): IterableFunction<LuaTuple<[Player, buffer, any[][]]>>;
-      collect_unreliable(): IterableFunction<
-         LuaTuple<[Player, buffer, any[][]]>
-      >;
+      collect_updates(): () => LuaTuple<[Player, buffer, any[][]]>;
+      collect_unreliable(): () => LuaTuple<[Player, buffer, any[][]]>;
       mark_player_ready(player: Player): void;
       is_player_ready(player: Player): boolean;
+
+      masking: MaskingController;
    }
 
    export interface ReplecsLib {
