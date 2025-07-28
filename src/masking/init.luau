@@ -894,7 +894,6 @@ function masking_controller.set_component(
 	if lookup == nil then
 		return
 	end
-	print("LOOKUP", lookup, "TYPE", component_type)
 	local component_lookup = lookup.filtered_components[component_type][component]
 
 	if filter == nil then
