@@ -72,7 +72,7 @@ local TRACK_TYPES = {
 	tag = 2,
 	pair = 3,
 }
-local MAX_PACKET_SIZE = 10000
+local MAX_PACKET_SIZE = 900
 local ENTITY_ID_TYPES = {
 	entity = 1,
 	custom = 2,
@@ -382,7 +382,7 @@ local function write_entity_id(server: Server, c: Cursor, entity: Entity, varian
 			cursor.writei8(c, ENTITY_ID_TYPES.shared * (multiply or 1))
 		else
 			cursor.writeu40(c, entity :: any)
-			cursor.writei8(c, ENTITY_ID_TYPES.entity * (multiply or 1))
+			cursor.writei8(c, ENTITY_ID_TYPES.entity * (multiply or 1), entity)
 		end
 	end
 end
@@ -431,8 +431,12 @@ local function write_entity(
 	write_entity_id(server, c, entity, variants)
 end
 
+type Packet = {
+	buffer: buffer,
+	variants: { { any } },
+}
 type MemberPackets = {
-	buffers: { buffer },
+	packets: Array<Packet>,
 	variants: { { any } },
 	total_size: number,
 }
@@ -448,13 +452,19 @@ local function append_packet(
 		local member_packets = packets[member]
 
 		if member_packets then
-			table.insert(member_packets.buffers, output)
-			table.insert(member_packets.variants, variants)
+			table.insert(member_packets.packets, {
+				buffer = output,
+				variants = variants,
+			})
 			member_packets.total_size += len
 		else
 			member_packets = {
-				buffers = { output },
-				variants = { variants },
+				packets = {
+					{
+						buffer = output,
+						variants = variants,
+					},
+				},
 				total_size = len,
 			}
 			packets[member] = member_packets :: MemberPackets
@@ -462,21 +472,25 @@ local function append_packet(
 	end
 end
 
-local function combine_packet_outputs(outputs: { buffer }, total_size: number): buffer
+local function combine_packet_outputs(outputs: Array<Packet>, total_size: number): (buffer, { { any } })
 	local combined = buffer.create(total_size + utils.vlq_span(#outputs))
 	local offset = 0
+	local variants = table.create(#outputs) :: { { any } }
 
 	for _, output in outputs do
-		buffer.copy(combined, offset, output)
-		offset += buffer.len(output)
+		buffer.copy(combined, offset, output.buffer)
+		offset += buffer.len(output.buffer)
+		table.insert(variants, output.variants)
 	end
 	cursor.write_vlq({
 		offset = offset,
 		buffer = combined,
 	}, #outputs)
 
-	return combined
+	return combined, variants
 end
+
+type PacketIterator = () -> (Player, buffer, { { any } })
 
 local function create_packet_iterator(packets: { [Player]: MemberPackets })
 	local iterated: Player? = nil
@@ -487,10 +501,48 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets })
 		end
 		iterated = player
 
-		local combined = combine_packet_outputs(data.buffers, data.total_size)
-		return player, combined, data.variants
+		local combined, variants = combine_packet_outputs(data.packets, data.total_size)
+		return player, combined, variants
 	end
-	return iterator :: () -> (Player, buffer, { { any } })
+	return iterator :: PacketIterator
+end
+
+local function create_unreliable_packet_iterator(packets: { [Player]: MemberPackets })
+	return coroutine.wrap(function()
+		for player, data in packets do
+			table.sort(data.packets, function(a, b)
+				return buffer.len(a.buffer) < buffer.len(b.buffer)
+			end)
+			local total_packets = #data.packets
+
+			local current_packet_index = 1
+			while current_packet_index <= total_packets do
+				local sending = {} :: { Packet }
+				local total_size = 0
+
+				while current_packet_index <= total_packets do
+					local packet = data.packets[current_packet_index]
+					local buffer_size = buffer.len(packet.buffer)
+
+					if total_size + buffer_size > MAX_PACKET_SIZE and #sending > 0 then
+						break
+					end
+
+					table.insert(sending, packet)
+					total_size += buffer_size
+					current_packet_index += 1
+
+					if total_size >= MAX_PACKET_SIZE then
+						break
+					end
+				end
+
+				if #sending > 0 then
+					coroutine.yield(player, combine_packet_outputs(sending, total_size))
+				end
+			end
+		end
+	end) :: PacketIterator
 end
 
 local function get_full(server: Server, member: Player): (buffer, { { any } })
@@ -498,8 +550,7 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 	if index == nil then
 		utils.logerror "attempted to replicate for a non registered member"
 	end
-	local buffers: { buffer } = {}
-	local all_variants: { { any } } = {}
+	local packets: Array<Packet> = {}
 	local total_size = 0
 
 	-- maybe edges to quickly find all relevant storages improves performance?
@@ -518,12 +569,14 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		cursor.write_vlq(c, total_entities)
 
 		local output = cursor.close(c)
-		table.insert(buffers, output)
-		table.insert(all_variants, variants)
+		table.insert(packets, {
+			buffer = output,
+			variants = variants,
+		})
 		total_size += buffer.len(output)
 	end
 
-	return combine_packet_outputs(buffers, total_size), all_variants
+	return combine_packet_outputs(packets, total_size)
 end
 
 local function collect_updates(server: Server)
@@ -663,9 +716,9 @@ local function collect_unreliable(server: Server)
 		end
 
 		local function rollback_checkpoint()
-			c.offset = checkpoint_offset
 			local new_cursor = cursor.new()
-			cursor.write_buffer(new_cursor, c.buffer, checkpoint_offset)
+			cursor.write_buffer(new_cursor, c.buffer, checkpoint_offset, c.offset - checkpoint_offset)
+			c.offset = checkpoint_offset
 			c = new_cursor
 
 			local new_variants = {} :: { { any } }
@@ -673,7 +726,6 @@ local function collect_unreliable(server: Server)
 				table.insert(new_variants, 1, table.remove(variants))
 			end
 			variants = new_variants
-
 			total_entities = total_entities - checkpoint_total_entities
 		end
 
@@ -682,7 +734,7 @@ local function collect_unreliable(server: Server)
 				return
 			end
 
-			cursor.write_vlq(c, commit_total_entities)
+			cursor.write_vlq(commit_c, commit_total_entities)
 			local output = cursor.close(commit_c)
 			append_packet(packets, mask_storage.mask.members, output, commit_variants)
 		end
@@ -708,19 +760,17 @@ local function collect_unreliable(server: Server)
 			cursor.write_vlq(c, total_unreliable)
 			write_entity_id(server, c, entity, variants)
 
-			local current_size = c.offset
-			if current_size > MAX_PACKET_SIZE then
+			if c.offset > MAX_PACKET_SIZE then
 				local commit_cursor = c
 				local commit_variants = variants
-				local commit_total_entities = total_entities
 				rollback_checkpoint()
-				commit_checkpoint(commit_cursor, commit_variants, commit_total_entities)
+				commit_checkpoint(commit_cursor, commit_variants, checkpoint_total_entities)
 			end
 		end
 		commit_checkpoint(c, variants, total_entities)
 	end
 
-	return create_packet_iterator(packets)
+	return create_unreliable_packet_iterator(packets)
 end
 
 local function check_created(server: Server)

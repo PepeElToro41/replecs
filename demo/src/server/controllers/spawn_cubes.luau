@@ -5,7 +5,7 @@ local world = require(ReplicatedStorage.code.world)
 local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
 
-local MAX_CUBES = 50
+local MAX_CUBES = 300
 
 function create_cube()
 	local new_cube = world:entity()
@@ -31,7 +31,7 @@ end
 
 task.spawn(function()
 	for i = 1, MAX_CUBES do
-		task.wait()
+		task.wait(0.3)
 		create_cube()
 	end
 end)

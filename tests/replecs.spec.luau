@@ -581,11 +581,9 @@ TEST("member bitmasking", function()
 
 		POST()
 	end
-
 	do
 		CASE "should use the entity filter if no component filter is given"
 		PRE()
-
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 

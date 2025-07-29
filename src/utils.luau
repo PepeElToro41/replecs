@@ -67,6 +67,29 @@ function cursor.write_buffer(c: Cursor, buf: buffer, start: number?, count: numb
 	end
 end
 
+function cursor.print(c: Cursor)
+	local bytes = { string.byte(buffer.tostring(c.buffer), 1, -1) }
+	local offset = 7
+	for i = 1, c.offset do
+		local byte = bytes[i]
+		local digits = if byte == 0 then 1 else math.ceil(math.log10(1 + byte))
+		offset += digits + 1
+	end
+
+	local last_byte = bytes[c.offset + 1]
+	if last_byte then
+		local lastDigits = if last_byte == 0 then 1 else math.ceil(math.log10(1 + last_byte))
+		offset += lastDigits // 2
+	end
+	bytes[c.offset + 1] = `[{bytes[c.offset + 1] :: number}]` :: any
+
+	if #bytes == 0 or c.offset == buffer.len(c.buffer) then
+		table.insert(bytes, " " :: any)
+	end
+
+	return `Pos: {c.offset} / {buffer.len(c.buffer)}\nBuf: \{ {table.concat(bytes, " ")} \}`
+end
+
 function cursor.writeu8(c: Cursor, value: number)
 	cursor.tryalloc(c, 1)
 	buffer.writeu8(c.buffer, c.offset, value)
@@ -220,6 +243,11 @@ function cursor.close(c: Cursor): buffer
 	buffer.copy(final, 0, c.buffer, 0, c.offset)
 	c.buffer = final
 	return final
+end
+
+function utils.print_buffer(buf: buffer)
+	local bytes = { string.byte(buffer.tostring(buf), 1, -1) }
+	return `\{ {buffer.len(buf)}\n Buf: \{ {table.concat(bytes, " ")} \}`
 end
 
 utils.cursor = cursor

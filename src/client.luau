@@ -126,7 +126,7 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (E
 			local global_id = cursor.readu8(c) - GLOBAL_ID_OFFSET
 			return resolve_global_id(client, global_id), nil
 		end
-		error("malformed entity id" .. cursor.readu32(c))
+		error(`malformed entity id {id_type} ` .. cursor.readu32(c))
 	else
 		return resolve_global_id(client, id_type - GLOBAL_ID_OFFSET), nil
 	end
