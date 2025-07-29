@@ -41,6 +41,7 @@ export type Server = {
 	track_info: TrackInfo,
 	additions: { [Entity]: boolean },
 	custom_ids: { [Entity]: Entity },
+	global_ids: { [Entity]: number },
 	storage: Storage,
 	hooked: { () -> () },
 	masking: masking_controller.MaskingController,
@@ -59,6 +60,7 @@ export type Server = {
 local cursor = utils.cursor
 
 local NIL_COMPONENT_VALUE = newproxy()
+local GLOBAL_ID_OFFSET = 10
 
 local COMPONENT_TYPES = masking_controller.COMPONENT_TYPES
 local TRACK_TYPES = {
@@ -66,11 +68,12 @@ local TRACK_TYPES = {
 	tag = 2,
 	pair = 3,
 }
-local MAX_PACKET_SIZE = 900
+local MAX_PACKET_SIZE = 10000
 local ENTITY_ID_TYPES = {
-	id = 1,
+	entity = 1,
 	custom = 2,
 	shared = 3,
+	global = 4,
 }
 local ECS_COMPONENT = jecs.Component
 
@@ -79,9 +82,6 @@ local function IS_PAIR(id: Entity): boolean
 end
 local function PAIR_SECOND(world: World, id: Entity): Entity
 	return jecs.pair_second(world, id)
-end
-local function ECS_ID(entity: Entity): number
-	return jecs.ECS_ID(entity :: any)
 end
 
 local function track_entity_lifetime(server: Server, entity: Entity)
@@ -356,8 +356,16 @@ end
 
 local function write_entity_id(server: Server, c: Cursor, entity: Entity, variants: { any }, multiply: number?)
 	local custom = server.custom_ids[entity]
+	local global_id = server.global_ids[entity]
 
-	if custom then
+	if global_id then
+		if multiply then
+			cursor.writei8(c, ENTITY_ID_TYPES.global * multiply)
+			cursor.writeu8(c, global_id + GLOBAL_ID_OFFSET)
+		else
+			cursor.writei8(c, global_id + GLOBAL_ID_OFFSET)
+		end
+	elseif custom then
 		local value = server.world:get(entity, custom)
 		write_component_value(server, c, custom, value, variants)
 		cursor.writei8(c, ENTITY_ID_TYPES.custom * (multiply or 1))
@@ -367,8 +375,8 @@ local function write_entity_id(server: Server, c: Cursor, entity: Entity, varian
 			cursor.writeu8(c, shared_id)
 			cursor.writei8(c, ENTITY_ID_TYPES.shared * (multiply or 1))
 		else
-			cursor.writeu24(c, ECS_ID(entity :: any))
-			cursor.writei8(c, ENTITY_ID_TYPES.id * (multiply or 1))
+			cursor.writeu40(c, entity :: any)
+			cursor.writei8(c, ENTITY_ID_TYPES.entity * (multiply or 1))
 		end
 	end
 end
@@ -574,7 +582,7 @@ local function collect_updates(server: Server)
 
 				for target, added in targets do
 					if added then
-						write_entity_id(server, c, target, variants)
+						write_entity_id(server, c, target, variants, 1)
 					else
 						write_entity_id(server, c, target, variants, -1)
 					end
@@ -668,9 +676,8 @@ local function collect_unreliable(server: Server)
 				return
 			end
 
-			local output = cursor.close(commit_c)
 			cursor.write_vlq(c, commit_total_entities)
-
+			local output = cursor.close(commit_c)
 			append_packet(packets, mask_storage.mask.members, output, commit_variants)
 		end
 
@@ -800,6 +807,9 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
 		end
+		if not server.track_info.entities[entity] then
+			return
+		end
 
 		local component = PAIR_SECOND(world, id)
 		local component_type = untrack_entity_component(server, entity, component)
@@ -876,6 +886,22 @@ function init(server: Server, _world: World?)
 
 		server.custom_ids[entity] = target
 	end))
+	hook(hooks.added(world, components.global_id, function(entity, id, value)
+		if value > 245 then
+			utils.logerror "global id size exceeded, max is 245"
+		end
+		server.global_ids[entity] = value
+	end))
+	hook(hooks.changed(world, components.global_id, function(entity, id, value)
+		if value > 245 then
+			utils.logerror "global id size exceeded, max is 245"
+		end
+		server.global_ids[entity] = value
+	end))
+	hook(hooks.removed(world, components.global_id, function(entity)
+		server.global_ids[entity] = nil
+	end))
+
 	hook(hooks.removed(world, components.custom_id, function(entity)
 		server.custom_ids[entity] = nil
 	end))
@@ -940,6 +966,7 @@ local function create(world: World?, components: common.Components): Server
 	self.additions = {}
 	self.storage = {}
 	self.hooked = {}
+	self.global_ids = {}
 	self.track_info = {
 		entities = {},
 		components = {},

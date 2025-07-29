@@ -28,6 +28,7 @@ local replecs = {
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
 	bytespan = jecs.component() :: jecs.Entity<number>,
 	custom_id = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
+	global_id = jecs.component() :: jecs.Entity<number>,
 	__alive_tracking__ = jecs.tag(),
 }
 

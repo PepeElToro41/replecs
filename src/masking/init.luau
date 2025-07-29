@@ -636,7 +636,7 @@ function masking_controller.rebind_component_generators(masking: MaskingInternal
 	end
 end
 
-function masking_controller.get_or_pospone_entity_lookup(
+function masking_controller.get_or_postpone_entity_lookup(
 	masking: MaskingInternal,
 	entity: Entity,
 	component: Entity,
@@ -857,7 +857,7 @@ function masking_controller.start_component(
 	component_type: number,
 	filter: MemberFilter?
 )
-	local lookup = masking:get_or_pospone_entity_lookup(entity, component, component_type, filter)
+	local lookup = masking:get_or_postpone_entity_lookup(entity, component, component_type, filter)
 	if lookup == nil then
 		return
 	end
@@ -890,7 +890,7 @@ function masking_controller.set_component(
 	component_type: number,
 	filter: MemberFilter?
 )
-	local lookup = masking:get_or_pospone_entity_lookup(entity, component, component_type, filter)
+	local lookup = masking:get_or_postpone_entity_lookup(entity, component, component_type, filter)
 	if lookup == nil then
 		return
 	end

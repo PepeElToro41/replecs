@@ -91,6 +91,13 @@ function cursor.writeu32(c: Cursor, value: number)
 	c.offset += 4
 end
 
+function cursor.writeu40(c: Cursor, value: number)
+	cursor.tryalloc(c, 5)
+	buffer.writeu8(c.buffer, c.offset, value)
+	buffer.writeu32(c.buffer, c.offset + 1, value // 256)
+	c.offset += 5
+end
+
 function cursor.writei8(c: Cursor, value: number)
 	cursor.tryalloc(c, 1)
 	buffer.writei8(c.buffer, c.offset, value)
@@ -132,9 +139,17 @@ function cursor.readu24(c: Cursor): number
 	local two = buffer.readu16(c.buffer, c.offset + 1)
 	return one + two * 256
 end
+
 function cursor.readu32(c: Cursor): number
 	c.offset -= 4
 	return buffer.readu32(c.buffer, c.offset)
+end
+
+function cursor.readu40(c: Cursor): number
+	c.offset -= 5
+	local one = buffer.readu8(c.buffer, c.offset)
+	local two = buffer.readu32(c.buffer, c.offset + 1)
+	return one + two * 256
 end
 
 function cursor.readi8(c: Cursor): number
@@ -517,7 +532,9 @@ utils.bitmask = {
 
 function utils.create_shared_lookup(world: World, components: common.Components)
 	local shared: common.Shared = {
-		lookup = {},
+		lookup = {
+			["jecs.ChildOf"] = CHILD_OF,
+		},
 		serdes = {},
 		bytespan = {},
 		ids = {},
@@ -550,8 +567,6 @@ function utils.create_shared_lookup(world: World, components: common.Components)
 		component_ids[shared.lookup[name]] = id
 		id_components[id] = component
 	end
-
-	component_ids[CHILD_OF] = #keys + 1
 
 	shared.ids = component_ids
 	shared.components = id_components

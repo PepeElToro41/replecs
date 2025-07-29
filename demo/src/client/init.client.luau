@@ -15,6 +15,10 @@ local replicator = require(script.replicator)
 import_paths(script.systems)
 import_paths(ReplicatedStorage.code.systems)
 
+replicator:parse_global_id(function(id)
+	return ref(`global-{id}`) :: any
+end)
+
 replicator:init()
 start(systems_order)
 

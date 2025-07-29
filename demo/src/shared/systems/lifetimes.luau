@@ -11,7 +11,6 @@ function LIFETIMES()
 
 	for entity, unix, lifetime in q_lifetimes:iter() do
 		if now - unix > lifetime then
-			print("DELETING ENTITY", entity, jecs.ECS_ID(entity :: any))
 			world:delete(entity)
 		end
 	end

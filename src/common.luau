@@ -19,6 +19,7 @@ export type Components = {
 	serdes: jecs.Entity<Serdes>,
 	bytespan: jecs.Entity<number>,
 	custom_id: jecs.Entity<(value: any) -> jecs.Entity>,
+	global_id: jecs.Entity<number>,
 	__alive_tracking__: jecs.Entity,
 }
 
