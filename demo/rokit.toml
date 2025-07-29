@@ -5,3 +5,4 @@
 
 [tools]
 zap = "red-blox/zap@0.6.25"
+lune = "lune-org/lune@0.8.9"

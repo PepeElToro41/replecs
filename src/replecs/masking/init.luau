@@ -1,12 +1,16 @@
-local jecs = require(script.Parent.Parent.jecs)
-local utils = require(script.Parent.utils)
-local mask_generator = require(script.mask_generator)
+--!native
+--!optimize 2
+
+local jecs = require "../jecs"
+local utils = require "./utils"
+local mask_generator = require "@self/mask_generator"
 
 type Entity<T = any> = jecs.Entity<T>
 
 type Bitmask = utils.Bitmask
 type MaskGenerator = mask_generator.MaskGenerator
 
+type GivenFilter = MemberFilter | any
 type MemberFilter = Set<Member>
 type Member = any
 type MaskHash = string
@@ -15,21 +19,28 @@ type Set<T> = { [T]: boolean }
 type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
-type ComponentIndex<T> = {
+export type FunctionFilter = (player: Player) -> boolean
+
+export type ComponentIndex<T> = {
 	[number]: { [Entity]: T },
 }
-type EntityComponentIndex<T> = {
+export type EntityComponentIndex<T> = {
 	[Entity]: ComponentIndex<T>,
 }
 
 type Lookup = {
 	generator: MaskGenerator,
-	-- filter in component lookups will never be nil
 	filter: MemberFilter?,
 	storage_group: StorageGroup,
 }
+
 type ComponentLookup = Lookup & {
 	band_generator: MaskGenerator,
+}
+
+type EntityLookup = Lookup & {
+	filtered_components: ComponentIndex<ComponentLookup>,
+	components: ComponentIndex<true>,
 }
 
 export type EntityChanges = {
@@ -39,16 +50,17 @@ export type EntityChanges = {
 	pairs: { [Entity]: Set<Entity> },
 }
 
+type PostponedList = ComponentIndex<{ filter: MemberFilter? }>
+
 type LookupsList = {
-	entities: Map<Entity, Lookup>,
-	components: EntityComponentIndex<ComponentLookup>,
+	entities: Map<Entity, EntityLookup>,
 
 	deletions: {
 		entities: Map<Entity, Lookup>,
 		components: EntityComponentIndex<Lookup>,
 	},
 
-	posponed: EntityComponentIndex<MemberFilter>,
+	postponed: { [Entity]: PostponedList },
 }
 
 export type ActiveEntity = {
@@ -90,6 +102,7 @@ type Storages = {
 export type MaskingController = {
 	member_count: number,
 	member_indexes: { [Member]: number },
+	compact_count: number,
 	unreplicated: Set<Member>,
 
 	all_members_generator: MaskGenerator,
@@ -124,6 +137,7 @@ export type MaskingController = {
 	start_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
 	set_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
 	stop_entity: (self: MaskingController, entity: Entity) -> (),
+	cleanup_entity: (self: MaskingController, entity: Entity) -> (),
 
 	start_component: (
 		self: MaskingController,
@@ -179,8 +193,20 @@ function masking_controller.get_members_from_bitmask(controller: MaskingInternal
 	return members
 end
 
+local function get_usable_filter(filter: (MemberFilter | any)?): MemberFilter?
+	if filter then
+		if type(filter) == "table" then
+			return filter
+		else
+			return { [filter] = true }
+		end
+	else
+		return nil
+	end
+end
+
 local function create_component_indexes<T>()
-	return { {}, {}, {}, {} } :: ComponentIndex<T>
+	return { {}, {}, {}, {} } :: ComponentIndex<any>
 end
 
 local function create_entity_changes(): EntityChanges
@@ -234,7 +260,7 @@ function masking_controller.create_new_storage(
 end
 
 local function is_include_filter(filter: MemberFilter): boolean
-	for player, allow in filter do
+	for _, allow in filter do
 		if allow then
 			return true
 		else
@@ -258,17 +284,6 @@ local function create_new_changes(): EntityChanges
 		removed = {},
 		pairs = {},
 	}
-end
-
-function masking_controller.get_or_create_storage_group(masking: MaskingInternal, bitmask: Bitmask): StorageGroup
-	local hash = bitmask:tostring()
-	local storage = masking.storages[hash]
-
-	if not storage then
-		storage = masking:create_new_storage(bitmask, hash)
-		masking.storages[hash] = storage
-	end
-	return storage
 end
 
 local function get_component_index_entry<T>(
@@ -373,6 +388,27 @@ local function remove_component_active(storage: StorageGroup, entity: Entity, co
 	end
 end
 
+function masking_controller.get_or_create_storage_group(masking: MaskingInternal, bitmask: Bitmask): StorageGroup
+	local hash = bitmask:tostring()
+	local storage = masking.storages[hash]
+
+	if not storage then
+		storage = masking:create_new_storage(bitmask, hash)
+		masking.storages[hash] = storage
+	end
+	return storage
+end
+
+function masking_controller.get_component_lookup(
+	masking: MaskingInternal,
+	entity: Entity,
+	component: Entity,
+	component_type: number
+): (ComponentLookup, EntityLookup)
+	local entity_lookup = masking.lookups.entities[entity]
+	return entity_lookup.filtered_components[component_type][component], entity_lookup
+end
+
 local function dissect_component_actives(
 	storage: StorageGroup,
 	entity: Entity,
@@ -450,8 +486,7 @@ function masking_controller.merge_component_filter(
 	component: Entity,
 	component_type: number
 )
-	local component_lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
-	local entity_lookup = masking.lookups.entities[entity]
+	local component_lookup, entity_lookup = masking:get_component_lookup(entity, component, component_type)
 	if not entity_lookup then
 		utils.logerror "attempted to merge a component filter to an unactive entity"
 	end
@@ -464,7 +499,7 @@ function masking_controller.merge_component_filter(
 			component_lookup.storage_group,
 			entity_lookup.generator.bitmask
 		)
-		remove_component_index_entry(masking.lookups.components, entity, component, component_type)
+		entity_lookup.filtered_components[component_type][component] = nil
 		remove_component_index_entry(new_storage.shared_with, entity, component, component_type)
 	else
 		get_or_set_component_active(entity_lookup.storage_group.active[entity], component, component_type)
@@ -577,16 +612,14 @@ function masking_controller.bind_component_generator(
 	component_type: number,
 	base_generator: MaskGenerator
 )
-	local entity_lookup = masking.lookups.entities[entity]
-	local component_lookups = masking.lookups.components[entity]
-	local component_lookup = component_lookups and component_lookups[component_type][component]
+	local component_lookup, entity_lookup = masking:get_component_lookup(entity, component, component_type)
 	local generator = mask_generator.create(nil, function()
 		return entity_lookup.generator.bitmask:band(base_generator.bitmask)
 	end)
 
 	local function subscribed()
 		if not component_lookup then
-			component_lookup = component_lookups and component_lookups[component_type][component]
+			component_lookup = entity_lookup.filtered_components[component_type][component]
 		end
 
 		local current_storage = component_lookup.storage_group
@@ -604,9 +637,9 @@ function masking_controller.bind_component_generator(
 end
 
 function masking_controller.rebind_component_generators(masking: MaskingInternal, entity: Entity)
-	local component_lookups = masking.lookups.components[entity]
-	if component_lookups then
-		for component_type, lookups in component_lookups do
+	local entity_lookup = masking.lookups.entities[entity]
+	if entity_lookup then
+		for component_type, lookups in entity_lookup.filtered_components do
 			for component, lookup in lookups do
 				lookup.band_generator:destroy()
 
@@ -619,23 +652,24 @@ function masking_controller.rebind_component_generators(masking: MaskingInternal
 	end
 end
 
-function masking_controller.get_or_pospone_entity_lookup(
+function masking_controller.get_or_postpone_entity_lookup(
 	masking: MaskingInternal,
 	entity: Entity,
 	component: Entity,
 	component_type: number,
 	filter: MemberFilter?
-): Lookup?
+): EntityLookup?
 	local lookup = masking.lookups.entities[entity]
 	if lookup then
 		return lookup
 	end
 
-	if filter == nil then
-		return nil
+	if filter ~= nil then
+		set_component_index_entry(masking.lookups.postponed, entity, component, component_type, { filter = filter })
+	else
+		set_component_index_entry(masking.lookups.postponed, entity, component, component_type, { filter = nil })
 	end
 
-	set_component_index_entry(masking.lookups.posponed, entity, component, component_type, filter)
 	return nil
 end
 
@@ -711,12 +745,9 @@ function masking_controller.propagate_entity_addition(masking: MaskingInternal, 
 	local entity_lookup = masking.lookups.entities[entity]
 	if entity_lookup then
 		entity_lookup.storage_group.changes.added[entity] = true
-	end
 
-	local component_lookups = masking.lookups.components[entity]
-	if component_lookups then
-		for component_type, lookups in component_lookups do
-			for component, lookup in lookups do
+		for _, lookups in entity_lookup.filtered_components do
+			for _, lookup in lookups do
 				lookup.storage_group.changes.added[entity] = true
 			end
 		end
@@ -745,32 +776,36 @@ function masking_controller.update_entity_filter(masking: MaskingInternal, entit
 	return generator
 end
 
-function masking_controller.start_entity(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
+function masking_controller.start_entity(masking: MaskingInternal, entity: Entity, given_filter: GivenFilter?)
+	local filter = get_usable_filter(given_filter)
 	local generator = masking:update_entity_filter(entity, filter)
 
 	local storage_group = masking:get_or_create_storage_group(generator.bitmask)
 	local active = get_or_set_active(storage_group, entity)
 	active.is_entity_mask = true
 
-	local new_lookup: Lookup = {
+	local new_lookup: EntityLookup = {
 		generator = generator,
 		filter = filter,
 		storage_group = storage_group,
+		filtered_components = create_component_indexes(),
+		components = create_component_indexes(),
 	}
 	masking.lookups.entities[entity] = new_lookup
 
-	local posponed = masking.lookups.posponed[entity]
-	if posponed then
-		for component_type, components in posponed do
-			for component, component_filter in components do
-				masking:start_component(entity, component, component_type, component_filter)
+	local postponed = masking.lookups.postponed[entity]
+	if postponed then
+		for component_type, components in postponed do
+			for component, postoned_info in components do
+				masking:start_component(entity, component, component_type, postoned_info.filter)
 			end
 		end
-		masking.lookups.posponed[entity] = nil
+		masking.lookups.postponed[entity] = nil
 	end
 end
 
-function masking_controller.set_entity(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
+function masking_controller.set_entity(masking: MaskingInternal, entity: Entity, given_filter: GivenFilter?)
+	local filter = get_usable_filter(given_filter)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
 		utils.logerror "attempted to modify the filter of an unactive entity"
@@ -792,27 +827,24 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 		utils.logerror "attemped to stop an unactive entity"
 	end
 
-	local posponed = masking.lookups.posponed[entity]
+	local postponed = masking.lookups.postponed[entity]
 
-	local components_lookup = masking.lookups.components[entity]
-	if components_lookup then
-		for component_type, lookups in components_lookup do
-			for component, component_lookup in lookups do
-				component_lookup.band_generator:destroy()
-				component_lookup.generator:destroy()
-				remove_component_active(component_lookup.storage_group, entity, component, component_type)
+	for component_type, lookups in lookup.filtered_components do
+		for component, component_lookup in lookups do
+			component_lookup.band_generator:destroy()
+			component_lookup.generator:destroy()
+			remove_component_active(component_lookup.storage_group, entity, component, component_type)
 
-				local component_storage = component_lookup.storage_group
-				component_storage.shared_with[entity] = nil
-				component_storage.changes.added[entity] = nil
-				component_storage.changes.changed[entity] = nil
+			local component_storage = component_lookup.storage_group
+			component_storage.shared_with[entity] = nil
+			component_storage.changes.added[entity] = nil
+			component_storage.changes.changed[entity] = nil
 
-				if posponed == nil then
-					posponed = create_component_indexes()
-					masking.lookups.posponed[entity] = posponed
-				end
-				posponed[component_type][component] = component_lookup.filter :: MemberFilter
+			if postponed == nil then
+				postponed = create_component_indexes() :: PostponedList
+				masking.lookups.postponed[entity] = postponed
 			end
+			postponed[component_type][component] = { filter = component_lookup.filter }
 		end
 	end
 
@@ -821,8 +853,14 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 	lookup.storage_group.changes.added[entity] = nil
 	lookup.storage_group.changes.changed[entity] = nil
 
-	masking.lookups.components[entity] = nil
 	masking.lookups.entities[entity] = nil
+end
+
+function masking_controller.cleanup_entity(masking: MaskingInternal, entity: Entity)
+	masking.lookups.entities[entity] = nil
+	masking.lookups.postponed[entity] = nil
+	masking.lookups.deletions.entities[entity] = nil
+	masking.lookups.deletions.components[entity] = nil
 end
 
 function masking_controller.update_component_filter(
@@ -842,9 +880,10 @@ function masking_controller.start_component(
 	entity: Entity,
 	component: Entity,
 	component_type: number,
-	filter: MemberFilter?
+	given_filter: GivenFilter?
 )
-	local lookup = masking:get_or_pospone_entity_lookup(entity, component, component_type, filter)
+	local filter = get_usable_filter(given_filter)
+	local lookup = masking:get_or_postpone_entity_lookup(entity, component, component_type, filter)
 	if lookup == nil then
 		return
 	end
@@ -861,12 +900,13 @@ function masking_controller.start_component(
 	get_or_set_component_active(active, component, component_type)
 	set_component_index_entry(storage_group.shared_with, entity, component, component_type, true)
 
-	set_component_index_entry(masking.lookups.components, entity, component, component_type, {
+	local component_lookup: ComponentLookup = {
 		generator = generator,
 		band_generator = band_generator,
-		filter = filter,
+		filter = filter :: MemberFilter?, -- what
 		storage_group = storage_group,
-	})
+	}
+	lookup.filtered_components[component_type][component] = component_lookup
 end
 
 function masking_controller.set_component(
@@ -874,13 +914,14 @@ function masking_controller.set_component(
 	entity: Entity,
 	component: Entity,
 	component_type: number,
-	filter: MemberFilter?
+	given_filter: GivenFilter?
 )
-	local lookup = masking:get_or_pospone_entity_lookup(entity, component, component_type, filter)
+	local filter = get_usable_filter(given_filter)
+	local lookup = masking:get_or_postpone_entity_lookup(entity, component, component_type, filter)
 	if lookup == nil then
 		return
 	end
-	local component_lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
+	local component_lookup = lookup.filtered_components[component_type][component]
 
 	if filter == nil then
 		if component_lookup ~= nil then
@@ -919,13 +960,13 @@ function masking_controller.set_component(
 				band_generator.bitmask
 			)
 		end
-
-		set_component_index_entry(masking.lookups.components, entity, component, component_type, {
+		local new_lookup: ComponentLookup = {
 			generator = generator,
 			band_generator = band_generator,
-			filter = filter,
+			filter = filter :: MemberFilter?,
 			storage_group = new_storage,
-		})
+		}
+		lookup.filtered_components[component_type][component] = new_lookup
 	end
 end
 
@@ -935,16 +976,15 @@ function masking_controller.stop_component(
 	component: Entity,
 	component_type: number
 )
-	local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
-	if lookup ~= nil then
-		lookup.band_generator:destroy()
-		lookup.generator:destroy()
+	local component_lookup, entity_lookup = masking:get_component_lookup(entity, component, component_type)
+	if component_lookup ~= nil then
+		component_lookup.band_generator:destroy()
+		component_lookup.generator:destroy()
 
-		remove_component_active(lookup.storage_group, entity, component, component_type)
-		remove_component_index_entry(lookup.storage_group.shared_with, entity, component, component_type)
-		remove_component_index_entry(masking.lookups.components, entity, component, component_type)
+		remove_component_active(component_lookup.storage_group, entity, component, component_type)
+		remove_component_index_entry(component_lookup.storage_group.shared_with, entity, component, component_type)
+		entity_lookup.filtered_components[component_type][component] = nil
 	else
-		local entity_lookup = masking.lookups.entities[entity]
 		if entity_lookup then
 			remove_component_active(entity_lookup.storage_group, entity, component, component_type)
 		end
@@ -957,20 +997,14 @@ function masking_controller.get_component_storage_group(
 	component: Entity,
 	component_type: number
 ): StorageGroup
-	local component_lookup = masking_controller.get_component_index_entry(
-		masking.lookups.components,
-		entity,
-		component,
-		COMPONENT_TYPES.component
-	)
+	local component_lookup, entity_lookup = masking:get_component_lookup(entity, component, component_type)
+
 	if component_lookup ~= nil then
 		return component_lookup.storage_group
-	else
-		local entity_lookup = masking.lookups.entities[entity]
-		if not entity_lookup then
-			utils.logerror "attempted to use an entity that is not active"
-		end
+	elseif entity_lookup then
 		return entity_lookup.storage_group
+	else
+		error "attempted to use an entity that is not active"
 	end
 end
 
@@ -980,7 +1014,7 @@ function masking_controller.allocate_entity_addition(
 	component: Entity,
 	component_type: number
 )
-	local lookup = get_component_index_entry(masking.lookups.components, entity, component, component_type)
+	local lookup = masking:get_component_lookup(entity, component, component_type)
 	if lookup ~= nil then
 		lookup.storage_group.changes.added[entity] = true
 	end
@@ -1055,8 +1089,123 @@ function masking_controller.allocate_pair_removal(
 	targets[target] = false
 end
 
-function masking_controller.compact_members()
-	-- TODO: implement
+local function remap_bitmask(
+	bitmask: Bitmask,
+	from: { [Member]: number },
+	target: { [Member]: number },
+	size: number?
+): Bitmask
+	local result = utils.bitmask.create(size)
+	for member, index in target do
+		local old_index = from[member]
+		if old_index then
+			local old_bit = bitmask:get(old_index)
+			if old_bit then
+				result:set(index, old_bit)
+			else
+				result:clear(index)
+			end
+		end
+	end
+	return result
+end
+
+function masking_controller.merge_storages(
+	masking: MaskingInternal,
+	old_storage: StorageGroup,
+	new_storage: StorageGroup
+)
+	for entity, active in old_storage.active do
+		local new_active = get_or_set_active(new_storage, entity)
+		merge_component_actives(new_active, active)
+
+		if active.is_entity_mask then
+			local lookup = masking.lookups.entities[entity]
+			lookup.storage_group = new_storage
+			new_active.is_entity_mask = true
+		end
+	end
+	for entity, shared_components in old_storage.shared_with do
+		for component_type, components in shared_components do
+			for component in components do
+				set_component_index_entry(new_storage.shared_with, entity, component, component_type, true)
+
+				local lookup = masking:get_component_lookup(entity, component, component_type)
+				if lookup ~= nil then
+					lookup.storage_group = new_storage
+				end
+			end
+		end
+	end
+	for entity, changes in old_storage.changes.changed do
+		local new_changes = get_or_set_changes(new_storage, entity)
+		merge_component_changes(new_changes, changes)
+	end
+	for entity in old_storage.deletions.entities do
+		new_storage.deletions.entities[entity] = true
+	end
+	for entity, deleted_components in old_storage.deletions.components do
+		for component_type, components in deleted_components do
+			for component in components do
+				set_component_index_entry(new_storage.deletions.components, entity, component, component_type, true)
+			end
+		end
+	end
+end
+
+function masking_controller.compact_members(masking: MaskingInternal)
+	-- we dont recompute as nothing should've changed
+	-- so this should be hopefully quite cheap
+	local old_indexes = masking.member_indexes
+	local new_indexes: { [Member]: number } = {}
+
+	local new_count = 0
+	for member in old_indexes do
+		new_indexes[member] = new_count
+		new_count += 1
+	end
+	masking.member_indexes = new_indexes
+	masking.member_count = new_count
+
+	for _, entity_lookup in masking.lookups.entities do
+		local generator = entity_lookup.generator
+		generator.bitmask = remap_bitmask(generator.bitmask, old_indexes, new_indexes, new_count)
+
+		for _, lookups in entity_lookup.filtered_components do
+			for _, component_lookup in lookups do
+				local component_generator = component_lookup.generator
+				generator.bitmask = remap_bitmask(component_generator.bitmask, old_indexes, new_indexes, new_count)
+
+				local band_generator = component_lookup.band_generator
+				band_generator.bitmask = remap_bitmask(band_generator.bitmask, old_indexes, new_indexes, new_count)
+			end
+		end
+	end
+
+	local all = masking.all_members_generator
+	local unactive = masking.unactive_members_generator
+	local active = masking.active_members_generator
+
+	all.bitmask = remap_bitmask(all.bitmask, old_indexes, new_indexes, new_count)
+	unactive.bitmask = remap_bitmask(unactive.bitmask, old_indexes, new_indexes, new_count)
+	active.bitmask = remap_bitmask(active.bitmask, old_indexes, new_indexes, new_count)
+
+	local new_storages: Storages = {}
+
+	for _, storage in masking.storages do
+		local new_bitmask = remap_bitmask(storage.mask.bitmask, old_indexes, new_indexes, new_count)
+		storage.mask.bitmask = new_bitmask
+		local new_hash = new_bitmask:tostring()
+		storage.mask.hash = new_hash
+		storage.mask.members = masking:get_members_from_bitmask(new_bitmask)
+
+		local existing = new_storages[new_hash]
+		if existing then
+			masking:merge_storages(storage, existing)
+		else
+			new_storages[new_hash] = storage
+		end
+	end
 end
 
 function masking_controller.create_generator_from_filter(masking: MaskingInternal, filter: MemberFilter): MaskGenerator
@@ -1131,6 +1280,10 @@ function masking_controller.register_member(masking: MaskingInternal, member: Me
 	masking.unactive_members_generator.bitmask:set(current)
 	masking.all_members_generator.bitmask:set(current)
 	masking.active_members_generator:compute()
+
+	if masking.member_count >= masking.compact_count then
+		masking:compact_members()
+	end
 end
 
 function masking_controller.unregister_member(masking: MaskingInternal, member: Member)
@@ -1170,6 +1323,7 @@ local function create(): MaskingController
 
 	self.member_indexes = {}
 	self.member_count = 0
+	self.compact_count = 100
 	self.storages = {}
 	self.lookups = {
 		entities = {},
@@ -1178,7 +1332,7 @@ local function create(): MaskingController
 			entities = {},
 			components = {},
 		},
-		posponed = {},
+		postponed = {},
 	}
 	self.unreplicated = {}
 	self.all_members_generator = masking_controller.create_all_members_generator(self)

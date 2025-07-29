@@ -1,13 +1,14 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
+require(ReplicatedStorage.packages.replecs)
+
 local players = require(ReplicatedStorage.code.players)
 local systems_order = require(script.systems_order)
 local start = require(ReplicatedStorage.code.start)
 local import_paths = require(ReplicatedStorage.code.utils.import_paths)
 local replicator = require(script.replicator)
-local world = require(ReplicatedStorage.code.world)
 local zap = require(script.zap)
 
-replicator:init(world)
+replicator:init()
 
 import_paths(script.systems)
 import_paths(ReplicatedStorage.code.systems)

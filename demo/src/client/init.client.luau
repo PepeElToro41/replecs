@@ -1,5 +1,7 @@
 local Players = game:GetService "Players"
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
+require(ReplicatedStorage.packages.replecs)
+
 local c = require(ReplicatedStorage.code.components)
 local ref = require(ReplicatedStorage.code.ecs.ref)
 local players = require(ReplicatedStorage.code.players)
@@ -13,7 +15,11 @@ local replicator = require(script.replicator)
 import_paths(script.systems)
 import_paths(ReplicatedStorage.code.systems)
 
-replicator:init(world)
+replicator:parse_global_id(function(id)
+	return ref(`global-{id}`) :: any
+end)
+
+replicator:init()
 start(systems_order)
 
 import_paths(script.controllers)

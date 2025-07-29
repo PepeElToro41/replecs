@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
+local lifetimes = require(ReplicatedStorage.code.systems.lifetimes)
 local replecs_client = require(script.Parent.systems.replecs_client)
 local transforms = require(ReplicatedStorage.code.systems.transforms)
 local apply_colors = require(script.Parent.systems.apply_colors)
@@ -8,6 +9,7 @@ local ordered: { string | ((...any) -> ()) } = {
 	transforms,
 	apply_colors,
 	replecs_client,
+	lifetimes,
 }
 
 return ordered

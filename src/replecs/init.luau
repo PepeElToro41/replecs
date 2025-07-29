@@ -1,18 +1,17 @@
-local RunService = game:GetService "RunService"
-local jecs = require(script.Parent.jecs)
-local common = require(script.common)
+local jecs = require "./jecs"
+local common = require "@self/common"
 
-local client = require(script.client)
-local server = require(script.server)
+local client = require "@self/client"
+local server = require "@self/server"
 
 export type Server = server.Server
 export type Client = client.Client
 
-export type Replecs = {
+export type ReplecsLib = {
 	server: Server,
 	client: Client,
 
-	after_replication: (self: Replecs, callback: () -> ()) -> (),
+	after_replication: (self: ReplecsLib, callback: () -> ()) -> (),
 }
 
 type MemberFilter = {
@@ -21,16 +20,18 @@ type MemberFilter = {
 
 local replecs = {
 	shared = jecs.tag(),
-	networked = jecs.component() :: jecs.Entity<MemberFilter?>,
-	reliable = jecs.component() :: jecs.Entity<MemberFilter?>,
-	unreliable = jecs.component() :: jecs.Entity<MemberFilter?>,
+	networked = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
+	reliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
+	unreliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	pair = jecs.tag(),
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
 	bytespan = jecs.component() :: jecs.Entity<number>,
 	custom_id = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
+	global_id = jecs.component() :: jecs.Entity<number>,
 	__alive_tracking__ = jecs.tag(),
 }
+
 replecs.__index = replecs
 replecs.Serdes = replecs.serdes
 replecs.Bytespan = replecs.bytespan
@@ -58,8 +59,11 @@ function replecs.create_client(world: jecs.World?): Client
 	return client.create(world, replecs)
 end
 
-function replecs.create(world: jecs.World?): Replecs
-	local lib = {} :: Replecs
+function replecs.create(world: jecs.World?): ReplecsLib
+	assert(game, "This is a Roblox specific function")
+
+	local RunService = game:GetService "RunService"
+	local lib = {} :: ReplecsLib
 
 	if RunService:IsServer() then
 		lib.server = server.create(world, replecs)
@@ -71,7 +75,7 @@ function replecs.create(world: jecs.World?): Replecs
 	return setmetatable(lib, replecs) :: any
 end
 
-function replecs.after_replication(lib: Replecs, callback: () -> ())
+function replecs.after_replication(lib: ReplecsLib, callback: () -> ())
 	local lib_client = lib.client
 	if lib_client then
 		lib_client:after_replication(callback)

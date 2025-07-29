@@ -18,12 +18,14 @@ local components = {
 	client = world:entity(),
 	r_owner = world:entity(),
 	setup_player = world:component() :: jecs.Entity<(Player, jecs.Entity) -> ()>,
+	cleanup = world:component() :: jecs.Entity<(jecs.Entity) -> ()>,
 
 	cube = world:entity(),
 	wooble = world:entity(),
 	rainbow = world:entity(),
 	size = world:component() :: jecs.Entity<Vector3>,
 	timer = world:component() :: jecs.Entity<TimerInterface>,
+	lifetime = world:component() :: jecs.Entity<number>,
 	transform = world:component() :: jecs.Entity<CFrame>,
 	color = world:component() :: jecs.Entity<Color3>,
 	basepart = world:component() :: jecs.Entity<BasePart>,
@@ -31,7 +33,7 @@ local components = {
 }
 
 world:set(components.player, replecs.custom_id, function(player: Player)
-	return ref(player)
+	return ref(player) :: any
 end)
 
 world:set(components.transform, replecs.serdes, {
@@ -46,6 +48,16 @@ world:set(components.transform, replecs.serdes, {
 		return CFrame.new(buffer.readf32(buf, 0), buffer.readf32(buf, 4), buffer.readf32(buf, 8))
 	end,
 })
+
+world:removed(components.cleanup, function(entity: jecs.Entity)
+	local callback = world:get(entity, components.cleanup)
+
+	if callback then
+		print "cleaning up entity"
+		callback(entity)
+	end
+end)
+
 world:set(components.transform, replecs.bytespan, 12)
 
 add_names(components)

@@ -1,0 +1,15 @@
+{
+  "name": "replecs",
+  "tree": {
+    "$className": "Folder",
+    "src": {
+      "$path": "src"
+    },
+    "luau_packages": {
+      "$path": "luau_packages"
+    },
+    "jecs": {
+      "$path": "jecs.luau"
+    }
+  }
+}
