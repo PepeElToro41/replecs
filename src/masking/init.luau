@@ -10,6 +10,7 @@ type Entity<T = any> = jecs.Entity<T>
 type Bitmask = utils.Bitmask
 type MaskGenerator = mask_generator.MaskGenerator
 
+type GivenFilter = MemberFilter | any
 type MemberFilter = Set<Member>
 type Member = any
 type MaskHash = string
@@ -18,10 +19,12 @@ type Set<T> = { [T]: boolean }
 type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
-type ComponentIndex<T> = {
+export type FunctionFilter = (player: Player) -> boolean
+
+export type ComponentIndex<T> = {
 	[number]: { [Entity]: T },
 }
-type EntityComponentIndex<T> = {
+export type EntityComponentIndex<T> = {
 	[Entity]: ComponentIndex<T>,
 }
 
@@ -187,6 +190,18 @@ function masking_controller.get_members_from_bitmask(controller: MaskingInternal
 		end
 	end
 	return members
+end
+
+local function get_usable_filter(filter: (MemberFilter | any)?): MemberFilter?
+	if filter then
+		if type(filter) == "table" then
+			return filter
+		else
+			return { [filter] = true }
+		end
+	else
+		return nil
+	end
 end
 
 local function create_component_indexes<T>()
@@ -760,7 +775,8 @@ function masking_controller.update_entity_filter(masking: MaskingInternal, entit
 	return generator
 end
 
-function masking_controller.start_entity(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
+function masking_controller.start_entity(masking: MaskingInternal, entity: Entity, given_filter: GivenFilter?)
+	local filter = get_usable_filter(given_filter)
 	local generator = masking:update_entity_filter(entity, filter)
 
 	local storage_group = masking:get_or_create_storage_group(generator.bitmask)
@@ -787,7 +803,8 @@ function masking_controller.start_entity(masking: MaskingInternal, entity: Entit
 	end
 end
 
-function masking_controller.set_entity(masking: MaskingInternal, entity: Entity, filter: MemberFilter?)
+function masking_controller.set_entity(masking: MaskingInternal, entity: Entity, given_filter: GivenFilter?)
+	local filter = get_usable_filter(given_filter)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
 		utils.logerror "attempted to modify the filter of an unactive entity"
@@ -855,8 +872,9 @@ function masking_controller.start_component(
 	entity: Entity,
 	component: Entity,
 	component_type: number,
-	filter: MemberFilter?
+	given_filter: GivenFilter?
 )
+	local filter = get_usable_filter(given_filter)
 	local lookup = masking:get_or_postpone_entity_lookup(entity, component, component_type, filter)
 	if lookup == nil then
 		return
@@ -888,8 +906,9 @@ function masking_controller.set_component(
 	entity: Entity,
 	component: Entity,
 	component_type: number,
-	filter: MemberFilter?
+	given_filter: GivenFilter?
 )
+	local filter = get_usable_filter(given_filter)
 	local lookup = masking:get_or_postpone_entity_lookup(entity, component, component_type, filter)
 	if lookup == nil then
 		return

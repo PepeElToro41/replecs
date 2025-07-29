@@ -15,8 +15,10 @@ type Set<T> = { [T]: boolean }
 type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
+type FunctionFilter = (player: Player) -> boolean
+
 type TrackInfo = {
-	entities: { [Entity]: boolean },
+	entities: Map<Entity, boolean>,
 	components: { [Entity]: { [Entity]: number } },
 }
 
@@ -36,16 +38,18 @@ export type Server = {
 
 	components: common.Components,
 	hooks: common.WorldHooks,
-	alive_tracked: { [Entity]: boolean },
+	alive_tracked: Set<Entity>,
 
 	track_info: TrackInfo,
-	additions: { [Entity]: boolean },
-	custom_ids: { [Entity]: Entity },
-	global_ids: { [Entity]: number },
+	additions: Set<Entity>,
+	custom_ids: Map<Entity, Entity<any>>,
+	global_ids: Map<Entity, number>,
 	storage: Storage,
-	hooked: { () -> () },
+	hooked: Array<() -> ()>,
 	masking: masking_controller.MaskingController,
-	connections: { RBXScriptConnection },
+	pending_cleanups: Set<Entity>,
+	connections: Array<RBXScriptConnection>,
+	function_filters: masking_controller.EntityComponentIndex<FunctionFilter>,
 
 	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
@@ -166,6 +170,8 @@ local function allocate_pair_removal(server: Server, entity: Entity, relation: E
 		server.masking:allocate_pair_removal(entity, relation, target)
 	end
 end
+
+local function cleanup_entity(server: Server, entity: Entity) end
 
 local function track_component(server: Server, component: Entity<any>)
 	local world = server.world
@@ -886,6 +892,9 @@ function init(server: Server, _world: World?)
 
 		server.custom_ids[entity] = target
 	end))
+	hook(hooks.removed(world, components.custom_id, function(entity)
+		server.custom_ids[entity] = nil
+	end))
 	hook(hooks.added(world, components.global_id, function(entity, id, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
@@ -902,13 +911,13 @@ function init(server: Server, _world: World?)
 		server.global_ids[entity] = nil
 	end))
 
-	hook(hooks.removed(world, components.custom_id, function(entity)
-		server.custom_ids[entity] = nil
-	end))
-
 	hook(hooks.removed(world, components.__alive_tracking__, function(entity)
-		-- TODO: cleanup entity garbage on deletion
-		server.custom_ids[entity] = nil
+		if server.track_info.entities[entity] then
+			-- This is in case alive tracking removal is called before networked removal
+			server.pending_cleanups[entity] = true
+		else
+			cleanup_entity(server, entity)
+		end
 	end))
 
 	if game and game:GetService("RunService"):IsServer() then
@@ -967,6 +976,7 @@ local function create(world: World?, components: common.Components): Server
 	self.storage = {}
 	self.hooked = {}
 	self.global_ids = {}
+	self.pending_cleanups = {}
 	self.track_info = {
 		entities = {},
 		components = {},

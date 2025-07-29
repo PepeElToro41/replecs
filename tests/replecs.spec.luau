@@ -512,7 +512,44 @@ TEST("member bitmasking", function()
 
 		POST()
 	end
+	do
+		CASE "should use a single member filter for entity"
+		PRE()
+		local member0, member1, member2 = register_members(masking)
+		active_all_members(masking)
 
+		local entity = world:entity()
+
+		masking:start_entity(entity, member2)
+		check_entity_mask(entity, mask_hash { 2 })
+		masking:set_entity(entity, {
+			[member0] = true,
+			[member1] = true,
+		})
+		check_entity_mask(entity, mask_hash { 0, 1 })
+
+		POST()
+	end
+	do
+		CASE "should a single member filter for component"
+		PRE()
+		local member0, member1, member2 = register_members(masking)
+		active_all_members(masking)
+
+		local entity = world:entity()
+		local component = world:component()
+
+		masking:start_entity(entity, {
+			[member0] = true,
+			[member1] = true,
+			[member2] = true,
+		})
+		masking:start_component(entity, component, 1, member1)
+		check_component_mask(entity, component, mask_hash { 1 })
+		masking:set_entity(entity, member2)
+		check_component_mask(entity, component, "")
+		POST()
+	end
 	do
 		CASE "should change a component filter"
 		PRE()

@@ -20,9 +20,9 @@ type MemberFilter = {
 
 local replecs = {
 	shared = jecs.tag(),
-	networked = jecs.component() :: jecs.Entity<MemberFilter?>,
-	reliable = jecs.component() :: jecs.Entity<MemberFilter?>,
-	unreliable = jecs.component() :: jecs.Entity<MemberFilter?>,
+	networked = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
+	reliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
+	unreliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	pair = jecs.tag(),
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
