@@ -137,6 +137,7 @@ export type MaskingController = {
 	start_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
 	set_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
 	stop_entity: (self: MaskingController, entity: Entity) -> (),
+	cleanup_entity: (self: MaskingController, entity: Entity) -> (),
 
 	start_component: (
 		self: MaskingController,
@@ -853,6 +854,13 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 	lookup.storage_group.changes.changed[entity] = nil
 
 	masking.lookups.entities[entity] = nil
+end
+
+function masking_controller.cleanup_entity(masking: MaskingInternal, entity: Entity)
+	masking.lookups.entities[entity] = nil
+	masking.lookups.postponed[entity] = nil
+	masking.lookups.deletions.entities[entity] = nil
+	masking.lookups.deletions.components[entity] = nil
 end
 
 function masking_controller.update_component_filter(

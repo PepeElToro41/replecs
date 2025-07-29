@@ -5,7 +5,7 @@ local world = require(ReplicatedStorage.code.world)
 local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
 
-local MAX_CUBES = 300
+local MAX_CUBES = 50
 
 function create_cube()
 	local new_cube = world:entity()
@@ -19,7 +19,7 @@ function create_cube()
 	world:add(new_cube, c.cube)
 	world:add(new_cube, c.wooble)
 	world:set(new_cube, c.unix, os.clock())
-	--world:set(new_cube, c.lifetime, math.random(5, 15))
+	world:set(new_cube, c.lifetime, math.random(5, 15))
 
 	world:add(new_cube, replecs.networked)
 	world:add(new_cube, jecs.pair(replecs.unreliable, c.transform))
@@ -29,9 +29,20 @@ function create_cube()
 	return new_cube
 end
 
+local q_cubes = world:query(c.cube, replecs.networked)
+
 task.spawn(function()
 	for i = 1, MAX_CUBES do
-		task.wait(0.3)
+		task.wait(0.05)
+		create_cube()
+	end
+
+	while true do
+		task.wait(6)
+		local count = count_query(q_cubes)
+		if count > MAX_CUBES then
+			continue
+		end
 		create_cube()
 	end
 end)

@@ -171,7 +171,12 @@ local function allocate_pair_removal(server: Server, entity: Entity, relation: E
 	end
 end
 
-local function cleanup_entity(server: Server, entity: Entity) end
+local function cleanup_entity(server: Server, entity: Entity)
+	server.alive_tracked[entity] = nil
+	server.storage[entity] = nil
+	server.additions[entity] = nil
+	server.masking:cleanup_entity(entity)
+end
 
 local function track_component(server: Server, component: Entity<any>)
 	local world = server.world
@@ -832,6 +837,10 @@ function init(server: Server, _world: World?)
 
 		server.additions[entity] = nil
 		server.track_info.entities[entity] = nil
+		if server.pending_cleanups[entity] then
+			server.pending_cleanups[entity] = nil
+			cleanup_entity(server, entity)
+		end
 	end))
 
 	hook(hooks.added(world, components.reliable, function(entity, id, filter)
@@ -896,6 +905,10 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
 		end
+		if not server.track_info.entities[entity] then
+			return
+		end
+
 		local relation = PAIR_SECOND(world, id)
 		untrack_entity_pair(server, entity, relation)
 		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
@@ -924,6 +937,10 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "unreliable should be used with a pair relationship"
 		end
+		if not server.track_info.entities[entity] then
+			return
+		end
+
 		local component = PAIR_SECOND(world, id)
 		untrack_entity_component(server, entity, component)
 		masking:register_stop_component(entity, component, COMPONENT_TYPES.unreliable)
