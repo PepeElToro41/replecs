@@ -41,6 +41,7 @@ replecs.Reliable = replecs.reliable
 replecs.Unreliable = replecs.unreliable
 replecs.Pair = replecs.pair
 replecs.Shared = replecs.shared
+replecs.GlobalId = replecs.global_id
 
 jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
 jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
