@@ -10,7 +10,7 @@ declare namespace Replecs {
       added<T>(
          this: ObserverWorld,
          component: Id<T>,
-         callback: (e: Entity, id: Id<T>, value?: T) => void
+         callback: (e: Entity, id: Id<T>, value: T) => void
       ): () => void;
       removed<T>(
          this: ObserverWorld,
@@ -20,40 +20,43 @@ declare namespace Replecs {
       changed<T>(
          this: ObserverWorld,
          component: Id<T>,
-         callback: (e: Entity, id: Id<T>, value?: T) => void
+         callback: (e: Entity, id: Id<T>, value: T) => void
       ): () => void;
    }
 
-   type MemberFilter = Map<Player, boolean>;
+   type MemberFilterMap = Map<Player, boolean>;
+   type MemberFilter = Player | MemberFilterMap | undefined;
    type Member = unknown;
 
    interface MaskingController {
       register_member(member: Member): void;
       unregister_member(member: Member): void;
       active_member(member: Member): void;
-      member_is_active(member: Member): boolean
+      member_is_active(member: Member): boolean;
    }
 
    export interface Components {
       shared: Tag;
-      networked: Entity<MemberFilter | undefined>;
-      reliable: Entity<MemberFilter | undefined>;
-      unreliable: Entity<MemberFilter | undefined>;
-      pair: Entity<MemberFilter | undefined>;
+      networked: Entity<MemberFilter>;
+      reliable: Entity<MemberFilter>;
+      unreliable: Entity<MemberFilter>;
+      pair: Entity<MemberFilter>;
 
       serdes: Entity<SerdesTable>;
       bytespan: Entity<number>;
       custom_id: Entity<((value: any) => Entity) | undefined>;
+      global_id: Entity<number>;
 
       Shared: Tag;
-      Networked: Entity<MemberFilter | undefined>;
-      Reliable: Entity<MemberFilter | undefined>;
-      Unreliable: Entity<MemberFilter | undefined>;
-      Pair: Entity<MemberFilter | undefined>;
+      Networked: Entity<MemberFilter>;
+      Reliable: Entity<MemberFilter>;
+      Unreliable: Entity<MemberFilter>;
+      Pair: Entity<MemberFilter>;
 
       Serdes: Entity<SerdesTable>;
       Bytespan: Entity<number>;
-      CustomId: Entity<((value: any) => Entity) | undefined>;
+      CustomId: Entity<(value: any) => Entity>;
+      GlobalId: Entity<number>;
    }
 
    export interface Client {
@@ -67,6 +70,10 @@ declare namespace Replecs {
       apply_updates(buf: buffer, all_variants?: any[][]): void;
       apply_unreliable(buf: buffer, all_variants?: any[][]): void;
       apply_full(buf: buffer, all_variants?: any[][]): void;
+      parse_global_id(parser: (id: number) => Entity): void;
+
+      get_server_entity(client_entity: Entity): number | undefined;
+      get_client_entity(server_entity: number): Entity | undefined;
    }
 
    export interface Server {
@@ -78,7 +85,9 @@ declare namespace Replecs {
 
       get_full(player: Player): LuaTuple<[buffer, any[][]]>;
       collect_updates(): IterableFunction<LuaTuple<[Player, buffer, any[][]]>>;
-      collect_unreliable(): IterableFunction<LuaTuple<[Player, buffer, any[][]]>>;
+      collect_unreliable(): IterableFunction<
+         LuaTuple<[Player, buffer, any[][]]>
+      >;
       mark_player_ready(player: Player): void;
       is_player_ready(player: Player): boolean;
 
@@ -89,7 +98,7 @@ declare namespace Replecs {
       client: Client;
       server: Server;
 
-      after_replication(world: ObserverWorld): void;
+      after_replication(callback: () => void): void;
    }
 
    export interface Replecs extends Components {
