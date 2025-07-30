@@ -965,6 +965,32 @@ TEST("replecs server", function() end)
 
 TEST("replecs client", function() end)
 
+FOCUS()
+TEST("buffer out of bounds", function()
+	local function create_buffer_from_print(str: string)
+		local bytes = string.split(str, " ")
+		local buf = buffer.create(#bytes)
+		for i, byte in bytes do
+			buffer.writeu8(buf, i - 1, tonumber(byte) :: number)
+		end
+		return buf
+	end
+	local world = jecs.world()
+
+	for i = 1, 100 do
+		local component = world:component()
+		world:add(component, replecs.shared)
+		world:set(component, jecs.Name, "component" .. i)
+	end
+
+	local buf =
+		create_buffer_from_print "128 128 7 129 128 25 1 0 0 0 1 128 128 7 129 128 23 1 0 0 0 1 128 128 7 129 128 24 1 0 0 0 1 128 128 7 129 128 20 1 0 0 0 1 128 128 3 129 128 19 1 0 0 0 1 128 128 7 129 128 22 1 0 0 0 1 128 128 7 129 128 21 1 0 0 0 1 135 129"
+
+	local client = replecs.create_client(world)
+	client:init()
+	client:apply_full(buf)
+end)
+
 TEST("server -> client replication", function()
 	local world: jecs.World = nil :: any
 	local server: replecs.Server = nil :: any

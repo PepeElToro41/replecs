@@ -72,6 +72,11 @@ local TRACK_TYPES = {
 	tag = 2,
 	pair = 3,
 }
+local PACKET_TYPES = {
+	full = 1,
+	unreliable = 2,
+	reliable = 3,
+}
 local MAX_PACKET_SIZE = 900
 local ENTITY_ID_TYPES = {
 	entity = 1,
@@ -477,8 +482,8 @@ local function append_packet(
 	end
 end
 
-local function combine_packet_outputs(outputs: Array<Packet>, total_size: number): (buffer, { { any } })
-	local combined = buffer.create(total_size + utils.vlq_span(#outputs))
+local function combine_packet_outputs(outputs: Array<Packet>, total_size: number, id: number): (buffer, { { any } })
+	local combined = buffer.create(total_size + utils.vlq_span(#outputs) + 1)
 	local offset = 0
 	local variants = table.create(#outputs) :: { { any } }
 
@@ -491,13 +496,14 @@ local function combine_packet_outputs(outputs: Array<Packet>, total_size: number
 		offset = offset,
 		buffer = combined,
 	}, #outputs)
+	buffer.writeu8(combined, buffer.len(combined) - 1, id)
 
 	return combined, variants
 end
 
 type PacketIterator = () -> (Player, buffer, { { any } })
 
-local function create_packet_iterator(packets: { [Player]: MemberPackets })
+local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: number)
 	local iterated: Player? = nil
 	local function iterator()
 		local player, data = next(packets, iterated)
@@ -506,7 +512,7 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets })
 		end
 		iterated = player
 
-		local combined, variants = combine_packet_outputs(data.packets, data.total_size)
+		local combined, variants = combine_packet_outputs(data.packets, data.total_size, id)
 		return player, combined, variants
 	end
 	return iterator :: PacketIterator
@@ -543,7 +549,7 @@ local function create_unreliable_packet_iterator(packets: { [Player]: MemberPack
 				end
 
 				if #sending > 0 then
-					coroutine.yield(player, combine_packet_outputs(sending, total_size))
+					coroutine.yield(player, combine_packet_outputs(sending, total_size, PACKET_TYPES.unreliable))
 				end
 			end
 		end
@@ -581,7 +587,7 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		total_size += buffer.len(output)
 	end
 
-	return combine_packet_outputs(packets, total_size)
+	return combine_packet_outputs(packets, total_size, PACKET_TYPES.full)
 end
 
 local function collect_updates(server: Server)
@@ -589,6 +595,7 @@ local function collect_updates(server: Server)
 
 	for _, storage in server.masking.storages do
 		local c = cursor.new()
+
 		local variants = {}
 
 		local total_deleted = 0
@@ -696,7 +703,7 @@ local function collect_updates(server: Server)
 	end
 	table.clear(server.additions)
 
-	return create_packet_iterator(packets)
+	return create_packet_iterator(packets, PACKET_TYPES.reliable)
 end
 
 local function collect_unreliable(server: Server)

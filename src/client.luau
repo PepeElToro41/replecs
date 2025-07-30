@@ -44,6 +44,11 @@ local ENTITY_ID_TYPES = {
 	shared = 3,
 	global = 4,
 }
+local PACKET_TYPES = {
+	full = 1,
+	unreliable = 2,
+	reliable = 3,
+}
 
 local ECS_NAME = jecs.Name
 
@@ -168,8 +173,26 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	end
 end
 
+local function check_packet_type(c: Cursor, type: string)
+	local byte_type = PACKET_TYPES[type]
+	local packet_type = cursor.readu8(c)
+	if packet_type ~= byte_type then
+		local got: string = nil :: any
+		for k, v in PACKET_TYPES do
+			if v == packet_type then
+				got = k
+				break
+			end
+		end
+
+		error(`packet type mismatch, expected {type} got {got} instead`)
+	end
+end
+
 local function apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
+	check_packet_type(c, "reliable")
+
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
@@ -263,6 +286,8 @@ end
 
 local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
+	check_packet_type(c, "unreliable")
+
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
@@ -290,6 +315,8 @@ end
 
 local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
+	check_packet_type(c, "full")
+
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
