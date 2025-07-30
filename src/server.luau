@@ -893,6 +893,9 @@ function init(server: Server, _world: World?)
 		track_entity_pair(server, entity, relation)
 		masking:unregister_stop_component(entity, relation, COMPONENT_TYPES.pair)
 		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
+		if server.additions[entity] then
+			masking:allocate_entity_addition(entity, relation, COMPONENT_TYPES.pair)
+		end
 	end))
 	hook(hooks.changed(world, components.pair, function(entity, id, filter)
 		if not IS_PAIR(id) then

@@ -1052,6 +1052,20 @@ TEST("server -> client replication", function()
 		return false
 	end
 
+	local function client_global_pair(
+		member: MemberData,
+		server_entity: jecs.Entity,
+		relation: jecs.Entity,
+		target_server: jecs.Entity
+	): boolean
+		local target = client_entity(member, target_server)
+		local entity = client_entity(member, server_entity)
+		if entity and target then
+			return member.world:has(entity, jecs.pair(relation, target))
+		end
+		return false
+	end
+
 	local function create_members_data(count: number?)
 		local members = {} :: { MemberData }
 		local lookup = {}
@@ -1200,12 +1214,15 @@ TEST("server -> client replication", function()
 
 		world:add(entity1, server.components.networked)
 		world:add(entity1, jecs.pair(server.components.pair, tags[1]))
+		world:add(entity1, jecs.pair(server.components.pair, jecs.ChildOf))
+
 		world:add(entity2, server.components.networked)
 		world:add(entity2, jecs.pair(server.components.pair, tags[2]))
 
 		world:add(entity1, jecs.pair(tags[1], target1))
 		world:add(entity1, jecs.pair(tags[1], target2))
 		world:add(entity1, jecs.pair(tags[1], target3))
+		world:add(entity1, jecs.pair(jecs.ChildOf, target3))
 
 		world:add(entity2, jecs.pair(tags[2], target3))
 		world:add(entity2, jecs.pair(tags[2], target4))
@@ -1218,6 +1235,7 @@ TEST("server -> client replication", function()
 			CHECK(client_entity(member, entity2) ~= nil)
 
 			CHECK(client_pair(member, entity1, 1, target1) == true)
+			CHECK(client_global_pair(member, entity1, jecs.ChildOf, target3) == true)
 			CHECK(client_pair(member, entity1, 1, target2) == true)
 			CHECK(client_pair(member, entity1, 1, target3) == true)
 			CHECK(client_pair(member, entity2, 2, target3) == true)
@@ -1515,8 +1533,10 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
+
 		world:add(entity1, server.components.networked)
 		world:add(entity1, jecs.pair(server.components.pair, tags[1]))
+		world:add(entity1, jecs.pair(server.components.pair, jecs.ChildOf))
 
 		local r1 = world:entity()
 		local r2 = world:entity()
@@ -1524,13 +1544,12 @@ TEST("server -> client replication", function()
 		world:add(r1, server.components.networked)
 		world:add(r2, server.components.networked)
 		world:add(r3, server.components.networked)
+		world:add(entity1, jecs.pair(tags[1], r1))
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
 			member.client:apply_full(buf, variants)
 		end
-
-		world:add(entity1, jecs.pair(tags[1], r1))
 
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
@@ -1540,6 +1559,7 @@ TEST("server -> client replication", function()
 			CHECK(client_pair(member, entity1, 1, r2) == false)
 		end
 		world:add(entity1, jecs.pair(tags[1], r2))
+		world:add(entity1, jecs.pair(jecs.ChildOf, r2))
 
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
@@ -1547,6 +1567,7 @@ TEST("server -> client replication", function()
 			CHECK(client_pair(member, entity1, 1, r1) == true)
 			CHECK(client_pair(member, entity1, 1, r2) == true)
 			CHECK(client_pair(member, entity1, 1, r3) == false)
+			CHECK(client_global_pair(member, entity1, jecs.ChildOf, r2) == true)
 		end
 		world:remove(entity1, jecs.pair(tags[1], r1))
 		world:add(entity1, jecs.pair(tags[1], r3))
