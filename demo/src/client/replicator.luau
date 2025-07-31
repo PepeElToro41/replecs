@@ -1,5 +1,4 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local world = require(ReplicatedStorage.code.world)
-local replecs = require(ReplicatedStorage.packages.replecs)
+local replicator = require(ReplicatedStorage.code.replicator)
 
-return replecs.create_client(world)
+return replicator.client

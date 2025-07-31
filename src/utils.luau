@@ -1,8 +1,8 @@
 --!native
 --!optimize 2
 
-local jecs = require(script.Parent.Parent.jecs)
-local common = require(script.Parent.common)
+local jecs = require "../jecs"
+local common = require "./common"
 
 type World = jecs.World
 type Entity<T = any> = jecs.Entity<T>
@@ -38,16 +38,16 @@ function cursor.from(buf: buffer): Cursor
 	}
 end
 
-function cursor.tryalloc(cursor: Cursor, bytes: number)
-	local buf = cursor.buffer
-	local offset = cursor.offset
+function cursor.tryalloc(c: Cursor, bytes: number)
+	local buf = c.buffer
+	local offset = c.offset
 	local len = buffer.len(buf)
 
 	if len < offset + bytes then
 		local exponent = math.ceil(math.log((bytes + offset) / len, 1.5))
 		local new = buffer.create(len * 1.5 ^ exponent)
 		buffer.copy(new, 0, buf, 0)
-		cursor.buffer = new
+		c.buffer = new
 	end
 end
 
@@ -65,6 +65,29 @@ function cursor.write_buffer(c: Cursor, buf: buffer, start: number?, count: numb
 		buffer.copy(c.buffer, c.offset, buf, start or 0, write_count)
 		c.offset += write_count
 	end
+end
+
+function cursor.print(c: Cursor)
+	local bytes = { string.byte(buffer.tostring(c.buffer), 1, -1) }
+	local offset = 7
+	for i = 1, c.offset do
+		local byte = bytes[i]
+		local digits = if byte == 0 then 1 else math.ceil(math.log10(1 + byte))
+		offset += digits + 1
+	end
+
+	local last_byte = bytes[c.offset + 1]
+	if last_byte then
+		local lastDigits = if last_byte == 0 then 1 else math.ceil(math.log10(1 + last_byte))
+		offset += lastDigits // 2
+	end
+	bytes[c.offset + 1] = `[{bytes[c.offset + 1] :: number}]` :: any
+
+	if #bytes == 0 or c.offset == buffer.len(c.buffer) then
+		table.insert(bytes, " " :: any)
+	end
+
+	return `Pos: {c.offset} / {buffer.len(c.buffer)}\nBuf: \{ {table.concat(bytes, " ")} \}`
 end
 
 function cursor.writeu8(c: Cursor, value: number)
@@ -89,6 +112,13 @@ function cursor.writeu32(c: Cursor, value: number)
 	cursor.tryalloc(c, 4)
 	buffer.writeu32(c.buffer, c.offset, value :: any)
 	c.offset += 4
+end
+
+function cursor.writeu40(c: Cursor, value: number)
+	cursor.tryalloc(c, 5)
+	buffer.writeu8(c.buffer, c.offset, value)
+	buffer.writeu32(c.buffer, c.offset + 1, value // 256)
+	c.offset += 5
 end
 
 function cursor.writei8(c: Cursor, value: number)
@@ -132,9 +162,17 @@ function cursor.readu24(c: Cursor): number
 	local two = buffer.readu16(c.buffer, c.offset + 1)
 	return one + two * 256
 end
+
 function cursor.readu32(c: Cursor): number
 	c.offset -= 4
 	return buffer.readu32(c.buffer, c.offset)
+end
+
+function cursor.readu40(c: Cursor): number
+	c.offset -= 5
+	local one = buffer.readu8(c.buffer, c.offset)
+	local two = buffer.readu32(c.buffer, c.offset + 1)
+	return one + two * 256
 end
 
 function cursor.readi8(c: Cursor): number
@@ -205,6 +243,11 @@ function cursor.close(c: Cursor): buffer
 	buffer.copy(final, 0, c.buffer, 0, c.offset)
 	c.buffer = final
 	return final
+end
+
+function utils.print_buffer(buf: buffer)
+	local bytes = { string.byte(buffer.tostring(buf), 1, -1) }
+	return `\{ {buffer.len(buf)}\n Buf: \{ {table.concat(bytes, " ")} \}`
 end
 
 utils.cursor = cursor
@@ -517,7 +560,9 @@ utils.bitmask = {
 
 function utils.create_shared_lookup(world: World, components: common.Components)
 	local shared: common.Shared = {
-		lookup = {},
+		lookup = {
+			["jecs.ChildOf"] = CHILD_OF,
+		},
 		serdes = {},
 		bytespan = {},
 		ids = {},
@@ -550,8 +595,6 @@ function utils.create_shared_lookup(world: World, components: common.Components)
 		component_ids[shared.lookup[name]] = id
 		id_components[id] = component
 	end
-
-	component_ids[CHILD_OF] = #keys + 1
 
 	shared.ids = component_ids
 	shared.components = id_components

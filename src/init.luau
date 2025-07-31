@@ -1,9 +1,8 @@
-local RunService = game:GetService "RunService"
-local jecs = require(script.Parent.jecs)
-local common = require(script.common)
+local jecs = require "./jecs"
+local common = require "@self/common"
 
-local client = require(script.client)
-local server = require(script.server)
+local client = require "@self/client"
+local server = require "@self/server"
 
 export type Server = server.Server
 export type Client = client.Client
@@ -21,14 +20,15 @@ type MemberFilter = {
 
 local replecs = {
 	shared = jecs.tag(),
-	networked = jecs.component() :: jecs.Entity<MemberFilter?>,
-	reliable = jecs.component() :: jecs.Entity<MemberFilter?>,
-	unreliable = jecs.component() :: jecs.Entity<MemberFilter?>,
+	networked = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
+	reliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
+	unreliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	pair = jecs.tag(),
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
 	bytespan = jecs.component() :: jecs.Entity<number>,
 	custom_id = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
+	global_id = jecs.component() :: jecs.Entity<number>,
 	__alive_tracking__ = jecs.tag(),
 }
 
@@ -41,6 +41,7 @@ replecs.Reliable = replecs.reliable
 replecs.Unreliable = replecs.unreliable
 replecs.Pair = replecs.pair
 replecs.Shared = replecs.shared
+replecs.GlobalId = replecs.global_id
 
 jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
 jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
@@ -60,6 +61,9 @@ function replecs.create_client(world: jecs.World?): Client
 end
 
 function replecs.create(world: jecs.World?): ReplecsLib
+	assert(game, "This is a Roblox specific function")
+
+	local RunService = game:GetService "RunService"
 	local lib = {} :: ReplecsLib
 
 	if RunService:IsServer() then

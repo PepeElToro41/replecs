@@ -5,25 +5,13 @@ includes = ["pesde.toml", "README.md", "LICENSE.md", "src"]
 license = "MIT"
 repository = "https://github.com/PepeElToro41/replecs"
 version = "0.0.1"
-workspace_members = ["demo"]
 
 [indices]
 default = "https://github.com/pesde-pkg/index"
 
-[wally_indices]
-default = "https://github.com/UpliftGames/wally-index"
-
-[scripts]
-roblox_sync_config_generator = ".pesde/scripts/roblox_sync_config_generator.luau"
-sourcemap_generator = ".pesde/scripts/sourcemap_generator.luau"
-
 [target]
-build_files = ["src"]
-environment = "roblox"
+environment = "luau"
 lib = "src/init.luau"
 
-[dev_dependencies]
-scripts = { name = "pesde/scripts_rojo", version = "^0.1.0", target = "lune" }
-
 [dependencies]
-jecs = { wally = "ukendio/jecs", version = "^0.9.0-rc.5" }
+jecs = { name = "marked/jecs", version = "^0.9.0-rc.5" }

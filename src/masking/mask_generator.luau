@@ -1,7 +1,7 @@
 --!native
 --!optimize 2
 
-local utils = require(script.Parent.Parent.utils)
+local utils = require "../utils"
 
 type ComputeCallback = (generator: MaskGenerator) -> utils.Bitmask
 type SubscribeCallback = (generator: MaskGenerator) -> ()

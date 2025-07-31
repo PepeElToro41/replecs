@@ -1,10 +1,10 @@
 --!optimize 2
 --!native
 
-local jecs = require(script.Parent.Parent.jecs)
-local utils = require(script.Parent.utils)
-local common = require(script.Parent.common)
-local masking_controller = require(script.Parent.masking)
+local jecs = require "../jecs"
+local utils = require "./utils"
+local common = require "./common"
+local masking_controller = require "./masking"
 
 type Cursor = utils.Cursor
 
@@ -15,8 +15,10 @@ type Set<T> = { [T]: boolean }
 type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
+type FunctionFilter = (player: Player) -> boolean
+
 type TrackInfo = {
-	entities: { [Entity]: boolean },
+	entities: Map<Entity, boolean>,
 	components: { [Entity]: { [Entity]: number } },
 }
 
@@ -36,15 +38,18 @@ export type Server = {
 
 	components: common.Components,
 	hooks: common.WorldHooks,
-	alive_tracked: { [Entity]: boolean },
+	alive_tracked: Set<Entity>,
 
 	track_info: TrackInfo,
-	additions: { [Entity]: boolean },
-	custom_ids: { [Entity]: Entity },
+	additions: Set<Entity>,
+	custom_ids: Map<Entity, Entity<any>>,
+	global_ids: Map<Entity, number>,
 	storage: Storage,
-	hooked: { () -> () },
+	hooked: Array<() -> ()>,
 	masking: masking_controller.MaskingController,
-	connections: { RBXScriptConnection },
+	pending_cleanups: Set<Entity>,
+	connections: Array<RBXScriptConnection>,
+	function_filters: masking_controller.EntityComponentIndex<FunctionFilter>,
 
 	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
@@ -59,6 +64,7 @@ export type Server = {
 local cursor = utils.cursor
 
 local NIL_COMPONENT_VALUE = newproxy()
+local GLOBAL_ID_OFFSET = 10
 
 local COMPONENT_TYPES = masking_controller.COMPONENT_TYPES
 local TRACK_TYPES = {
@@ -66,11 +72,17 @@ local TRACK_TYPES = {
 	tag = 2,
 	pair = 3,
 }
+local PACKET_TYPES = {
+	full = 1,
+	unreliable = 2,
+	reliable = 3,
+}
 local MAX_PACKET_SIZE = 900
 local ENTITY_ID_TYPES = {
-	id = 1,
+	entity = 1,
 	custom = 2,
 	shared = 3,
+	global = 4,
 }
 local ECS_COMPONENT = jecs.Component
 
@@ -79,9 +91,6 @@ local function IS_PAIR(id: Entity): boolean
 end
 local function PAIR_SECOND(world: World, id: Entity): Entity
 	return jecs.pair_second(world, id)
-end
-local function ECS_ID(entity: Entity): number
-	return jecs.ECS_ID(entity :: any)
 end
 
 local function track_entity_lifetime(server: Server, entity: Entity)
@@ -167,6 +176,13 @@ local function allocate_pair_removal(server: Server, entity: Entity, relation: E
 	end
 end
 
+local function cleanup_entity(server: Server, entity: Entity)
+	server.alive_tracked[entity] = nil
+	server.storage[entity] = nil
+	server.additions[entity] = nil
+	server.masking:cleanup_entity(entity)
+end
+
 local function track_component(server: Server, component: Entity<any>)
 	local world = server.world
 	local hooks = server.hooks
@@ -195,7 +211,7 @@ local function track_component(server: Server, component: Entity<any>)
 			allocate_pair_addition(server, entity, component, PAIR_SECOND(world, id))
 		end
 	end))
-	hook(hooks.changed(world, component, function(entity, id, value)
+	hook(hooks.changed(world, component, function(entity, _id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -356,8 +372,16 @@ end
 
 local function write_entity_id(server: Server, c: Cursor, entity: Entity, variants: { any }, multiply: number?)
 	local custom = server.custom_ids[entity]
+	local global_id = server.global_ids[entity]
 
-	if custom then
+	if global_id then
+		if multiply then
+			cursor.writei8(c, ENTITY_ID_TYPES.global * multiply)
+			cursor.writeu8(c, global_id + GLOBAL_ID_OFFSET)
+		else
+			cursor.writei8(c, global_id + GLOBAL_ID_OFFSET)
+		end
+	elseif custom then
 		local value = server.world:get(entity, custom)
 		write_component_value(server, c, custom, value, variants)
 		cursor.writei8(c, ENTITY_ID_TYPES.custom * (multiply or 1))
@@ -367,8 +391,8 @@ local function write_entity_id(server: Server, c: Cursor, entity: Entity, varian
 			cursor.writeu8(c, shared_id)
 			cursor.writei8(c, ENTITY_ID_TYPES.shared * (multiply or 1))
 		else
-			cursor.writeu24(c, ECS_ID(entity :: any))
-			cursor.writei8(c, ENTITY_ID_TYPES.id * (multiply or 1))
+			cursor.writeu40(c, entity :: any)
+			cursor.writei8(c, ENTITY_ID_TYPES.entity * (multiply or 1), entity)
 		end
 	end
 end
@@ -417,8 +441,12 @@ local function write_entity(
 	write_entity_id(server, c, entity, variants)
 end
 
+type Packet = {
+	buffer: buffer,
+	variants: { { any } },
+}
 type MemberPackets = {
-	buffers: { buffer },
+	packets: Array<Packet>,
 	variants: { { any } },
 	total_size: number,
 }
@@ -434,13 +462,19 @@ local function append_packet(
 		local member_packets = packets[member]
 
 		if member_packets then
-			table.insert(member_packets.buffers, output)
-			table.insert(member_packets.variants, variants)
+			table.insert(member_packets.packets, {
+				buffer = output,
+				variants = variants,
+			})
 			member_packets.total_size += len
 		else
 			member_packets = {
-				buffers = { output },
-				variants = { variants },
+				packets = {
+					{
+						buffer = output,
+						variants = variants,
+					},
+				},
 				total_size = len,
 			}
 			packets[member] = member_packets :: MemberPackets
@@ -448,35 +482,78 @@ local function append_packet(
 	end
 end
 
-local function combine_packet_outputs(outputs: { buffer }, total_size: number): buffer
-	local combined = buffer.create(total_size + utils.vlq_span(#outputs))
+local function combine_packet_outputs(outputs: Array<Packet>, total_size: number, id: number): (buffer, { { any } })
+	local combined = buffer.create(total_size + utils.vlq_span(#outputs) + 1)
 	local offset = 0
+	local variants = table.create(#outputs) :: { { any } }
 
 	for _, output in outputs do
-		buffer.copy(combined, offset, output)
-		offset += buffer.len(output)
+		buffer.copy(combined, offset, output.buffer)
+		offset += buffer.len(output.buffer)
+		table.insert(variants, output.variants)
 	end
 	cursor.write_vlq({
 		offset = offset,
 		buffer = combined,
 	}, #outputs)
+	buffer.writeu8(combined, buffer.len(combined) - 1, id)
 
-	return combined
+	return combined, variants
 end
 
-local function create_packet_iterator(packets: { [Player]: MemberPackets })
+type PacketIterator = () -> (Player, buffer, { { any } })
+
+local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: number)
 	local iterated: Player? = nil
 	local function iterator()
-		local player, packets = next(packets, iterated)
+		local player, data = next(packets, iterated)
 		if not player then
 			return nil :: any
 		end
 		iterated = player
 
-		local combined = combine_packet_outputs(packets.buffers, packets.total_size)
-		return player, combined, packets.variants
+		local combined, variants = combine_packet_outputs(data.packets, data.total_size, id)
+		return player, combined, variants
 	end
-	return iterator :: () -> (Player, buffer, { { any } })
+	return iterator :: PacketIterator
+end
+
+local function create_unreliable_packet_iterator(packets: { [Player]: MemberPackets })
+	return coroutine.wrap(function()
+		for player, data in packets do
+			table.sort(data.packets, function(a, b)
+				return buffer.len(a.buffer) < buffer.len(b.buffer)
+			end)
+			local total_packets = #data.packets
+
+			local current_packet_index = 1
+			while current_packet_index <= total_packets do
+				local sending = {} :: { Packet }
+				local total_size = 0
+
+				while current_packet_index <= total_packets do
+					local packet = data.packets[current_packet_index]
+					local buffer_size = buffer.len(packet.buffer)
+
+					if total_size + buffer_size > MAX_PACKET_SIZE and #sending > 0 then
+						break
+					end
+
+					table.insert(sending, packet)
+					total_size += buffer_size
+					current_packet_index += 1
+
+					if total_size >= MAX_PACKET_SIZE then
+						break
+					end
+				end
+
+				if #sending > 0 then
+					coroutine.yield(player, combine_packet_outputs(sending, total_size, PACKET_TYPES.unreliable))
+				end
+			end
+		end
+	end) :: PacketIterator
 end
 
 local function get_full(server: Server, member: Player): (buffer, { { any } })
@@ -484,8 +561,7 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 	if index == nil then
 		utils.logerror "attempted to replicate for a non registered member"
 	end
-	local buffers: { buffer } = {}
-	local all_variants: { { any } } = {}
+	local packets: Array<Packet> = {}
 	local total_size = 0
 
 	-- maybe edges to quickly find all relevant storages improves performance?
@@ -504,12 +580,14 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		cursor.write_vlq(c, total_entities)
 
 		local output = cursor.close(c)
-		table.insert(buffers, output)
-		table.insert(all_variants, variants)
+		table.insert(packets, {
+			buffer = output,
+			variants = variants,
+		})
 		total_size += buffer.len(output)
 	end
 
-	return combine_packet_outputs(buffers, total_size), all_variants
+	return combine_packet_outputs(packets, total_size, PACKET_TYPES.full)
 end
 
 local function collect_updates(server: Server)
@@ -517,6 +595,7 @@ local function collect_updates(server: Server)
 
 	for _, storage in server.masking.storages do
 		local c = cursor.new()
+
 		local variants = {}
 
 		local total_deleted = 0
@@ -562,7 +641,7 @@ local function collect_updates(server: Server)
 		local changed = 0
 		for entity, changes in storage_changes.changed do
 			local total_removed = 0
-			for component, value in changes.removed do
+			for component in changes.removed do
 				write_component_id(server, c, component)
 				total_removed += 1
 			end
@@ -574,7 +653,7 @@ local function collect_updates(server: Server)
 
 				for target, added in targets do
 					if added then
-						write_entity_id(server, c, target, variants)
+						write_entity_id(server, c, target, variants, 1)
 					else
 						write_entity_id(server, c, target, variants, -1)
 					end
@@ -624,7 +703,7 @@ local function collect_updates(server: Server)
 	end
 	table.clear(server.additions)
 
-	return create_packet_iterator(packets)
+	return create_packet_iterator(packets, PACKET_TYPES.reliable)
 end
 
 local function collect_unreliable(server: Server)
@@ -649,17 +728,16 @@ local function collect_unreliable(server: Server)
 		end
 
 		local function rollback_checkpoint()
-			c.offset = checkpoint_offset
 			local new_cursor = cursor.new()
-			cursor.write_buffer(new_cursor, c.buffer, checkpoint_offset)
+			cursor.write_buffer(new_cursor, c.buffer, checkpoint_offset, c.offset - checkpoint_offset)
+			c.offset = checkpoint_offset
 			c = new_cursor
 
 			local new_variants = {} :: { { any } }
-			for i = #variants, checkpoint_variants_count + 1, -1 do
+			for _ = #variants, checkpoint_variants_count + 1, -1 do
 				table.insert(new_variants, 1, table.remove(variants))
 			end
 			variants = new_variants
-
 			total_entities = total_entities - checkpoint_total_entities
 		end
 
@@ -668,9 +746,8 @@ local function collect_unreliable(server: Server)
 				return
 			end
 
+			cursor.write_vlq(commit_c, commit_total_entities)
 			local output = cursor.close(commit_c)
-			cursor.write_vlq(c, commit_total_entities)
-
 			append_packet(packets, mask_storage.mask.members, output, commit_variants)
 		end
 
@@ -695,19 +772,17 @@ local function collect_unreliable(server: Server)
 			cursor.write_vlq(c, total_unreliable)
 			write_entity_id(server, c, entity, variants)
 
-			local current_size = c.offset
-			if current_size > MAX_PACKET_SIZE then
+			if c.offset > MAX_PACKET_SIZE then
 				local commit_cursor = c
 				local commit_variants = variants
-				local commit_total_entities = total_entities
 				rollback_checkpoint()
-				commit_checkpoint(commit_cursor, commit_variants, commit_total_entities)
+				commit_checkpoint(commit_cursor, commit_variants, checkpoint_total_entities)
 			end
 		end
 		commit_checkpoint(c, variants, total_entities)
 	end
 
-	return create_packet_iterator(packets)
+	return create_unreliable_packet_iterator(packets)
 end
 
 local function check_created(server: Server)
@@ -751,7 +826,7 @@ function init(server: Server, _world: World?)
 		table.insert(server.hooked, unhook)
 	end
 
-	hook(hooks.added(world, components.networked, function(entity, id, filter)
+	hook(hooks.added(world, components.networked, function(entity, _id, filter)
 		masking:unregister_stop_entity(entity)
 		masking:start_entity(entity, filter)
 		masking:propagate_entity_addition(entity)
@@ -760,7 +835,7 @@ function init(server: Server, _world: World?)
 		server.track_info.entities[entity] = true
 		track_entity_lifetime(server, entity)
 	end))
-	hook(hooks.changed(world, components.networked, function(entity, id, filter)
+	hook(hooks.changed(world, components.networked, function(entity, _id, filter)
 		masking:set_entity(entity, filter)
 	end))
 	hook(hooks.removed(world, components.networked, function(entity)
@@ -769,6 +844,10 @@ function init(server: Server, _world: World?)
 
 		server.additions[entity] = nil
 		server.track_info.entities[entity] = nil
+		if server.pending_cleanups[entity] then
+			server.pending_cleanups[entity] = nil
+			cleanup_entity(server, entity)
+		end
 	end))
 
 	hook(hooks.added(world, components.reliable, function(entity, id, filter)
@@ -800,6 +879,10 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
 		end
+		if not server.track_info.entities[entity] then
+			return
+		end
+
 		local component = PAIR_SECOND(world, id)
 		local component_type = untrack_entity_component(server, entity, component)
 		if not component_type then
@@ -817,6 +900,9 @@ function init(server: Server, _world: World?)
 		track_entity_pair(server, entity, relation)
 		masking:unregister_stop_component(entity, relation, COMPONENT_TYPES.pair)
 		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
+		if server.additions[entity] then
+			masking:allocate_entity_addition(entity, relation, COMPONENT_TYPES.pair)
+		end
 	end))
 	hook(hooks.changed(world, components.pair, function(entity, id, filter)
 		if not IS_PAIR(id) then
@@ -829,6 +915,10 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "reliable should be used with a pair relationship"
 		end
+		if not server.track_info.entities[entity] then
+			return
+		end
+
 		local relation = PAIR_SECOND(world, id)
 		untrack_entity_pair(server, entity, relation)
 		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
@@ -857,8 +947,12 @@ function init(server: Server, _world: World?)
 		if not IS_PAIR(id) then
 			utils.logerror "unreliable should be used with a pair relationship"
 		end
+		if not server.track_info.entities[entity] then
+			return
+		end
+
 		local component = PAIR_SECOND(world, id)
-		untrack_entity_component(server, entity, component, COMPONENT_TYPES.unreliable)
+		untrack_entity_component(server, entity, component)
 		masking:register_stop_component(entity, component, COMPONENT_TYPES.unreliable)
 		masking:stop_component(entity, component, COMPONENT_TYPES.unreliable)
 	end))
@@ -875,13 +969,32 @@ function init(server: Server, _world: World?)
 
 		server.custom_ids[entity] = target
 	end))
-	hook(hooks.removed(world, components.custom_id, function(entity, id)
+	hook(hooks.removed(world, components.custom_id, function(entity)
 		server.custom_ids[entity] = nil
+	end))
+	hook(hooks.added(world, components.global_id, function(entity, id, value)
+		if value > 245 then
+			utils.logerror "global id size exceeded, max is 245"
+		end
+		server.global_ids[entity] = value
+	end))
+	hook(hooks.changed(world, components.global_id, function(entity, id, value)
+		if value > 245 then
+			utils.logerror "global id size exceeded, max is 245"
+		end
+		server.global_ids[entity] = value
+	end))
+	hook(hooks.removed(world, components.global_id, function(entity)
+		server.global_ids[entity] = nil
 	end))
 
 	hook(hooks.removed(world, components.__alive_tracking__, function(entity)
-		-- TODO: cleanup entity garbage on deletion
-		server.custom_ids[entity] = nil
+		if server.track_info.entities[entity] then
+			-- This is in case alive tracking removal is called before networked removal
+			server.pending_cleanups[entity] = true
+		else
+			cleanup_entity(server, entity)
+		end
 	end))
 
 	if game and game:GetService("RunService"):IsServer() then
@@ -939,6 +1052,8 @@ local function create(world: World?, components: common.Components): Server
 	self.additions = {}
 	self.storage = {}
 	self.hooked = {}
+	self.global_ids = {}
+	self.pending_cleanups = {}
 	self.track_info = {
 		entities = {},
 		components = {},
