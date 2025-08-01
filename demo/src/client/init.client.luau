@@ -30,7 +30,9 @@ players.listen_for_players()
 local player = ref(Players.LocalPlayer)
 world:add(player, c.client)
 
+task.wait(5)
 local buf, variants = zap.WaitForServer.Call()
 if buf then
 	replicator:apply_full(buf, variants)
 end
+print "REPLICATED FULL"
