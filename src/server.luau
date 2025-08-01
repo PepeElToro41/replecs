@@ -972,13 +972,13 @@ function init(server: Server, _world: World?)
 	hook(hooks.removed(world, components.custom_id, function(entity)
 		server.custom_ids[entity] = nil
 	end))
-	hook(hooks.added(world, components.global_id, function(entity, id, value)
+	hook(hooks.added(world, components.global_id, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
-	hook(hooks.changed(world, components.global_id, function(entity, id, value)
+	hook(hooks.changed(world, components.global_id, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end

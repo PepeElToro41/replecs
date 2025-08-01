@@ -137,7 +137,7 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (E
 	end
 end
 
-local function process_entity_id(client: Client, c: Cursor, variants: { any }?, v: boolean?)
+local function process_entity_id(client: Client, c: Cursor, variants: { any }?)
 	local entity, server_id = read_entity_id(client, c, variants)
 	if entity then
 		return entity
@@ -200,7 +200,7 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		local variants = all_variants and all_variants[variant_start - a]
 		local total_added = cursor.read_vlq(c)
 
-		for i = 1, total_added do
+		for _ = 1, total_added do
 			process_entity(client, c, variants)
 		end
 
