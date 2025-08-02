@@ -342,8 +342,31 @@ end
 local function write_component_value(server: Server, c: Cursor, component: Entity, value: any, variants: { any })
 	local serdes = server.shared.serdes[component]
 	if serdes then
-		local output = serdes.serialize(if value == NIL_COMPONENT_VALUE then nil else value)
+		local output, blobs = serdes.serialize(if value == NIL_COMPONENT_VALUE then nil else value)
 
+		if serdes.includes_blobs then
+			if blobs == nil then
+				utils.logerror(
+					"serdes: blobs is equal to nil yet includes_blobs is set to true for component",
+					utils.logcomponent(server.world, component)
+				)
+				-- this will never return (as it just errored above), but Luau's type system needs it.
+				return
+			end
+
+			if #blobs > 0 then
+				cursor.write_vlq(c, #variants + 1)
+				table.move(blobs, 1, #blobs, #variants + 1, variants)
+			end
+
+			cursor.write_vlq(c, #blobs)
+		elseif blobs ~= nil then
+			utils.logerror(
+				"serdes: serializer provided blobs yet includes_blobs is not set to true for component",
+				utils.logcomponent(server.world, component)
+			)
+		end
+		
 		local bytespan = server.shared.bytespan[component]
 		cursor.write_buffer(c, output)
 		if bytespan then
