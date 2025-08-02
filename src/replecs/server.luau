@@ -931,7 +931,7 @@ function init(server: Server, _world: World?)
 		masking:start_component(entity, component, component_type, filter)
 		if server.additions[entity] then
 			masking:allocate_entity_addition(entity, component, component_type)
-		else
+		elseif server.track_info.entities[entity] then
 			masking:register_component_addition(entity, component, component_type)
 		end
 	end))
@@ -975,7 +975,7 @@ function init(server: Server, _world: World?)
 		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
 		if server.additions[entity] then
 			masking:allocate_entity_addition(entity, relation, COMPONENT_TYPES.pair)
-		else
+		elseif server.track_info.entities[entity] then
 			masking:register_component_addition(entity, relation, COMPONENT_TYPES.pair)
 		end
 	end))
