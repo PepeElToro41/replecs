@@ -91,6 +91,7 @@ type StorageGroup = {
 
 	changes: {
 		added: Map<Entity, boolean>,
+		added_components: EntityComponentIndex<boolean>,
 		changed: Map<Entity, EntityChanges>,
 	},
 }
@@ -119,6 +120,18 @@ export type MaskingController = {
 
 	register_stop_entity: (self: MaskingController, entity: Entity) -> (),
 	register_stop_component: (
+		self: MaskingController,
+		entity: Entity,
+		component: Entity,
+		component_type: number
+	) -> (),
+	register_component_addition: (
+		self: MaskingController,
+		entity: Entity,
+		component: Entity,
+		component_type: number
+	) -> (),
+	unregister_component_addition: (
 		self: MaskingController,
 		entity: Entity,
 		component: Entity,
@@ -245,6 +258,7 @@ function masking_controller.create_new_storage(
 
 		changes = {
 			added = {},
+			added_components = {},
 			changed = {},
 		},
 
@@ -352,6 +366,19 @@ local function get_or_set_active(storage: StorageGroup, entity: Entity, active: 
 	return storage_active
 end
 
+local function get_or_set_component_added(
+	storage: StorageGroup,
+	entity: Entity,
+	added: ComponentIndex<boolean>?
+): ComponentIndex<boolean>
+	local storage_added = storage.changes.added_components[entity]
+	if storage_added == nil then
+		storage_added = added or create_component_indexes() :: ComponentIndex<boolean>
+		storage.changes.added_components[entity] = storage_added
+	end
+	return storage_added
+end
+
 local function remove_active(storage: StorageGroup, entity: Entity): ActiveEntity
 	local active = storage.active[entity]
 	if active then
@@ -430,7 +457,24 @@ local function dissect_component_actives(
 	end
 	return new_active
 end
-function dissect_component_changes(changes: EntityChanges, shared_index: ComponentIndex<boolean>)
+
+local function dissect_component_additions(added: ComponentIndex<boolean>, shared_index: ComponentIndex<boolean>)
+	local new_added: ComponentIndex<boolean>
+
+	for component_type, components in added do
+		for component in components do
+			local is_shared = shared_index[component_type] and shared_index[component_type][component]
+			if is_shared then
+				new_added = (new_added or create_component_indexes()) :: ComponentIndex<boolean>
+				new_added[component_type][component] = true
+				added[component_type][component] = nil
+			end
+		end
+	end
+	return new_added
+end
+
+local function dissect_component_changes(changes: EntityChanges, shared_index: ComponentIndex<boolean>)
 	local new_changes: EntityChanges
 
 	for component, change in changes.component do
@@ -464,6 +508,14 @@ local function merge_component_actives(current: ActiveEntity, target: ActiveEnti
 	for component_type, components in current.components do
 		for component in components do
 			get_or_set_component_active(target, component, component_type)
+		end
+	end
+end
+
+local function merge_component_additions(current: ComponentIndex<boolean>, target: ComponentIndex<boolean>)
+	for component_type, components in current do
+		for component in components do
+			target[component_type][component] = true
 		end
 	end
 end
@@ -538,9 +590,27 @@ function masking_controller.move_entity_storage(
 		merge_component_actives(old_active, new_active)
 	end
 
+	local old_component_added = storage.changes.added_components[entity]
+	if old_component_added then
+		local new_component_added = get_or_set_component_added(target_storage, entity, old_component_added)
+
+		if shared_with then
+			local dissected_added = dissect_component_additions(old_component_added, shared_with)
+			if dissected_added then
+				storage.changes.added_components[entity] = dissected_added
+			else
+				storage.changes.added_components[entity] = nil
+			end
+		end
+
+		if old_component_added ~= new_component_added then
+			merge_component_additions(old_component_added, new_component_added)
+		end
+	end
+
 	local old_changes = storage.changes.changed[entity]
 	if old_changes then
-		local new_changes = get_or_set_changed(target_storage, entity)
+		local new_changes = get_or_set_changed(target_storage, entity, old_changes)
 
 		if shared_with then
 			local dissected_changes = dissect_component_changes(old_changes, shared_with)
@@ -555,6 +625,12 @@ function masking_controller.move_entity_storage(
 			merge_component_changes(old_changes, new_changes)
 		end
 	end
+
+	if storage.changes.added[entity] then
+		target_storage.changes.added[entity] = true
+		storage.changes.added[entity] = nil
+	end
+
 	return target_storage
 end
 
@@ -578,6 +654,12 @@ function masking_controller.move_component_storage(
 
 	set_component_index_entry(target_storage.shared_with, entity, component, component_type, true)
 	remove_component_index_entry(storage.shared_with, entity, component, component_type)
+
+	local component_added =
+		get_component_index_entry(storage.changes.added_components, entity, component, component_type)
+	if component_added then
+		set_component_index_entry(target_storage.changes.added_components, entity, component, component_type, true)
+	end
 
 	local changes = storage.changes.changed[entity]
 	if changes then
@@ -706,6 +788,18 @@ function masking_controller.register_stop_component(
 		storage.deletions_count += 1
 	end
 end
+
+function masking_controller.register_component_addition(
+	masking: MaskingInternal,
+	entity: Entity,
+	component: Entity,
+	component_type: number
+)
+	local storage = masking:get_component_storage_group(entity, component, component_type)
+	local additions = get_or_set_component_added(storage, entity)
+	additions[component_type][component] = true
+end
+
 function masking_controller.unregister_stop_entity(masking: MaskingInternal, entity: Entity)
 	local deletion_lookup = masking.lookups.deletions.entities[entity]
 	if not deletion_lookup then
@@ -738,6 +832,19 @@ function masking_controller.unregister_stop_component(
 			deletions[component_type][component] = nil
 			storage.deletions_count -= 1
 		end
+	end
+end
+
+function masking_controller.unregister_component_addition(
+	masking: MaskingInternal,
+	entity: Entity,
+	component: Entity,
+	component_type: number
+)
+	local storage: StorageGroup = masking:get_component_storage_group(entity, component, component_type)
+	local additions = storage.changes.added_components[entity]
+	if additions then
+		additions[component_type][component] = nil
 	end
 end
 
@@ -1115,6 +1222,9 @@ function masking_controller.merge_storages(
 	old_storage: StorageGroup,
 	new_storage: StorageGroup
 )
+	if new_storage == old_storage then
+		return
+	end
 	for entity, active in old_storage.active do
 		local new_active = get_or_set_active(new_storage, entity)
 		merge_component_actives(new_active, active)
@@ -1137,9 +1247,16 @@ function masking_controller.merge_storages(
 			end
 		end
 	end
+	for entity, added_components in old_storage.changes.added_components do
+		local new_added_components = get_or_set_component_added(new_storage, entity)
+		merge_component_additions(new_added_components, added_components)
+	end
 	for entity, changes in old_storage.changes.changed do
 		local new_changes = get_or_set_changes(new_storage, entity)
 		merge_component_changes(new_changes, changes)
+	end
+	for entity in old_storage.changes.added do
+		new_storage.changes.added[entity] = true
 	end
 	for entity in old_storage.deletions.entities do
 		new_storage.deletions.entities[entity] = true

@@ -32,6 +32,8 @@ local components = {
 	unix = world:component() :: jecs.Entity<number>,
 }
 
+print("COMPONENTS", components)
+
 world:set(components.player, replecs.custom_id, function(player: Player)
 	return ref(player) :: any
 end)

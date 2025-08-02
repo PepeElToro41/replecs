@@ -232,12 +232,7 @@ local function observers_add(world: jecs.World): PatchedWorld
 				table.insert(listeners, existing_hook)
 			end
 
-			local idr = world.component_index[component]
-			if idr then
-				idr.on_add = on_add
-			else
-				world:set(component, jecs.OnAdd, on_add)
-			end
+			world:set(component, jecs.OnAdd, on_add)
 		end
 		table.insert(listeners, fn)
 		return function()
@@ -266,12 +261,7 @@ local function observers_add(world: jecs.World): PatchedWorld
 			if existing_hook then
 				table.insert(listeners, existing_hook)
 			end
-			local idr = world.component_index[component]
-			if idr then
-				idr.on_change = on_change
-			else
-				world:set(component, jecs.OnChange, on_change)
-			end
+			world:set(component, jecs.OnChange, on_change)
 		end
 		table.insert(listeners, fn)
 		return function()
@@ -297,12 +287,7 @@ local function observers_add(world: jecs.World): PatchedWorld
 				table.insert(listeners, existing_hook)
 			end
 
-			local idr = world.component_index[component]
-			if idr then
-				idr.on_remove = on_remove
-			else
-				world:set(component, jecs.OnRemove, on_remove)
-			end
+			world:set(component, jecs.OnRemove, on_remove)
 		end
 
 		table.insert(listeners, fn)
