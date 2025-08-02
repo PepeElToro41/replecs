@@ -1351,7 +1351,6 @@ TEST("server -> client replication", function()
 
 		POST()
 	end
-
 	do
 		CASE "should correctly send nil values in components"
 		PRE()
@@ -1468,7 +1467,7 @@ TEST("server -> client replication", function()
 		local tags = create_test_tags(world)
 		server:init()
 
-		local members = create_members_data(2)
+		local members = create_members_data(4)
 		activate_members(members)
 		init_member_clients(members)
 
@@ -1519,7 +1518,46 @@ TEST("server -> client replication", function()
 
 		POST()
 	end
+	do
+		CASE "should send pair changes"
+		PRE()
+		create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
 
+		local members = create_members_data(2)
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity = world:entity()
+		--print("ENTITY", entity)
+		--print("CHILDOF", jecs.ChildOf)
+		world:add(entity, server.components.networked)
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+		end
+
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+		end
+
+		for _ = 1, 10 do
+			local target = world:entity()
+			--print("TARGET", target)
+			world:add(target, server.components.networked)
+			world:add(target, jecs.pair(replecs.pair, jecs.ChildOf))
+			world:add(target, jecs.pair(jecs.ChildOf, entity))
+		end
+
+		--print(server.masking.storages)
+		--print(server.masking.storages["00000011"])
+		--print(server.storage)
+
+		POST()
+	end
 	do
 		CASE "should send pair changes to all players"
 		PRE()

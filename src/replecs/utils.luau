@@ -663,6 +663,13 @@ function utils.remove_all_relations(world: World, entity: Entity, relation: Enti
 	end
 end
 
+function utils.setbit(mask: number, bit: number)
+	return bit32.bor(mask, bit32.lshift(1, bit))
+end
+function utils.checkbit(mask: number, bit: number)
+	return bit32.band(mask, bit32.lshift(1, bit)) ~= 0
+end
+
 function utils.logerror(...: string): never
 	error("REPLECS ERROR - " .. table.concat({ ... }, " "))
 end

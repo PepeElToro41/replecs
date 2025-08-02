@@ -8,7 +8,6 @@ function REPLECS_CLIENT()
 	for _, buf, variants in zap.OnReliableUpdates.Iter() do
 		replicator:apply_updates(buf, variants)
 	end
-
 	for _, buf, variants in zap.OnUnreliableUpdates.Iter() do
 		replicator:apply_unreliable(buf, variants)
 	end

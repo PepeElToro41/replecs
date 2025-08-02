@@ -72,6 +72,11 @@ local TRACK_TYPES = {
 	tag = 2,
 	pair = 3,
 }
+local PACKET_TYPES = {
+	full = 1,
+	unreliable = 2,
+	reliable = 3,
+}
 local MAX_PACKET_SIZE = 900
 local ENTITY_ID_TYPES = {
 	entity = 1,
@@ -201,7 +206,7 @@ local function track_component(server: Server, component: Entity<any>)
 			allocate_tag_addition(server, entity, component)
 		else
 			if not IS_PAIR(id) then
-				utils.logerror "a non-pair tag was added to a pair tracked component"
+				return
 			end
 			allocate_pair_addition(server, entity, component, PAIR_SECOND(world, id))
 		end
@@ -226,7 +231,7 @@ local function track_component(server: Server, component: Entity<any>)
 			allocate_tag_removal(server, entity, component)
 		else
 			if not IS_PAIR(id) then
-				utils.logerror "a non-pair tag was removed for a pair tracked component"
+				return
 			end
 			allocate_pair_removal(server, entity, component, PAIR_SECOND(world, id))
 		end
@@ -354,7 +359,7 @@ local function write_component_value(server: Server, c: Cursor, component: Entit
 		end
 	else
 		if value == NIL_COMPONENT_VALUE then
-			-- this is zero for vlq
+			-- 128 is zero for vlq
 			cursor.writeu8(c, 128)
 		else
 			table.insert(variants, value :: any)
@@ -392,6 +397,24 @@ local function write_entity_id(server: Server, c: Cursor, entity: Entity, varian
 	end
 end
 
+local function write_entity_relations(
+	server: Server,
+	storage: EntityStorage,
+	c: Cursor,
+	relation: Entity,
+	variants: { any }
+)
+	local targets = storage.pairs[relation]
+	local total_targets = 0
+
+	for target in targets do
+		write_entity_id(server, c, target, variants)
+		total_targets += 1
+	end
+	cursor.write_vlq(c, total_targets)
+	write_component_id(server, c, relation)
+end
+
 local function write_entity(
 	server: Server,
 	c: Cursor,
@@ -403,15 +426,7 @@ local function write_entity(
 
 	local all_pairs = 0
 	for relation in active.components[COMPONENT_TYPES.pair] do
-		local targets = storage.pairs[relation]
-		local total_targets = 0
-
-		for target in targets do
-			write_entity_id(server, c, target, variants)
-			total_targets += 1
-		end
-		cursor.write_vlq(c, total_targets)
-		write_component_id(server, c, relation)
+		write_entity_relations(server, storage, c, relation, variants)
 		all_pairs += 1
 	end
 	cursor.write_vlq(c, all_pairs)
@@ -419,6 +434,10 @@ local function write_entity(
 	local components = 0
 	for component in active.components[COMPONENT_TYPES.component] do
 		local value = storage.values[component]
+		if value == nil then
+			continue
+		end
+
 		write_component_value(server, c, component, value, variants)
 		components += 1
 	end
@@ -477,8 +496,8 @@ local function append_packet(
 	end
 end
 
-local function combine_packet_outputs(outputs: Array<Packet>, total_size: number): (buffer, { { any } })
-	local combined = buffer.create(total_size + utils.vlq_span(#outputs))
+local function combine_packet_outputs(outputs: Array<Packet>, total_size: number, id: number): (buffer, { { any } })
+	local combined = buffer.create(total_size + utils.vlq_span(#outputs) + 1)
 	local offset = 0
 	local variants = table.create(#outputs) :: { { any } }
 
@@ -491,13 +510,14 @@ local function combine_packet_outputs(outputs: Array<Packet>, total_size: number
 		offset = offset,
 		buffer = combined,
 	}, #outputs)
+	buffer.writeu8(combined, buffer.len(combined) - 1, id)
 
 	return combined, variants
 end
 
 type PacketIterator = () -> (Player, buffer, { { any } })
 
-local function create_packet_iterator(packets: { [Player]: MemberPackets })
+local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: number)
 	local iterated: Player? = nil
 	local function iterator()
 		local player, data = next(packets, iterated)
@@ -506,7 +526,7 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets })
 		end
 		iterated = player
 
-		local combined, variants = combine_packet_outputs(data.packets, data.total_size)
+		local combined, variants = combine_packet_outputs(data.packets, data.total_size, id)
 		return player, combined, variants
 	end
 	return iterator :: PacketIterator
@@ -543,7 +563,7 @@ local function create_unreliable_packet_iterator(packets: { [Player]: MemberPack
 				end
 
 				if #sending > 0 then
-					coroutine.yield(player, combine_packet_outputs(sending, total_size))
+					coroutine.yield(player, combine_packet_outputs(sending, total_size, PACKET_TYPES.unreliable))
 				end
 			end
 		end
@@ -581,7 +601,16 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		total_size += buffer.len(output)
 	end
 
-	return combine_packet_outputs(packets, total_size)
+	return combine_packet_outputs(packets, total_size, PACKET_TYPES.full)
+end
+
+local function write_vlq_bitmask(c: Cursor, value: number, mask: number, bit: number): number
+	if value > 0 then
+		cursor.write_vlq(c, value)
+		return utils.setbit(mask, bit)
+	else
+		return mask
+	end
 end
 
 local function collect_updates(server: Server)
@@ -589,7 +618,9 @@ local function collect_updates(server: Server)
 
 	for _, storage in server.masking.storages do
 		local c = cursor.new()
+
 		local variants = {}
+		local storage_mask = 0
 
 		local total_deleted = 0
 		local entity_deletions = storage.deletions.entities
@@ -598,47 +629,52 @@ local function collect_updates(server: Server)
 			total_deleted += 1
 		end
 		table.clear(entity_deletions)
-		cursor.write_vlq(c, total_deleted)
+		storage_mask = write_vlq_bitmask(c, total_deleted, storage_mask, 4)
 
 		local total_component_deleted = 0
 		local component_deletions = storage.deletions.components
 		for entity, deleted in component_deletions do
+			local deleted_mask = 0
+
 			local total_pairs = 0
 			for relation in deleted[COMPONENT_TYPES.pair] do
 				write_component_id(server, c, relation)
 				total_pairs += 1
 			end
-			cursor.write_vlq(c, total_pairs)
+			deleted_mask = write_vlq_bitmask(c, total_pairs, deleted_mask, 2)
 
 			local total_components = 0
 			for component in deleted[COMPONENT_TYPES.component] do
 				write_component_id(server, c, component)
 				total_components += 1
 			end
-			cursor.write_vlq(c, total_components)
+			deleted_mask = write_vlq_bitmask(c, total_components, deleted_mask, 1)
 
 			local total_tags = 0
 			for tag in deleted[COMPONENT_TYPES.tag] do
 				write_component_id(server, c, tag)
 				total_tags += 1
 			end
-			cursor.write_vlq(c, total_tags)
+			deleted_mask = write_vlq_bitmask(c, total_tags, deleted_mask, 0)
 
+			cursor.writeu8(c, deleted_mask)
 			write_entity_id(server, c, entity, variants)
 			total_component_deleted += 1
 		end
 		table.clear(component_deletions)
-		cursor.write_vlq(c, total_component_deleted)
+		storage_mask = write_vlq_bitmask(c, total_component_deleted, storage_mask, 3)
 
 		local storage_changes = storage.changes
 		local changed = 0
 		for entity, changes in storage_changes.changed do
+			local changed_mask = 0
+
 			local total_removed = 0
 			for component in changes.removed do
 				write_component_id(server, c, component)
 				total_removed += 1
 			end
-			cursor.write_vlq(c, total_removed)
+			changed_mask = write_vlq_bitmask(c, total_removed, changed_mask, 3)
 
 			local total_pairs = 0
 			for relation, targets in changes.pairs do
@@ -656,27 +692,68 @@ local function collect_updates(server: Server)
 				write_component_id(server, c, relation)
 				total_pairs += 1
 			end
-			cursor.write_vlq(c, total_pairs)
+			changed_mask = write_vlq_bitmask(c, total_pairs, changed_mask, 2)
 
 			local total_components = 0
 			for component, value in changes.component do
 				write_component_value(server, c, component, value, variants)
 				total_components += 1
 			end
-			cursor.write_vlq(c, total_components)
+			changed_mask = write_vlq_bitmask(c, total_components, changed_mask, 1)
 
 			local total_tagged = 0
 			for tag in changes.tagged do
 				write_component_id(server, c, tag)
 				total_tagged += 1
 			end
-			cursor.write_vlq(c, total_tagged)
+			changed_mask = write_vlq_bitmask(c, total_tagged, changed_mask, 0)
 
+			cursor.writeu8(c, changed_mask)
 			write_entity_id(server, c, entity, variants)
 			changed += 1
 		end
 		table.clear(storage_changes.changed)
-		cursor.write_vlq(c, changed)
+		storage_mask = write_vlq_bitmask(c, changed, storage_mask, 2)
+
+		local total_components_added = 0
+		for entity, components in storage_changes.added_components do
+			local entity_storage = server.storage[entity]
+			local added_mask = 0
+
+			local total_pairs = 0
+			for relation in components[COMPONENT_TYPES.pair] do
+				write_entity_relations(server, entity_storage, c, relation, variants)
+				total_pairs += 1
+			end
+			added_mask = write_vlq_bitmask(c, total_pairs, added_mask, 2)
+
+			local total_components = 0
+			for component in components[COMPONENT_TYPES.component] do
+				local value = entity_storage.values[component]
+				if value == nil then
+					continue
+				end
+				write_component_value(server, c, component, value, variants)
+				total_components += 1
+			end
+			added_mask = write_vlq_bitmask(c, total_components, added_mask, 1)
+
+			local total_tags = 0
+			for component in components[COMPONENT_TYPES.tag] do
+				local has_tag = entity_storage.tags[component]
+				if has_tag then
+					write_component_id(server, c, component)
+					total_tags += 1
+				end
+			end
+			added_mask = write_vlq_bitmask(c, total_tags, added_mask, 0)
+
+			cursor.writeu8(c, added_mask)
+			write_entity_id(server, c, entity, variants)
+			total_components_added += 1
+		end
+		table.clear(storage_changes.added_components)
+		storage_mask = write_vlq_bitmask(c, total_components_added, storage_mask, 1)
 
 		local total_added = 0
 		for entity in storage_changes.added do
@@ -689,14 +766,14 @@ local function collect_updates(server: Server)
 			total_added += 1
 		end
 		table.clear(storage_changes.added)
-		cursor.write_vlq(c, total_added)
+		storage_mask = write_vlq_bitmask(c, total_added, storage_mask, 0)
 
+		cursor.writeu8(c, storage_mask)
 		local output = cursor.close(c)
 		append_packet(packets, storage.mask.members, output, variants)
 	end
 	table.clear(server.additions)
-
-	return create_packet_iterator(packets)
+	return create_packet_iterator(packets, PACKET_TYPES.reliable)
 end
 
 local function collect_unreliable(server: Server)
@@ -854,6 +931,8 @@ function init(server: Server, _world: World?)
 		masking:start_component(entity, component, component_type, filter)
 		if server.additions[entity] then
 			masking:allocate_entity_addition(entity, component, component_type)
+		else
+			masking:register_component_addition(entity, component, component_type)
 		end
 	end))
 	hook(hooks.changed(world, components.reliable, function(entity, id, filter)
@@ -881,6 +960,7 @@ function init(server: Server, _world: World?)
 		if not component_type then
 			return
 		end
+		masking:unregister_component_addition(entity, component, component_type)
 		masking:register_stop_component(entity, component, component_type)
 		masking:stop_component(entity, component, component_type)
 	end))
@@ -895,6 +975,8 @@ function init(server: Server, _world: World?)
 		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
 		if server.additions[entity] then
 			masking:allocate_entity_addition(entity, relation, COMPONENT_TYPES.pair)
+		else
+			masking:register_component_addition(entity, relation, COMPONENT_TYPES.pair)
 		end
 	end))
 	hook(hooks.changed(world, components.pair, function(entity, id, filter)
@@ -914,6 +996,7 @@ function init(server: Server, _world: World?)
 
 		local relation = PAIR_SECOND(world, id)
 		untrack_entity_pair(server, entity, relation)
+		masking:unregister_component_addition(entity, relation, COMPONENT_TYPES.pair)
 		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
 		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
 	end))
@@ -965,13 +1048,14 @@ function init(server: Server, _world: World?)
 	hook(hooks.removed(world, components.custom_id, function(entity)
 		server.custom_ids[entity] = nil
 	end))
-	hook(hooks.added(world, components.global_id, function(entity, id, value)
+	hook(hooks.added(world, components.global_id, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
-	hook(hooks.changed(world, components.global_id, function(entity, id, value)
+
+	hook(hooks.changed(world, components.global_id, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
