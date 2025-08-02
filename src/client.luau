@@ -86,7 +86,20 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 		local bytespan = client.shared.bytespan[component] or cursor.read_vlq(c)
 
 		local appended = cursor.read_buffer(c, bytespan)
-		local output = serdes.deserialize(appended)
+		local blobs
+
+		if serdes.includes_blobs then
+			local size = cursor.read_vlq(c)
+
+			if size > 0 then
+				local variant_id = cursor.read_vlq(c)
+				blobs = table.move(variants :: { any }, variant_id, variant_id + size - 1, 1, {})
+			else 
+				blobs = {}
+			end
+		end
+
+		local output = serdes.deserialize(appended, blobs)
 		return component, output
 	else
 		local variant_id = cursor.read_vlq(c)
