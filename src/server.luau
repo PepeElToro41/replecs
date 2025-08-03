@@ -1052,9 +1052,9 @@ function init(server: Server, _world: World?)
 		masking:stop_component(entity, component, COMPONENT_TYPES.unreliable)
 	end))
 
-	hook(hooks.added(world, components.custom_id, function(entity, id)
+	hook(hooks.added(world, components.custom, function(entity, id)
 		if not IS_PAIR(id) then
-			utils.logerror "custom_id should be used with a relationship in the server"
+			utils.logerror "replecs.custom should be used with a relationship in the server"
 		end
 		local target = PAIR_SECOND(world, id)
 		if server.custom_ids[entity] then
@@ -1064,23 +1064,23 @@ function init(server: Server, _world: World?)
 
 		server.custom_ids[entity] = target
 	end))
-	hook(hooks.removed(world, components.custom_id, function(entity)
+	hook(hooks.removed(world, components.custom, function(entity)
 		server.custom_ids[entity] = nil
 	end))
-	hook(hooks.added(world, components.global_id, function(entity, _, value)
+	hook(hooks.added(world, components.global, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
 
-	hook(hooks.changed(world, components.global_id, function(entity, _, value)
+	hook(hooks.changed(world, components.global, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
-	hook(hooks.removed(world, components.global_id, function(entity)
+	hook(hooks.removed(world, components.global, function(entity)
 		server.global_ids[entity] = nil
 	end))
 

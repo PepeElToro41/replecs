@@ -27,30 +27,36 @@ local replecs = {
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
 	bytespan = jecs.component() :: jecs.Entity<number>,
-	custom_id = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
-	global_id = jecs.component() :: jecs.Entity<number>,
+	custom = jecs.tag() :: jecs.Entity,
+	custom_handler = jecs.component() :: jecs.Entity<(any) -> jecs.Entity>,
+	global = jecs.component() :: jecs.Entity<number>,
 	__alive_tracking__ = jecs.tag(),
 }
 
 replecs.__index = replecs
 replecs.Serdes = replecs.serdes
 replecs.Bytespan = replecs.bytespan
-replecs.CustomId = replecs.custom_id
+replecs.Custom = replecs.custom
 replecs.Networked = replecs.networked
 replecs.Reliable = replecs.reliable
 replecs.Unreliable = replecs.unreliable
 replecs.Pair = replecs.pair
 replecs.Shared = replecs.shared
-replecs.GlobalId = replecs.global_id
+replecs.Global = replecs.global
 
 jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
 jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
-jecs.meta(replecs.custom_id, jecs.Name, "replecs.custom_id")
+jecs.meta(replecs.custom, jecs.Name, "replecs.custom")
+jecs.meta(replecs.custom_handler, jecs.Name, "replecs.custom_handler")
 jecs.meta(replecs.networked, jecs.Name, "replecs.networked")
 jecs.meta(replecs.reliable, jecs.Name, "replecs.reliable")
 jecs.meta(replecs.unreliable, jecs.Name, "replecs.unreliable")
 jecs.meta(replecs.pair, jecs.Name, "replecs.pair")
 jecs.meta(replecs.shared, jecs.Name, "replecs.shared")
+jecs.meta(replecs.global, jecs.Name, "replecs.global")
+
+jecs.meta(replecs.custom, jecs.Exclusive)
+jecs.meta(replecs.global, jecs.Exclusive)
 
 function replecs.create_server(world: jecs.World?): Server
 	return server.create(world, replecs)
