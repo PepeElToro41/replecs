@@ -5,6 +5,11 @@ name = "pepeeltoro41/replecs_demo"
 version = "0.0.1"
 target = "roblox"
 
+[overrides."jabby>jecs"]
+wally = "wally#ukendio/jecs"
+version = "^0.9.0-rc.8"
+index = "default"
+
 [graph."0x5eal/unzip@0.1.3 luau".pkg_ref]
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
@@ -131,7 +136,7 @@ unzip = [{ name = "0x5eal/unzip", version = "^0.1.0", index = "https://github.co
 direct = ["jabby", { wally = "wally#alicesaidhi/jabby", version = "^0.3.1", index = "default" }, "standard"]
 
 [graph."wally#alicesaidhi/jabby@0.3.1 roblox".dependencies]
-jecs = ["wally#ukendio/jecs@0.8.3 roblox", "standard"]
+jecs = ["wally#ukendio/jecs@0.9.0-rc.8 roblox", "standard"]
 pebble = ["wally#alicesaidhi/pebble@0.1.2 roblox", "standard"]
 vide = ["wally#centau/vide@0.3.1 roblox", "standard"]
 
@@ -158,9 +163,9 @@ vide = [{ wally = "wally#centau/vide", version = ">=0.3.1, <0.4.0", index = "htt
 ref_ty = "wally"
 index_url = "https://github.com/UpliftGames/wally-index"
 
-[graph."wally#ukendio/jecs@0.8.3 roblox"]
-direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.8.3", index = "default" }, "standard"]
+[graph."wally#ukendio/jecs@0.9.0-rc.8 roblox"]
+direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.9.0-rc.8", index = "default" }, "standard"]
 
-[graph."wally#ukendio/jecs@0.8.3 roblox".pkg_ref]
+[graph."wally#ukendio/jecs@0.9.0-rc.8 roblox".pkg_ref]
 ref_ty = "wally"
 index_url = "https://github.com/UpliftGames/wally-index"
