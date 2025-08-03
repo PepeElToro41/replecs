@@ -1,9 +1,14 @@
 import type { Entity, Id, Tag, World } from "@rbxts/jecs";
 
 declare namespace Replecs {
-   export interface SerdesTable {
+   export type SerdesTable = {
+      includes_blobs?: false,
       serialize: (value: any) => buffer;
       deserialize: (buffer: buffer) => any;
+   } | {
+      includes_blobs: true,
+      serialize: (value: any) => LuaTuple<[buffer, defined[]]>;
+      deserialize: (buffer: buffer, blobs: defined[]) => any;
    }
 
    export interface ObserverWorld extends World {
