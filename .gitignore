@@ -5,16 +5,16 @@ roblox.yml
 roblox.toml
 
 /serve
-lune_packages
-luau_packages
-roblox_packages
+**/lune_packages
+**/luau_packages
+**/roblox_packages
 Packages/
 .pesde
 
 **/sourcemap.json
 **/darklua-sourcemap.json
 
-node_modules
+**/node_modules
 include
 out
 

@@ -19,7 +19,7 @@ export type Client = {
 
 	components: common.Components,
 	shared: common.Shared,
-	global_id_parser: ((id: number) -> Entity)?,
+	global_handler: ((id: number) -> Entity)?,
 	server_ids: { [number]: Entity },
 	client_ids: { [Entity]: number },
 	ordered_creation: boolean,
@@ -28,7 +28,7 @@ export type Client = {
 	init: (self: Client, world: World?) -> (),
 	destroy: (self: Client) -> (),
 	after_replication: (self: Client, callback: () -> ()) -> (),
-	parse_global_id: (self: Client, parser: (id: number) -> Entity) -> (),
+	handle_global: (self: Client, handler: (id: number) -> Entity) -> (),
 	get_server_entity: (self: Client, client_entity: Entity) -> number?,
 	get_client_entity: (self: Client, server_entity: number) -> Entity?,
 
@@ -86,7 +86,18 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 		local bytespan = client.shared.bytespan[component] or cursor.read_vlq(c)
 
 		local appended = cursor.read_buffer(c, bytespan)
-		local output = serdes.deserialize(appended)
+		local serdes_variants: { any }? = nil
+
+		if serdes.includes_variants then
+			local start_variant = cursor.read_vlq(c)
+
+			if start_variant > 0 then
+				local size = cursor.read_vlq(c)
+				serdes_variants = table.move(variants :: { any }, start_variant, start_variant + size - 1, 1, {})
+			end
+		end
+
+		local output = serdes.deserialize(appended, serdes_variants)
 		return component, output
 	else
 		local variant_id = cursor.read_vlq(c)
@@ -98,11 +109,11 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 	end
 end
 
-local function resolve_global_id(client: Client, global_id: number): Entity
-	if not client.global_id_parser then
-		error "global id parser not set, consider using client:parse_global_id()"
+local function resolve_global(client: Client, global_id: number): Entity
+	if not client.global_handler then
+		error "global id parser not set, consider using client:handle_global()"
 	end
-	local parsed = client.global_id_parser(global_id)
+	local parsed = client.global_handler(global_id)
 	return parsed
 end
 
@@ -129,11 +140,11 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (E
 			return read_component_id(client, c), nil
 		elseif id_type == ENTITY_ID_TYPES.global then
 			local global_id = cursor.readu8(c) - GLOBAL_ID_OFFSET
-			return resolve_global_id(client, global_id), nil
+			return resolve_global(client, global_id), nil
 		end
 		error(`malformed entity id {id_type} ` .. cursor.readu32(c))
 	else
-		return resolve_global_id(client, id_type - GLOBAL_ID_OFFSET), nil
+		return resolve_global(client, id_type - GLOBAL_ID_OFFSET), nil
 	end
 end
 
@@ -184,7 +195,7 @@ local function check_packet_type(c: Cursor, type: string)
 		local got: string = nil :: any
 		for k, v in PACKET_TYPES do
 			if v == packet_type then
-				got = k
+				got = k :: string
 				break
 			end
 		end
@@ -389,8 +400,8 @@ local function init(client: Client, _world: World?)
 
 	client.shared = utils.create_shared_lookup(world, components)
 
-	for component, custom_id_get in world:query(components.custom_id):with(components.shared, ECS_NAME) do
-		client.custom_ids[component] = custom_id_get
+	for component, custom_get in world:query(components.custom_handler):with(components.shared, ECS_NAME) do
+		client.custom_ids[component] = custom_get
 	end
 end
 
@@ -419,8 +430,8 @@ local function destroy(client: Client)
 	-- right now this is kind of useless
 end
 
-local function parse_global_id(client: Client, parser: (id: number) -> Entity)
-	client.global_id_parser = parser
+local function handle_global(client: Client, handler: (id: number) -> Entity)
+	client.global_handler = handler
 end
 
 local client = {}
@@ -433,7 +444,7 @@ client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
 client.get_server_entity = get_server_entity
 client.get_client_entity = get_client_entity
-client.parse_global_id = parse_global_id
+client.handle_global = handle_global
 
 local function create(world: World?, components: common.Components): Client
 	local self = {} :: Client
@@ -443,7 +454,7 @@ local function create(world: World?, components: common.Components): Client
 	self.custom_ids = {}
 	self.server_ids = {}
 	self.client_ids = {}
-	self.global_id_parser = nil
+	self.global_handler = nil
 	self.world = world :: any
 	self.inited = false
 	self.is_replicating = false

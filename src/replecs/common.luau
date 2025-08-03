@@ -5,8 +5,9 @@ export type PlayerFilter = {
 }
 
 export type Serdes = {
-	serialize: (value: any) -> buffer,
-	deserialize: (buffer) -> any,
+	includes_variants: boolean?,
+	serialize: (value: any) -> (buffer, { any }?),
+	deserialize: (buffer, { any }?) -> any,
 }
 
 export type Components = {
@@ -18,8 +19,9 @@ export type Components = {
 
 	serdes: jecs.Entity<Serdes>,
 	bytespan: jecs.Entity<number>,
-	custom_id: jecs.Entity<(value: any) -> jecs.Entity>,
-	global_id: jecs.Entity<number>,
+	custom: jecs.Entity,
+	custom_handler: jecs.Entity<(value: any) -> jecs.Entity>,
+	global: jecs.Entity<number>,
 	__alive_tracking__: jecs.Entity,
 }
 

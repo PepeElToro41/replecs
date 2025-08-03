@@ -342,7 +342,26 @@ end
 local function write_component_value(server: Server, c: Cursor, component: Entity, value: any, variants: { any })
 	local serdes = server.shared.serdes[component]
 	if serdes then
-		local output = serdes.serialize(if value == NIL_COMPONENT_VALUE then nil else value)
+		local output, serdes_variants = serdes.serialize(if value == NIL_COMPONENT_VALUE then nil else value)
+
+		if serdes.includes_variants then
+			if serdes_variants == nil then
+				-- 128 is zero for vlq
+				cursor.writeu8(c, 128)
+			else
+				local start_variants = #variants
+				if #serdes_variants > 0 then
+					table.move(serdes_variants, 1, #serdes_variants, #variants + 1, variants)
+				end
+				cursor.write_vlq(c, #serdes_variants)
+				cursor.write_vlq(c, start_variants + 1)
+			end
+		elseif serdes_variants ~= nil then
+			utils.logerror(
+				"serdes: serializer provided variants yet includes_variants is not set to true for component",
+				utils.logcomponent(server.world, component)
+			)
+		end
 
 		local bytespan = server.shared.bytespan[component]
 		cursor.write_buffer(c, output)
@@ -1033,9 +1052,9 @@ function init(server: Server, _world: World?)
 		masking:stop_component(entity, component, COMPONENT_TYPES.unreliable)
 	end))
 
-	hook(hooks.added(world, components.custom_id, function(entity, id)
+	hook(hooks.added(world, components.custom, function(entity, id)
 		if not IS_PAIR(id) then
-			utils.logerror "custom_id should be used with a relationship in the server"
+			utils.logerror "replecs.custom should be used with a relationship in the server"
 		end
 		local target = PAIR_SECOND(world, id)
 		if server.custom_ids[entity] then
@@ -1045,23 +1064,23 @@ function init(server: Server, _world: World?)
 
 		server.custom_ids[entity] = target
 	end))
-	hook(hooks.removed(world, components.custom_id, function(entity)
+	hook(hooks.removed(world, components.custom, function(entity)
 		server.custom_ids[entity] = nil
 	end))
-	hook(hooks.added(world, components.global_id, function(entity, _, value)
+	hook(hooks.added(world, components.global, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
 
-	hook(hooks.changed(world, components.global_id, function(entity, _, value)
+	hook(hooks.changed(world, components.global, function(entity, _, value)
 		if value > 245 then
 			utils.logerror "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
-	hook(hooks.removed(world, components.global_id, function(entity)
+	hook(hooks.removed(world, components.global, function(entity)
 		server.global_ids[entity] = nil
 	end))
 
