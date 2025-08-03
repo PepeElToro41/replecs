@@ -86,20 +86,18 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 		local bytespan = client.shared.bytespan[component] or cursor.read_vlq(c)
 
 		local appended = cursor.read_buffer(c, bytespan)
-		local blobs
+		local serdes_variants: { any }? = nil
 
-		if serdes.includes_blobs then
-			local size = cursor.read_vlq(c)
+		if serdes.includes_variants then
+			local start_variant = cursor.read_vlq(c)
 
-			if size > 0 then
-				local variant_id = cursor.read_vlq(c)
-				blobs = table.move(variants :: { any }, variant_id, variant_id + size - 1, 1, {})
-			else 
-				blobs = {}
+			if start_variant > 0 then
+				local size = cursor.read_vlq(c)
+				serdes_variants = table.move(variants :: { any }, start_variant, start_variant + size - 1, 1, {})
 			end
 		end
 
-		local output = serdes.deserialize(appended, blobs)
+		local output = serdes.deserialize(appended, serdes_variants)
 		return component, output
 	else
 		local variant_id = cursor.read_vlq(c)
@@ -197,7 +195,7 @@ local function check_packet_type(c: Cursor, type: string)
 		local got: string = nil :: any
 		for k, v in PACKET_TYPES do
 			if v == packet_type then
-				got = k
+				got = k :: string
 				break
 			end
 		end

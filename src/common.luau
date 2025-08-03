@@ -5,7 +5,7 @@ export type PlayerFilter = {
 }
 
 export type Serdes = {
-	includes_blobs: boolean?,
+	includes_variants: boolean?,
 	serialize: (value: any) -> (buffer, { any }?),
 	deserialize: (buffer, { any }?) -> any,
 }
