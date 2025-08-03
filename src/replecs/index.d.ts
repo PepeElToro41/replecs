@@ -1,33 +1,17 @@
-import type { Entity, Id, Tag, World } from "@rbxts/jecs";
+import type { Entity, Tag, World } from "@rbxts/jecs";
 
 declare namespace Replecs {
-   export type SerdesTable = {
-      includes_blobs?: false,
-      serialize: (value: any) => buffer;
-      deserialize: (buffer: buffer) => any;
-   } | {
-      includes_blobs: true,
-      serialize: (value: any) => LuaTuple<[buffer, defined[]]>;
-      deserialize: (buffer: buffer, blobs: defined[]) => any;
-   }
-
-   export interface ObserverWorld extends World {
-      added<T>(
-         this: ObserverWorld,
-         component: Id<T>,
-         callback: (e: Entity, id: Id<T>, value: T) => void
-      ): () => void;
-      removed<T>(
-         this: ObserverWorld,
-         component: Id<T>,
-         callback: (e: Entity, id: Id<T>) => void
-      ): () => void;
-      changed<T>(
-         this: ObserverWorld,
-         component: Id<T>,
-         callback: (e: Entity, id: Id<T>, value: T) => void
-      ): () => void;
-   }
+   export type SerdesTable =
+      | {
+           includes_variants?: false;
+           serialize: (value: any) => buffer;
+           deserialize: (buffer: buffer) => any;
+        }
+      | {
+           includes_variants: true;
+           serialize: (value: any) => LuaTuple<[buffer, defined[]]> | undefined;
+           deserialize: (buffer: buffer, blobs: defined[] | undefined) => any;
+        };
 
    type MemberFilterMap = Map<Player, boolean>;
    type MemberFilter = Player | MemberFilterMap | undefined;
@@ -49,8 +33,9 @@ declare namespace Replecs {
 
       serdes: Entity<SerdesTable>;
       bytespan: Entity<number>;
-      custom_id: Entity<((value: any) => Entity) | undefined>;
-      global_id: Entity<number>;
+      custom: Entity;
+      custom_handler: Entity<(value: any) => Entity>;
+      global: Entity<number>;
 
       Shared: Tag;
       Networked: Entity<MemberFilter>;
@@ -60,15 +45,16 @@ declare namespace Replecs {
 
       Serdes: Entity<SerdesTable>;
       Bytespan: Entity<number>;
-      CustomId: Entity<(value: any) => Entity>;
-      GlobalId: Entity<number>;
+      Custom: Entity;
+      CustomHandler: Entity<(value: any) => Entity>;
+      Global: Entity<number>;
    }
 
    export interface Client {
-      world: ObserverWorld;
+      world: World;
       inited?: boolean;
 
-      init(world?: ObserverWorld): void;
+      init(world?: World): void;
       destroy(): void;
       after_replication(callback: () => void): void;
 
@@ -82,10 +68,10 @@ declare namespace Replecs {
    }
 
    export interface Server {
-      world: ObserverWorld;
+      world: World;
       inited?: boolean;
 
-      init(world?: ObserverWorld): void;
+      init(world?: World): void;
       destroy(): void;
 
       get_full(player: Player): LuaTuple<[buffer, any[][]]>;
@@ -107,9 +93,9 @@ declare namespace Replecs {
    }
 
    export interface Replecs extends Components {
-      create: (world?: ObserverWorld) => ReplecsLib;
-      create_server: (world?: ObserverWorld) => Server;
-      create_client: (world?: ObserverWorld) => Client;
+      create: (world?: World) => ReplecsLib;
+      create_server: (world?: World) => Server;
+      create_client: (world?: World) => Client;
    }
 }
 
