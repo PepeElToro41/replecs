@@ -14,6 +14,7 @@ type World = jecs.World
 export type Client = {
 	world: World,
 	inited: boolean?,
+
 	is_replicating: boolean,
 	after_replication_callbacks: { () -> () },
 
@@ -31,6 +32,9 @@ export type Client = {
 	handle_global: (self: Client, handler: (id: number) -> Entity) -> (),
 	get_server_entity: (self: Client, client_entity: Entity) -> number?,
 	get_client_entity: (self: Client, server_entity: number) -> Entity?,
+
+	encode_component: (self: Client, component: Entity) -> number,
+	decode_component: (self: Client, component: number) -> Entity,
 
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
@@ -66,6 +70,23 @@ local function get_or_create_entity(client: Client, server_id: number): Entity
 		client.client_ids[entity] = server_id
 		return entity
 	end
+end
+
+local function encode_component(client: Client, component: Entity): number
+	local encoded = client.shared.ids[component]
+	if not encoded then
+		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(client.world, component))
+		return 0
+	end
+	return encoded
+end
+local function decode_component(client: Client, encoded: number): Entity
+	local component = client.shared.components[encoded]
+	if not component then
+		print("NON SHARED COMPONENT", encoded, client.shared.components)
+		error "attemped to decode a non shared component"
+	end
+	return component
 end
 
 local function read_component_id(client: Client, c: Cursor)
@@ -442,6 +463,8 @@ client.after_replication = after_replication
 client.apply_updates = apply_updates
 client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
+client.encode_component = encode_component
+client.decode_component = decode_component
 client.get_server_entity = get_server_entity
 client.get_client_entity = get_client_entity
 client.handle_global = handle_global

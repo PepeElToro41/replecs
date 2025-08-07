@@ -54,6 +54,9 @@ export type Server = {
 	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
 
+	encode_component: (self: Server, component: Entity) -> number,
+	decode_component: (self: Server, component: number) -> Entity,
+
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
 	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
@@ -328,6 +331,24 @@ local function untrack_entity_pair(server: Server, entity: Entity, relation: Ent
 	if storage then
 		storage.pairs[relation] = nil
 	end
+end
+
+local function encode_component(server: Server, component: Entity): number
+	local encoded = server.shared.ids[component]
+	if not encoded then
+		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(server.world, component))
+		return 0
+	end
+	return encoded
+end
+
+local function decode_component(server: Server, encoded: number): Entity
+	local component = server.shared.components[encoded]
+	if not component then
+		print("NON SHARED COMPONENTS", encoded, server.shared.components)
+		error "attemped to decode a non shared component"
+	end
+	return component
 end
 
 local function write_component_id(server: Server, c: Cursor, component: Entity)
@@ -1135,6 +1156,8 @@ server.destroy = destroy
 server.get_full = get_full
 server.collect_updates = collect_updates
 server.collect_unreliable = collect_unreliable
+server.encode_component = encode_component
+server.decode_component = decode_component
 server.mark_player_ready = mark_player_ready
 server.is_player_ready = is_player_ready
 
