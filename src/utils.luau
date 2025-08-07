@@ -678,7 +678,7 @@ function utils.logwarn(...: string)
 end
 
 function utils.logcomponent(world: World, component: Entity)
-	return ` name: {world:get(component, ECS_NAME) or "(no name)"} id: {component}`
+	return ` name: {world:get(component, ECS_NAME) or "(no name)"}, id: {component}`
 end
 
 return utils
