@@ -9,7 +9,7 @@ declare namespace Replecs {
         }
       | {
            includes_variants: true;
-           serialize: (value: any) => LuaTuple<[buffer, defined[]]> | undefined;
+           serialize: (value: any) => LuaTuple<[buffer, defined[] | undefined]>;
            deserialize: (buffer: buffer, blobs: defined[] | undefined) => any;
         };
 
@@ -58,10 +58,14 @@ declare namespace Replecs {
       destroy(): void;
       after_replication(callback: () => void): void;
 
-      apply_updates(buf: buffer, all_variants?: any[][]): void;
-      apply_unreliable(buf: buffer, all_variants?: any[][]): void;
-      apply_full(buf: buffer, all_variants?: any[][]): void;
-      parse_global_id(parser: (id: number) => Entity): void;
+      apply_updates(buf: buffer, all_variants?: unknown[][]): void;
+      apply_unreliable(buf: buffer, all_variants?: unknown[][]): void;
+      apply_full(buf: buffer, all_variants?: unknown[][]): void;
+
+      encode_component(component: Entity): number;
+      decode_component(encoded: number): Entity;
+
+      handle_global(handler: (id: number) => Entity): void;
 
       get_server_entity(client_entity: Entity): number | undefined;
       get_client_entity(server_entity: number): Entity | undefined;
@@ -74,11 +78,17 @@ declare namespace Replecs {
       init(world?: World): void;
       destroy(): void;
 
-      get_full(player: Player): LuaTuple<[buffer, any[][]]>;
-      collect_updates(): IterableFunction<LuaTuple<[Player, buffer, any[][]]>>;
-      collect_unreliable(): IterableFunction<
-         LuaTuple<[Player, buffer, any[][]]>
+      get_full(player: Player): LuaTuple<[buffer, unknown[][]]>;
+      collect_updates(): IterableFunction<
+         LuaTuple<[Player, buffer, unknown[][]]>
       >;
+      collect_unreliable(): IterableFunction<
+         LuaTuple<[Player, buffer, unknown[][]]>
+      >;
+
+      encode_component(component: Entity): number;
+      decode_component(encoded: number): Entity;
+
       mark_player_ready(player: Player): void;
       is_player_ready(player: Player): boolean;
 
