@@ -37,6 +37,7 @@ replecs.__index = replecs
 replecs.Serdes = replecs.serdes
 replecs.Bytespan = replecs.bytespan
 replecs.Custom = replecs.custom
+replecs.CustomHandler = replecs.custom_handler
 replecs.Networked = replecs.networked
 replecs.Reliable = replecs.reliable
 replecs.Unreliable = replecs.unreliable
