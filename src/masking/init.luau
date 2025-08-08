@@ -1136,12 +1136,14 @@ function masking_controller.allocate_component_change(
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changes(storage, entity)
 	changes.component[component] = value
+	changes.removed[component] = nil
 end
 
 function masking_controller.allocate_tag_addition(masking: MaskingInternal, entity: Entity, tag: Entity)
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
 	local changes = get_or_set_changes(storage, entity)
 	changes.tagged[tag] = true
+	changes.removed[tag] = nil
 end
 
 function masking_controller.allocate_pair_addition(
@@ -1164,9 +1166,7 @@ function masking_controller.allocate_component_removal(masking: MaskingInternal,
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changes(storage, entity)
 
-	if changes.component[component] then
-		changes.component[component] = nil
-	end
+	changes.component[component] = nil
 	changes.removed[component] = true
 end
 
@@ -1174,9 +1174,7 @@ function masking_controller.allocate_tag_removal(masking: MaskingInternal, entit
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
 	local changes = get_or_set_changes(storage, entity)
 
-	if changes.tagged[tag] then
-		changes.tagged[tag] = nil
-	end
+	changes.tagged[tag] = nil
 	changes.removed[tag] = true
 end
 
