@@ -506,6 +506,7 @@ local function create(world: World?, components: common.Components): Client
 	self.world = world :: any
 	self.inited = false
 	self.is_replicating = false
+	self.hooked = {}
 	self.after_replication_callbacks = {}
 
 	return setmetatable(self, client) :: any

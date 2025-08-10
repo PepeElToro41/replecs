@@ -1,33 +1,33 @@
 {
-    "name": "replecs-demo",
-    "tree": {
-        "$className": "DataModel",
-        "ServerScriptService": {
-            "$className": "ServerScriptService",
+   "name": "replecs-demo",
+   "tree": {
+      "$className": "DataModel",
+      "ServerScriptService": {
+         "$className": "ServerScriptService",
+         "code": {
+            "$path": "src/server"
+         }
+      },
+      "ReplicatedStorage": {
+         "$className": "ReplicatedStorage",
+         "packages": {
+            "$path": "roblox_packages",
+            "replecs": {
+               "$path": "../serve/src"
+            }
+         },
+         "code": {
+            "$path": "src/shared"
+         }
+      },
+      "StarterPlayer": {
+         "$className": "StarterPlayer",
+         "StarterPlayerScripts": {
+            "$className": "StarterPlayerScripts",
             "code": {
-                "$path": "src/server"
+               "$path": "src/client"
             }
-        },
-        "ReplicatedStorage": {
-            "$className": "ReplicatedStorage",
-            "packages": {
-                "$path": "roblox_packages",
-                "replecs": {
-                    "$path": "../src"
-                }
-            },
-            "code": {
-                "$path": "src/shared"
-            }
-        },
-        "StarterPlayer": {
-            "$className": "StarterPlayer",
-            "StarterPlayerScripts": {
-                "$className": "StarterPlayerScripts",
-                "code": {
-                    "$path": "src/client"
-                }
-            }
-        }
-    }
+         }
+      }
+   }
 }

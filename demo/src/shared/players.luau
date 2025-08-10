@@ -45,7 +45,6 @@ end
 function players.cleanup(player: Player)
 	local entity = ref.search(player)
 	if entity then
-		print("CLEANING UP ENTITY", entity)
 		world:delete(entity)
 	end
 end
