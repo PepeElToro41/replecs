@@ -1,25 +1,14 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local ServerScriptService = game:GetService "ServerScriptService"
-local replicator = require(ServerScriptService.code.replicator)
 local c = require(ReplicatedStorage.code.components)
 local count_query = require(ReplicatedStorage.code.utils.count_query)
 local world = require(ReplicatedStorage.code.world)
 local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
 
-local MAX_CUBES = 1
+local MAX_CUBES = 100
 
 function create_cube()
 	local new_cube = world:entity()
-
-	local player: jecs.Entity? = nil
-	for entity in world:query(c.player):iter() do
-		player = entity
-		break
-	end
-	if not player then
-		return
-	end
 
 	local random_pos = Vector3.new(math.random(-200, 200), math.random(20, 200), math.random(-200, 200))
 	local cube_size = math.random(5, 10)
@@ -44,7 +33,7 @@ local q_cubes = world:query(c.cube):cached()
 
 task.spawn(function()
 	for i = 1, MAX_CUBES do
-		task.wait()
+		task.wait(0.2)
 		create_cube()
 	end
 

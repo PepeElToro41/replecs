@@ -952,12 +952,13 @@ function init(server: Server, _world: World?)
 		masking:register_stop_entity(entity)
 		masking:stop_entity(entity)
 
-		server.additions[entity] = nil
-		server.track_info.entities[entity] = nil
 		if server.pending_cleanups[entity] then
 			server.pending_cleanups[entity] = nil
 			cleanup_entity(server, entity)
 		end
+
+		server.additions[entity] = nil
+		server.track_info.entities[entity] = nil
 	end))
 
 	hook(hooks.added(world, components.reliable, function(entity, id, filter)

@@ -11,6 +11,8 @@ type Cursor = utils.Cursor
 type Entity<T = any> = jecs.Entity<T>
 type World = jecs.World
 
+type Array<T> = { T }
+
 export type Client = {
 	world: World,
 	inited: boolean?,
@@ -32,6 +34,9 @@ export type Client = {
 	handle_global: (self: Client, handler: (id: number) -> Entity) -> (),
 	get_server_entity: (self: Client, client_entity: Entity) -> number?,
 	get_client_entity: (self: Client, server_entity: number) -> Entity?,
+
+	hooks: common.WorldHooks,
+	hooked: Array<() -> ()>,
 
 	encode_component: (self: Client, component: Entity) -> number,
 	decode_component: (self: Client, component: number) -> Entity,
@@ -66,6 +71,8 @@ local function get_or_create_entity(client: Client, server_id: number): Entity
 		return server_entity
 	else
 		local entity = client.world:entity()
+		client.world:add(entity, client.components.__alive_tracking__)
+
 		client.server_ids[server_id] = entity
 		client.client_ids[entity] = server_id
 		return entity
@@ -371,8 +378,10 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
-				local component_id, value = read_component_value(client, c, variants)
-				client.world:set(entity, component_id, value)
+				for _ = 1, total_unreliable do
+					local component_id, value = read_component_value(client, c, variants)
+					client.world:set(entity, component_id, value)
+				end
 			else
 				-- dont apply unreliable updates to entities that dont exist in the client yet
 				-- but we still need to process the values to keep the cursor in the right place
@@ -417,6 +426,13 @@ local function init(client: Client, _world: World?)
 		error "Providing a world is required to start replecs"
 	end
 
+	local hooks = {
+		added = (world :: any).added,
+		changed = (world :: any).changed,
+		removed = (world :: any).removed,
+	}
+	client.hooks = hooks
+
 	local components = client.components
 
 	client.shared = utils.create_shared_lookup(world, components)
@@ -424,6 +440,15 @@ local function init(client: Client, _world: World?)
 	for component, custom_get in world:query(components.custom_handler):with(components.shared, ECS_NAME) do
 		client.custom_ids[component] = custom_get
 	end
+
+	local unhook = client.hooks.removed(world, components.__alive_tracking__, function(entity)
+		local server_id = client.client_ids[entity]
+		if server_id then
+			client.server_ids[server_id] = nil
+			client.client_ids[entity] = nil
+		end
+	end)
+	table.insert(client.hooked, unhook)
 end
 
 local function after_replication(client: Client, callback: () -> ())

@@ -1,19 +1,18 @@
-
 {
-    "name": "replecs",
-    "tree": {
-        "$className": "DataModel",
-        "ReplicatedStorage": {
-            "$className": "ReplicatedStorage",
-            "roblox_packages": {
-                "$path": "roblox_packages",
-                "replecs": {
-                    "$path": "src"
-                }
+   "name": "replecs",
+   "tree": {
+      "$className": "DataModel",
+      "ReplicatedStorage": {
+         "$className": "ReplicatedStorage",
+         "luau_packages": {
+            "$className": "Folder",
+            "replecs": {
+               "$path": "src/"
             },
-            "tests": {
-                "$path": "tests"
+            "jecs": {
+               "$path": "jecs.luau"
             }
-        }
-    }
+         }
+      }
+   }
 }

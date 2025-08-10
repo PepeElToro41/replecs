@@ -2,21 +2,28 @@ local Players = game:GetService "Players"
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local RunService = game:GetService "RunService"
 local c = require(script.Parent.components)
-local replicator = require(script.Parent.replicator)
 local ref = require(ReplicatedStorage.code.ecs.ref)
+local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
-local jecs = require(ReplicatedStorage.packages[".pesde"]["alicesaidhi_jabby@0.3.1"].jecs)
 local world = require(script.Parent.world)
 
 local players = {}
 
 function setup(player: Player)
+	if RunService:IsServer() then
+		-- shuffling the entityid to make sure custom ids are working
+		world:entity()
+		world:entity()
+		world:entity()
+		world:entity()
+	end
+
 	local entity = ref(player)
 	world:set(entity, c.player, player)
 
 	if RunService:IsServer() then
 		world:add(entity, replecs.networked)
-		world:add(entity, jecs.pair(replecs.custom_id, c.player))
+		world:add(entity, jecs.pair(replecs.custom, c.player))
 		world:add(entity, jecs.pair(replecs.reliable, c.unix))
 		world:set(entity, c.unix, 0)
 
@@ -35,6 +42,14 @@ function setup(player: Player)
 	end
 end
 
+function players.cleanup(player: Player)
+	local entity = ref.search(player)
+	if entity then
+		print("CLEANING UP ENTITY", entity)
+		world:delete(entity)
+	end
+end
+
 function players.start_current_players()
 	for _, player in Players:GetPlayers() do
 		setup(player)
@@ -43,6 +58,7 @@ end
 
 function players.listen_for_players()
 	Players.PlayerAdded:Connect(setup)
+	Players.PlayerRemoving:Connect(players.cleanup)
 end
 
 return players

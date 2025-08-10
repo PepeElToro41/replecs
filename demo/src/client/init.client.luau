@@ -17,7 +17,7 @@ replicator:init()
 import_paths(script.systems)
 import_paths(ReplicatedStorage.code.systems)
 
-replicator:parse_global_id(function(id)
+replicator:handle_global(function(id)
 	return ref(`global-{id}`) :: any
 end)
 
@@ -35,4 +35,3 @@ local buf, variants = zap.WaitForServer.Call()
 if buf then
 	replicator:apply_full(buf, variants)
 end
-print "REPLICATED FULL"

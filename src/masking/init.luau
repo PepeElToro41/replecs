@@ -757,6 +757,9 @@ end
 
 function masking_controller.register_stop_entity(masking: MaskingInternal, entity: Entity)
 	local lookup = masking.lookups.entities[entity]
+	if not lookup then
+		return
+	end
 	local storage = lookup.storage_group
 
 	if storage.deletions.entities[entity] then
@@ -773,6 +776,9 @@ function masking_controller.register_stop_component(
 	component_type: number
 )
 	local storage = masking:get_component_storage_group(entity, component, component_type) :: StorageGroup
+	if not storage then
+		return
+	end
 
 	local deletions = storage.deletions.components[entity]
 	if deletions == nil then

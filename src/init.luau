@@ -23,7 +23,7 @@ local replecs = {
 	networked = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	reliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	unreliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
-	pair = jecs.tag(),
+	pair = jecs.component(),
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
 	bytespan = jecs.component() :: jecs.Entity<number>,
