@@ -48,6 +48,10 @@ export type EntityChanges = {
 	component: { [Entity]: any },
 	removed: { [Entity]: boolean },
 	pairs: { [Entity]: Set<Entity> },
+	pairs_values: {
+		changed: { [Entity]: Map<Entity, any> },
+		removed: { [Entity]: Set<Entity> },
+	},
 }
 
 type PostponedList = ComponentIndex<{ filter: MemberFilter? }>
@@ -176,10 +180,19 @@ export type MaskingController = {
 	) -> (),
 
 	allocate_component_change: (self: MaskingController, entity: Entity, component: Entity, value: any) -> (),
+	allocate_pair_value_change: (
+		self: MaskingController,
+		entity: Entity,
+		relation: Entity,
+		target: Entity,
+		value: any
+	) -> (),
+
 	allocate_tag_addition: (self: MaskingController, entity: Entity, tag: Entity) -> (),
 	allocate_pair_addition: (self: MaskingController, entity: Entity, relation: Entity, target: Entity) -> (),
 
 	allocate_component_removal: (self: MaskingController, entity: Entity, component: Entity) -> (),
+	allocate_pair_value_removal: (self: MaskingController, entity: Entity, relation: Entity, target: Entity) -> (),
 	allocate_tag_removal: (self: MaskingController, entity: Entity, tag: Entity) -> (),
 	allocate_pair_removal: (self: MaskingController, entity: Entity, relation: Entity, target: Entity) -> (),
 }
@@ -188,7 +201,8 @@ local COMPONENT_TYPES = {
 	component = 1,
 	tag = 2,
 	pair = 3,
-	unreliable = 4,
+	pair_value = 4,
+	unreliable = 5,
 }
 
 local masking_controller = {}
@@ -219,7 +233,7 @@ local function get_usable_filter(filter: (MemberFilter | any)?): MemberFilter?
 end
 
 local function create_component_indexes<T>()
-	return { {}, {}, {}, {} } :: ComponentIndex<any>
+	return { {}, {}, {}, {}, {} } :: ComponentIndex<any>
 end
 
 local function create_entity_changes(): EntityChanges
@@ -228,17 +242,11 @@ local function create_entity_changes(): EntityChanges
 		component = {},
 		removed = {},
 		pairs = {},
+		pairs_values = {
+			changed = {},
+			removed = {},
+		},
 	}
-end
-
-local function get_or_set_changes(storage: StorageGroup, entity: Entity)
-	local changes: EntityChanges = storage.changes.changed[entity]
-	if changes == nil then
-		changes = create_entity_changes()
-		storage.changes.changed[entity] = changes
-	end
-
-	return changes
 end
 
 function masking_controller.create_new_storage(
@@ -288,15 +296,6 @@ local function create_new_active(): ActiveEntity
 		components = create_component_indexes() :: ComponentIndex<boolean>,
 		component_count = 0,
 		is_entity_mask = false,
-	}
-end
-
-local function create_new_changes(): EntityChanges
-	return {
-		tagged = {},
-		component = {},
-		removed = {},
-		pairs = {},
 	}
 end
 
@@ -350,7 +349,7 @@ masking_controller.remove_component_index_entry = remove_component_index_entry
 local function get_or_set_changed(storage: StorageGroup, entity: Entity, changed: EntityChanges?): EntityChanges
 	local storage_changed = storage.changes.changed[entity]
 	if storage_changed == nil then
-		storage_changed = changed or create_new_changes()
+		storage_changed = changed or create_entity_changes()
 		storage.changes.changed[entity] = storage_changed
 	end
 	return storage_changed
@@ -480,7 +479,7 @@ local function dissect_component_changes(changes: EntityChanges, shared_index: C
 	for component, change in changes.component do
 		local is_shared = shared_index[COMPONENT_TYPES.component] and shared_index[COMPONENT_TYPES.component][component]
 		if is_shared then
-			new_changes = new_changes or create_new_changes()
+			new_changes = new_changes or create_entity_changes()
 			new_changes.component[component] = change
 			changes.component[component] = nil
 		end
@@ -488,19 +487,40 @@ local function dissect_component_changes(changes: EntityChanges, shared_index: C
 	for entity, entity_changes in changes.tagged do
 		local is_shared = shared_index[COMPONENT_TYPES.tag] and shared_index[COMPONENT_TYPES.tag][entity]
 		if is_shared then
-			new_changes = new_changes or create_new_changes()
+			new_changes = new_changes or create_entity_changes()
 			new_changes.tagged[entity] = entity_changes
 			changes.tagged[entity] = nil
 		end
 	end
-	for entity, entity_changes in changes.pairs do
-		local is_shared = shared_index[COMPONENT_TYPES.pair] and shared_index[COMPONENT_TYPES.pair][entity]
+	for relation, entity_changes in changes.pairs do
+		local is_shared = shared_index[COMPONENT_TYPES.pair] and shared_index[COMPONENT_TYPES.pair][relation]
 		if is_shared then
-			new_changes = new_changes or create_new_changes()
-			new_changes.pairs[entity] = entity_changes
-			changes.pairs[entity] = nil
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pairs[relation] = entity_changes
+			changes.pairs[relation] = nil
 		end
 	end
+	for relation, entity_changes in changes.pairs_values.changed do
+		local is_shared = shared_index[COMPONENT_TYPES.pair_value]
+			and shared_index[COMPONENT_TYPES.pair_value][relation]
+
+		if is_shared then
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pairs_values.changed[relation] = entity_changes
+			changes.pairs_values.changed[relation] = nil
+		end
+	end
+	for relation, entity_changes in changes.pairs_values.removed do
+		local is_shared = shared_index[COMPONENT_TYPES.pair_value]
+			and shared_index[COMPONENT_TYPES.pair_value][relation]
+
+		if is_shared then
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pairs_values.removed[relation] = entity_changes
+			changes.pairs_values.removed[relation] = nil
+		end
+	end
+
 	return new_changes
 end
 
@@ -679,6 +699,15 @@ function masking_controller.move_component_storage(
 		elseif component_type == COMPONENT_TYPES.pair then
 			target_changes.pairs[component] = changes.pairs[component]
 			changes.pairs[component] = nil
+		elseif component_type == COMPONENT_TYPES.pair_value then
+			local target_pairs = target_changes.pairs_values
+			local pairs = changes.pairs_values
+
+			target_pairs.changed[component] = pairs.changed[component]
+			target_pairs.removed[component] = pairs.removed[component]
+
+			pairs.changed[component] = nil
+			pairs.removed[component] = nil
 		end
 	end
 
@@ -1140,14 +1169,36 @@ function masking_controller.allocate_component_change(
 	value: any
 )
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
-	local changes = get_or_set_changes(storage, entity)
+	local changes = get_or_set_changed(storage, entity)
 	changes.component[component] = value
 	changes.removed[component] = nil
 end
 
+function masking_controller.allocate_pair_value_change(
+	masking: MaskingInternal,
+	entity: Entity,
+	relation: Entity,
+	target: Entity,
+	value: any
+)
+	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.pair_value)
+	local changes = get_or_set_changed(storage, entity)
+	local values = changes.pairs_values.changed[relation]
+	if values == nil then
+		values = {}
+		changes.pairs_values.changed[relation] = values
+	end
+	values[target] = value
+
+	local removed = changes.pairs_values.removed[relation]
+	if removed ~= nil then
+		removed[target] = nil
+	end
+end
+
 function masking_controller.allocate_tag_addition(masking: MaskingInternal, entity: Entity, tag: Entity)
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
-	local changes = get_or_set_changes(storage, entity)
+	local changes = get_or_set_changed(storage, entity)
 	changes.tagged[tag] = true
 	changes.removed[tag] = nil
 end
@@ -1159,7 +1210,7 @@ function masking_controller.allocate_pair_addition(
 	target: Entity
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.pair)
-	local changes = get_or_set_changes(storage, entity)
+	local changes = get_or_set_changed(storage, entity)
 	local targets = changes.pairs[relation]
 	if targets == nil then
 		targets = {}
@@ -1170,7 +1221,7 @@ end
 
 function masking_controller.allocate_component_removal(masking: MaskingInternal, entity: Entity, component: Entity)
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
-	local changes = get_or_set_changes(storage, entity)
+	local changes = get_or_set_changed(storage, entity)
 
 	changes.component[component] = nil
 	changes.removed[component] = true
@@ -1178,7 +1229,7 @@ end
 
 function masking_controller.allocate_tag_removal(masking: MaskingInternal, entity: Entity, tag: Entity)
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
-	local changes = get_or_set_changes(storage, entity)
+	local changes = get_or_set_changed(storage, entity)
 
 	changes.tagged[tag] = nil
 	changes.removed[tag] = true
@@ -1191,13 +1242,32 @@ function masking_controller.allocate_pair_removal(
 	target: Entity
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.pair)
-	local changes = get_or_set_changes(storage, entity)
+	local changes = get_or_set_changed(storage, entity)
 	local targets = changes.pairs[relation]
 	if targets == nil then
 		targets = {}
 		changes.pairs[relation] = targets
 	end
 	targets[target] = false
+end
+
+function masking_controller.allocate_pair_value_removal(
+	masking: MaskingInternal,
+	entity: Entity,
+	relation: Entity,
+	target: Entity
+)
+	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.pair_value)
+	local changes = get_or_set_changed(storage, entity)
+	local removed = changes.pairs_values.removed[relation]
+	if removed == nil then
+		removed = {}
+		changes.pairs_values.removed[relation] = removed
+	end
+	local values = changes.pairs_values.changed[relation]
+	if values ~= nil then
+		values[target] = nil
+	end
 end
 
 local function remap_bitmask(
@@ -1256,7 +1326,7 @@ function masking_controller.merge_storages(
 		merge_component_additions(new_added_components, added_components)
 	end
 	for entity, changes in old_storage.changes.changed do
-		local new_changes = get_or_set_changes(new_storage, entity)
+		local new_changes = get_or_set_changed(new_storage, entity)
 		merge_component_changes(new_changes, changes)
 	end
 	for entity in old_storage.changes.added do

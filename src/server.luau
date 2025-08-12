@@ -26,6 +26,7 @@ type EntityStorage = {
 	tags: { [Entity]: boolean },
 	values: { [Entity]: any },
 	pairs: { [Entity]: Set<Entity> },
+	pairs_values: { [Entity]: Map<Entity, any> },
 }
 
 type Storage = { [Entity]: EntityStorage }
@@ -74,18 +75,20 @@ local TRACK_TYPES = {
 	component = 1,
 	tag = 2,
 	pair = 3,
+	pair_value = 4,
 }
+
 local PACKET_TYPES = {
 	full = 1,
 	unreliable = 2,
 	reliable = 3,
 }
+
 local MAX_PACKET_SIZE = 900
 local ENTITY_ID_TYPES = {
 	entity = 1,
 	custom = 2,
 	shared = 3,
-	global = 4,
 }
 local ECS_COMPONENT = jecs.Component
 
@@ -104,7 +107,7 @@ local function track_entity_lifetime(server: Server, entity: Entity)
 	server.world:add(entity, server.components.__alive_tracking__)
 end
 
-local function get_or_set_entity_storage(server: Server, entity: Entity)
+local function get_or_set_entity_storage(server: Server, entity: Entity): EntityStorage
 	local storage = server.storage[entity]
 
 	if not storage then
@@ -112,6 +115,7 @@ local function get_or_set_entity_storage(server: Server, entity: Entity)
 			tags = {},
 			values = {},
 			pairs = {},
+			pairs_values = {},
 		}
 		server.storage[entity] = storage
 	end
@@ -129,6 +133,23 @@ local function allocate_component_change(server: Server, entity: Entity, compone
 		server.masking:allocate_component_change(entity, component, non_nil)
 	end
 end
+local function allocate_pair_value_change(server: Server, entity: Entity, relation: Entity, target: Entity, value: any)
+	local storage = get_or_set_entity_storage(server, entity)
+
+	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
+
+	local values = storage.pairs_values[relation]
+	if values == nil then
+		values = {}
+		storage.pairs_values[relation] = values
+	end
+	values[target] = non_nil
+
+	if not server.additions[entity] and server.track_info.entities[entity] then
+		server.masking:allocate_pair_value_change(entity, relation, target, non_nil)
+	end
+end
+
 local function allocate_tag_addition(server: Server, entity: Entity, tag: Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	storage.tags[tag] = true
@@ -159,6 +180,18 @@ local function allocate_component_removal(server: Server, entity: Entity, compon
 		server.masking:allocate_component_removal(entity, component)
 	end
 end
+local function allocate_pair_value_removal(server: Server, entity: Entity, relation: Entity, target: Entity)
+	local storage = get_or_set_entity_storage(server, entity)
+	local values = storage.pairs_values[relation]
+	if values then
+		values[target] = nil
+	end
+
+	if not server.additions[entity] and server.track_info.entities[entity] then
+		server.masking:allocate_pair_value_removal(entity, relation, target)
+	end
+end
+
 local function allocate_tag_removal(server: Server, entity: Entity, tag: Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	storage.tags[tag] = nil
@@ -207,20 +240,31 @@ local function track_component(server: Server, component: Entity<any>)
 			allocate_component_change(server, entity, component, value)
 		elseif track_type == TRACK_TYPES.tag then
 			allocate_tag_addition(server, entity, component)
-		else
+		elseif track_type == TRACK_TYPES.pair then
 			if not IS_PAIR(id) then
 				return
 			end
 			allocate_pair_addition(server, entity, component, PAIR_SECOND(world, id))
+		elseif track_type == TRACK_TYPES.pair_value then
+			if not IS_PAIR(id) then
+				return
+			end
+			allocate_pair_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
-	hook(hooks.changed(world, component, function(entity, _id, value)
+	hook(hooks.changed(world, component, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
 		end
-		-- no check here because only components can trigger changed (I think?)
-		allocate_component_change(server, entity, component, value)
+		if track_type == TRACK_TYPES.component then
+			allocate_component_change(server, entity, component, value)
+		elseif track_type == TRACK_TYPES.pair_value then
+			if not IS_PAIR(id) then
+				return
+			end
+			allocate_pair_value_change(server, entity, component, PAIR_SECOND(world, id), value)
+		end
 	end))
 	hook(hooks.removed(world, component, function(entity, id)
 		local track_type = info[entity]
@@ -232,11 +276,16 @@ local function track_component(server: Server, component: Entity<any>)
 			allocate_component_removal(server, entity, component)
 		elseif track_type == TRACK_TYPES.tag then
 			allocate_tag_removal(server, entity, component)
-		else
+		elseif track_type == TRACK_TYPES.pair then
 			if not IS_PAIR(id) then
 				return
 			end
 			allocate_pair_removal(server, entity, component, PAIR_SECOND(world, id))
+		elseif track_type == TRACK_TYPES.pair_value then
+			if not IS_PAIR(id) then
+				return
+			end
+			allocate_pair_value_removal(server, entity, component, PAIR_SECOND(world, id))
 		end
 	end))
 
@@ -245,7 +294,6 @@ end
 
 local function track_entity_component(server: Server, entity: Entity, component: Entity<any>)
 	local world = server.world
-
 	local info = server.track_info.components[component]
 	if not info then
 		info = track_component(server, component)
@@ -287,20 +335,38 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 	end
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
-	local targets = {}
-	local index = 0
 
-	while true do
-		local target = world:target(entity, relation, index)
-		if not target then
-			break
+	if world:has(relation, ECS_COMPONENT) then
+		local targets = {} :: Map<Entity, any>
+
+		local index = 0
+		while true do
+			local target = world:target(entity, relation, index)
+			if not target then
+				break
+			end
+			index += 1
+			targets[target] = world:get(entity, jecs.pair(relation, target))
 		end
-		index += 1
-		targets[target] = true
-	end
-	entity_storage.pairs[relation] = targets
+		entity_storage.pairs_values[relation] = targets
+		info[entity] = TRACK_TYPES.pair_value
+		return COMPONENT_TYPES.pair_value
+	else
+		local targets = {} :: Set<Entity>
 
-	info[entity] = TRACK_TYPES.pair
+		local index = 0
+		while true do
+			local target = world:target(entity, relation, index)
+			if not target then
+				break
+			end
+			index += 1
+			targets[target] = true
+		end
+		entity_storage.pairs[relation] = targets
+		info[entity] = TRACK_TYPES.pair
+		return COMPONENT_TYPES.pair
+	end
 end
 
 local function untrack_entity_component(server: Server, entity: Entity, component: Entity<any>): number?
@@ -320,17 +386,20 @@ local function untrack_entity_component(server: Server, entity: Entity, componen
 	return listen_type
 end
 
-local function untrack_entity_pair(server: Server, entity: Entity, relation: Entity)
+local function untrack_entity_pair(server: Server, entity: Entity, relation: Entity): number?
 	local info = server.track_info.components[relation]
 	if not info then
-		return
+		return nil
 	end
+	local listen_type = info[entity]
 	info[entity] = nil
 
 	local storage = server.storage[entity]
 	if storage then
 		storage.pairs[relation] = nil
+		storage.pairs_values[relation] = nil
 	end
+	return listen_type
 end
 
 local function encode_component(server: Server, component: Entity): number
@@ -406,33 +475,31 @@ local function write_component_value(server: Server, c: Cursor, component: Entit
 			cursor.write_vlq(c, #variants)
 		end
 	end
+end
 
+local function write_component(server: Server, c: Cursor, component: Entity, value: any, variants: { any })
+	write_component_value(server, c, component, value, variants)
 	write_component_id(server, c, component)
 end
 
-local function write_entity_id(server: Server, c: Cursor, entity: Entity, variants: { any }, multiply: number?)
+local function write_entity_id(server: Server, c: Cursor, entity: Entity, variants: { any })
 	local custom = server.custom_ids[entity]
 	local global_id = server.global_ids[entity]
 
 	if global_id then
-		if multiply then
-			cursor.writei8(c, ENTITY_ID_TYPES.global * multiply)
-			cursor.writeu8(c, global_id + GLOBAL_ID_OFFSET)
-		else
-			cursor.writei8(c, global_id + GLOBAL_ID_OFFSET)
-		end
+		cursor.writeu8(c, global_id + GLOBAL_ID_OFFSET)
 	elseif custom then
 		local value = server.world:get(entity, custom)
-		write_component_value(server, c, custom, value, variants)
-		cursor.writei8(c, ENTITY_ID_TYPES.custom * (multiply or 1))
+		write_component(server, c, custom, value, variants)
+		cursor.writeu8(c, ENTITY_ID_TYPES.custom)
 	else
 		local shared_id = server.shared.ids[entity]
 		if shared_id then
 			cursor.writeu8(c, shared_id)
-			cursor.writei8(c, ENTITY_ID_TYPES.shared * (multiply or 1))
+			cursor.writeu8(c, ENTITY_ID_TYPES.shared)
 		else
 			cursor.writeu40(c, entity :: any)
-			cursor.writei8(c, ENTITY_ID_TYPES.entity * (multiply or 1), entity)
+			cursor.writeu8(c, ENTITY_ID_TYPES.entity, entity)
 		end
 	end
 end
@@ -455,6 +522,25 @@ local function write_entity_relations(
 	write_component_id(server, c, relation)
 end
 
+local function write_entity_relations_values(
+	server: Server,
+	storage: EntityStorage,
+	c: Cursor,
+	relation: Entity,
+	variants: { any }
+)
+	local targets = storage.pairs_values[relation]
+	local total_targets = 0
+
+	for target, value in targets do
+		write_entity_id(server, c, target, variants, 1)
+		write_component_value(server, c, relation, value, variants)
+		total_targets += 1
+	end
+	cursor.write_vlq(c, total_targets)
+	write_component_id(server, c, relation)
+end
+
 local function write_entity(
 	server: Server,
 	c: Cursor,
@@ -463,6 +549,13 @@ local function write_entity(
 	variants: { any }
 )
 	local storage = server.storage[entity]
+
+	local all_pairs_values = 0
+	for relation in active.components[COMPONENT_TYPES.pair_value] do
+		write_entity_relations_values(server, storage, c, relation, variants)
+		all_pairs_values += 1
+	end
+	cursor.write_vlq(c, all_pairs_values)
 
 	local all_pairs = 0
 	for relation in active.components[COMPONENT_TYPES.pair] do
@@ -478,7 +571,7 @@ local function write_entity(
 			continue
 		end
 
-		write_component_value(server, c, component, value, variants)
+		write_component(server, c, component, value, variants)
 		components += 1
 	end
 	cursor.write_vlq(c, components)
@@ -674,30 +767,28 @@ local function collect_updates(server: Server)
 		local total_component_deleted = 0
 		local component_deletions = storage.deletions.components
 		for entity, deleted in component_deletions do
-			local deleted_mask = 0
-
 			local total_pairs = 0
+			for relation in deleted[COMPONENT_TYPES.pair_value] do
+				write_component_id(server, c, relation)
+				total_pairs += 1
+			end
 			for relation in deleted[COMPONENT_TYPES.pair] do
 				write_component_id(server, c, relation)
 				total_pairs += 1
 			end
-			deleted_mask = write_vlq_bitmask(c, total_pairs, deleted_mask, 2)
+			cursor.write_vlq(c, total_pairs)
 
-			local total_components = 0
+			local total_removed = 0
 			for component in deleted[COMPONENT_TYPES.component] do
 				write_component_id(server, c, component)
-				total_components += 1
+				total_removed += 1
 			end
-			deleted_mask = write_vlq_bitmask(c, total_components, deleted_mask, 1)
-
-			local total_tags = 0
 			for tag in deleted[COMPONENT_TYPES.tag] do
 				write_component_id(server, c, tag)
-				total_tags += 1
+				total_removed += 1
 			end
-			deleted_mask = write_vlq_bitmask(c, total_tags, deleted_mask, 0)
+			cursor.write_vlq(c, total_removed)
 
-			cursor.writeu8(c, deleted_mask)
 			write_entity_id(server, c, entity, variants)
 			total_component_deleted += 1
 		end
@@ -709,22 +800,45 @@ local function collect_updates(server: Server)
 		for entity, changes in storage_changes.changed do
 			local changed_mask = 0
 
-			local total_removed = 0
-			for component in changes.removed do
-				write_component_id(server, c, component)
-				total_removed += 1
+			local total_pairs_values = 0
+			for relation, targets in changes.pairs_values.changed do
+				local total_targets = 0
+
+				for target, value in targets do
+					write_entity_id(server, c, target, variants)
+					write_component_value(server, c, relation, value, variants)
+					total_targets += 1
+				end
+				cursor.write_vlq(c, total_targets)
+				write_component_id(server, c, relation)
+				total_pairs_values += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_removed, changed_mask, 3)
+			changed_mask = write_vlq_bitmask(c, total_pairs_values, changed_mask, 5)
+
+			local total_pairs_values_removed = 0
+			for relation, targets in changes.pairs_values.removed do
+				local total_targets = 0
+
+				for target in targets do
+					write_entity_id(server, c, target, variants)
+					total_targets += 1
+				end
+				cursor.write_vlq(c, total_targets)
+				write_component_id(server, c, relation)
+				total_pairs_values_removed += 1
+			end
+			changed_mask = write_vlq_bitmask(c, total_pairs_values_removed, changed_mask, 4)
 
 			local total_pairs = 0
 			for relation, targets in changes.pairs do
 				local total_targets = 0
 
 				for target, added in targets do
+					write_entity_id(server, c, target, variants)
 					if added then
-						write_entity_id(server, c, target, variants, 1)
+						cursor.writei8(c, 1)
 					else
-						write_entity_id(server, c, target, variants, -1)
+						cursor.writei8(c, -1)
 					end
 					total_targets += 1
 				end
@@ -732,11 +846,18 @@ local function collect_updates(server: Server)
 				write_component_id(server, c, relation)
 				total_pairs += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_pairs, changed_mask, 2)
+			changed_mask = write_vlq_bitmask(c, total_pairs, changed_mask, 3)
+
+			local total_removed = 0
+			for component in changes.removed do
+				write_component_id(server, c, component)
+				total_removed += 1
+			end
+			changed_mask = write_vlq_bitmask(c, total_removed, changed_mask, 2)
 
 			local total_components = 0
 			for component, value in changes.component do
-				write_component_value(server, c, component, value, variants)
+				write_component(server, c, component, value, variants)
 				total_components += 1
 			end
 			changed_mask = write_vlq_bitmask(c, total_components, changed_mask, 1)
@@ -760,6 +881,13 @@ local function collect_updates(server: Server)
 			local entity_storage = server.storage[entity]
 			local added_mask = 0
 
+			local total_pairs_values = 0
+			for relation in components[COMPONENT_TYPES.pair_value] do
+				write_entity_relations_values(server, entity_storage, c, relation, variants)
+				total_pairs_values += 1
+			end
+			added_mask = write_vlq_bitmask(c, total_pairs_values, added_mask, 3)
+
 			local total_pairs = 0
 			for relation in components[COMPONENT_TYPES.pair] do
 				write_entity_relations(server, entity_storage, c, relation, variants)
@@ -773,7 +901,7 @@ local function collect_updates(server: Server)
 				if value == nil then
 					continue
 				end
-				write_component_value(server, c, component, value, variants)
+				write_component(server, c, component, value, variants)
 				total_components += 1
 			end
 			added_mask = write_vlq_bitmask(c, total_components, added_mask, 1)
@@ -871,7 +999,7 @@ local function collect_unreliable(server: Server)
 					continue
 				end
 
-				write_component_value(server, c, component, value, variants)
+				write_component(server, c, component, value, variants)
 				total_unreliable += 1
 			end
 
@@ -1011,13 +1139,14 @@ function init(server: Server, _world: World?)
 			utils.logerror "pair should be used with a relationship"
 		end
 		local relation = PAIR_SECOND(world, id)
-		track_entity_pair(server, entity, relation)
-		masking:unregister_stop_component(entity, relation, COMPONENT_TYPES.pair)
-		masking:start_component(entity, relation, COMPONENT_TYPES.pair, filter)
+
+		local component_type = track_entity_pair(server, entity, relation)
+		masking:unregister_stop_component(entity, relation, component_type)
+		masking:start_component(entity, relation, component_type, filter)
 		if server.additions[entity] then
-			masking:allocate_entity_addition(entity, relation, COMPONENT_TYPES.pair)
+			masking:allocate_entity_addition(entity, relation, component_type)
 		elseif server.track_info.entities[entity] then
-			masking:register_component_addition(entity, relation, COMPONENT_TYPES.pair)
+			masking:register_component_addition(entity, relation, component_type)
 		end
 	end))
 	hook(hooks.changed(world, components.pair, function(entity, id, filter)
@@ -1025,7 +1154,12 @@ function init(server: Server, _world: World?)
 			utils.logerror "reliable should be used with a pair relationship"
 		end
 		local relation = PAIR_SECOND(world, id)
-		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
+
+		if world:has(relation, ECS_COMPONENT) then
+			masking:set_component(entity, relation, COMPONENT_TYPES.pair_value, filter)
+		else
+			masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
+		end
 	end))
 	hook(hooks.removed(world, components.pair, function(entity, id)
 		if not IS_PAIR(id) then
@@ -1036,10 +1170,13 @@ function init(server: Server, _world: World?)
 		end
 
 		local relation = PAIR_SECOND(world, id)
-		untrack_entity_pair(server, entity, relation)
-		masking:unregister_component_addition(entity, relation, COMPONENT_TYPES.pair)
-		masking:register_stop_component(entity, relation, COMPONENT_TYPES.pair)
-		masking:stop_component(entity, relation, COMPONENT_TYPES.pair)
+		local component_type = untrack_entity_pair(server, entity, relation)
+		if not component_type then
+			return
+		end
+		masking:unregister_component_addition(entity, relation, component_type)
+		masking:register_stop_component(entity, relation, component_type)
+		masking:stop_component(entity, relation, component_type)
 	end))
 
 	hook(hooks.added(world, components.unreliable, function(entity, id, filter)

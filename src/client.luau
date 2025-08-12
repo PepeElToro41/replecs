@@ -51,7 +51,6 @@ local ENTITY_ID_TYPES = {
 	entity = 1,
 	custom = 2,
 	shared = 3,
-	global = 4,
 }
 local PACKET_TYPES = {
 	full = 1,
@@ -96,7 +95,7 @@ local function decode_component(client: Client, encoded: number): Entity
 	return component
 end
 
-local function read_component_id(client: Client, c: Cursor)
+local function read_component_id(client: Client, c: Cursor): Entity
 	local shared_id = cursor.readu8(c)
 	local component = client.shared.components[shared_id]
 	if not component then
@@ -106,8 +105,7 @@ local function read_component_id(client: Client, c: Cursor)
 	return component
 end
 
-local function read_component_value(client: Client, c: Cursor, variants: { any }?): (Entity, any)
-	local component = read_component_id(client, c)
+local function read_component_value(client: Client, component: Entity, c: Cursor, variants: { any }?): any
 	local serdes = client.shared.serdes[component]
 
 	if serdes then
@@ -137,6 +135,12 @@ local function read_component_value(client: Client, c: Cursor, variants: { any }
 	end
 end
 
+local function read_component(client: Client, c: Cursor, variants: { any }?): (Entity, any)
+	local component = read_component_id(client, c)
+	local value = read_component_value(client, component, c, variants)
+	return component, value
+end
+
 local function resolve_global(client: Client, global_id: number): Entity
 	if not client.global_handler then
 		error "global id parser not set, consider using client:handle_global()"
@@ -146,14 +150,14 @@ local function resolve_global(client: Client, global_id: number): Entity
 end
 
 local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (Entity?, number?)
-	local id_type = cursor.readi8(c)
+	local id_type = cursor.readu8(c)
 
-	if id_type <= 10 then
+	if id_type <= GLOBAL_ID_OFFSET then
 		if id_type == ENTITY_ID_TYPES.entity then
 			local server_id = cursor.readu40(c)
 			return client.server_ids[server_id], server_id
 		elseif id_type == ENTITY_ID_TYPES.custom then
-			local component, value = read_component_value(client, c, variants)
+			local component, value = read_component(client, c, variants)
 			local custom_getter = client.custom_ids[component]
 			if not custom_getter then
 				error(
@@ -166,9 +170,6 @@ local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (E
 			return custom_getter(value), nil
 		elseif id_type == ENTITY_ID_TYPES.shared then
 			return read_component_id(client, c), nil
-		elseif id_type == ENTITY_ID_TYPES.global then
-			local global_id = cursor.readu8(c) - GLOBAL_ID_OFFSET
-			return resolve_global(client, global_id), nil
 		end
 		error(`malformed entity id {id_type} ` .. cursor.readu32(c))
 	else
@@ -185,13 +186,24 @@ local function process_entity_id(client: Client, c: Cursor, variants: { any }?)
 	end
 end
 
-local function process_entity_relation(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
+local function process_entity_relations(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
 	local relation = read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
 
 	for _ = 1, total_targets do
 		local target = process_entity_id(client, c, variants)
 		client.world:add(entity, PAIR(relation, target))
+	end
+end
+
+local function process_entity_relation_values(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
+	local relation = read_component_id(client, c)
+	local total_targets = cursor.read_vlq(c)
+
+	for _ = 1, total_targets do
+		local value = read_component_value(client, relation, c, variants)
+		local target = process_entity_id(client, c, variants)
+		client.world:set(entity, PAIR(relation, target), value)
 	end
 end
 
@@ -206,13 +218,18 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 
 	local total_components = cursor.read_vlq(c)
 	for _ = 1, total_components do
-		local component, value = read_component_value(client, c, variants)
+		local component, value = read_component(client, c, variants)
 		client.world:set(entity, component, value)
 	end
 
 	local total_pairs = cursor.read_vlq(c)
 	for _ = 1, total_pairs do
-		process_entity_relation(client, entity, c, variants)
+		process_entity_relations(client, entity, c, variants)
+	end
+
+	local total_pairs_values = cursor.read_vlq(c)
+	for _ = 1, total_pairs_values do
+		process_entity_relation_values(client, entity, c, variants)
 	end
 end
 
@@ -269,13 +286,18 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 			local total_components = read_vlq_bitmask(c, added_mask, 1)
 			for _ = 1, total_components do
-				local component, value = read_component_value(client, c, variants)
+				local component, value = read_component(client, c, variants)
 				client.world:set(entity, component, value)
 			end
 
 			local total_pairs = read_vlq_bitmask(c, added_mask, 2)
 			for _ = 1, total_pairs do
-				process_entity_relation(client, entity, c, variants)
+				process_entity_relations(client, entity, c, variants)
+			end
+
+			local total_pairs_values = read_vlq_bitmask(c, added_mask, 3)
+			for _ = 1, total_pairs_values do
+				process_entity_relation_values(client, entity, c, variants)
 			end
 		end
 
@@ -292,57 +314,73 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 			local total_components = read_vlq_bitmask(c, changed_mask, 1)
 			for _ = 1, total_components do
-				local component, value = read_component_value(client, c, variants)
+				local component, value = read_component(client, c, variants)
 				client.world:set(entity, component, value)
 			end
 
-			local total_pairs = read_vlq_bitmask(c, changed_mask, 2)
+			local total_removed = read_vlq_bitmask(c, changed_mask, 2)
+			for _ = 1, total_removed do
+				local component = read_component_id(client, c)
+				client.world:remove(entity, component)
+			end
+
+			local total_pairs = read_vlq_bitmask(c, changed_mask, 3)
 			for _ = 1, total_pairs do
 				local relation = read_component_id(client, c)
 				local total_targets = cursor.read_vlq(c)
 
 				for _ = 1, total_targets do
-					local id_type = cursor.readi8(c)
-					-- here I use negative numbers to indicate removals
-					-- but "process_entity_id" expects a positive value
-					-- so I just peek at it and put it back but positive
-					-- (surely there is a better way to do this)
-					cursor.writei8(c, math.abs(id_type))
-					local target = process_entity_id(client, c, variants)
+					local action_type = cursor.readi8(c)
 
-					if id_type > 0 then
+					if action_type == 1 then -- add pair
+						local target = process_entity_id(client, c, variants)
 						client.world:add(entity, PAIR(relation, target))
-					elseif id_type < 0 then
+					elseif action_type == -1 then -- remove pair
+						local target = read_entity_id(client, c, variants)
+						if target then
+							client.world:remove(entity, PAIR(relation, target))
+						end
+					end
+				end
+			end
+
+			local total_pairs_values_removed = read_vlq_bitmask(c, changed_mask, 4)
+			for _ = 1, total_pairs_values_removed do
+				local relation = read_component_id(client, c)
+				local total_targets = cursor.read_vlq(c)
+
+				for _ = 1, total_targets do
+					local target = read_entity_id(client, c, variants)
+					if target then
 						client.world:remove(entity, PAIR(relation, target))
 					end
 				end
 			end
 
-			local total_removed = read_vlq_bitmask(c, changed_mask, 3)
+			local total_pairs_values = read_vlq_bitmask(c, changed_mask, 5)
+			for _ = 1, total_pairs_values do
+				local relation = read_component_id(client, c)
+				local total_targets = cursor.read_vlq(c)
+
+				for _ = 1, total_targets do
+					local value = read_component_value(client, relation, c, variants)
+					local target = process_entity_id(client, c, variants)
+					client.world:set(entity, PAIR(relation, target), value)
+				end
+			end
+		end
+
+		local total_component_deletions = read_vlq_bitmask(c, storage_mask, 3)
+		for _ = 1, total_component_deletions do
+			local entity = process_entity_id(client, c, variants)
+
+			local total_removed = cursor.read_vlq(c)
 			for _ = 1, total_removed do
 				local component = read_component_id(client, c)
 				client.world:remove(entity, component)
 			end
-		end
 
-		local total_component_deleted = read_vlq_bitmask(c, storage_mask, 3)
-		for _ = 1, total_component_deleted do
-			local entity = process_entity_id(client, c, variants)
-			local deleted_mask = cursor.readu8(c)
-
-			local total_tags = read_vlq_bitmask(c, deleted_mask, 0)
-			for _ = 1, total_tags do
-				local tag = read_component_id(client, c)
-				client.world:remove(entity, tag)
-			end
-
-			local total_components = read_vlq_bitmask(c, deleted_mask, 1)
-			for _ = 1, total_components do
-				local component = read_component_id(client, c)
-				client.world:remove(entity, component)
-			end
-
-			local total_pairs = read_vlq_bitmask(c, deleted_mask, 2)
+			local total_pairs = cursor.read_vlq(c)
 			for _ = 1, total_pairs do
 				local relation = read_component_id(client, c)
 				utils.remove_all_relations(client.world, entity, relation)
@@ -379,14 +417,14 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 
 			if entity then
 				for _ = 1, total_unreliable do
-					local component_id, value = read_component_value(client, c, variants)
+					local component_id, value = read_component(client, c, variants)
 					client.world:set(entity, component_id, value)
 				end
 			else
 				-- dont apply unreliable updates to entities that dont exist in the client yet
 				-- but we still need to process the values to keep the cursor in the right place
 				for _ = 1, total_unreliable do
-					read_component_value(client, c, variants)
+					read_component(client, c, variants)
 				end
 			end
 		end
