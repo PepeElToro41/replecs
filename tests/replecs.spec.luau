@@ -1138,6 +1138,7 @@ TEST("server -> client replication", function()
 			member.client:apply_full(buf, variants)
 
 			CHECK(client_entity(member, entity1) ~= nil)
+			print("CLIENT COMPONENT", client_component(member, entity1, 1))
 			CHECK(client_component(member, entity1, 1) == "foo")
 			CHECK(client_component(member, entity2, 2) == "bar")
 

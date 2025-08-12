@@ -124,14 +124,14 @@ local function read_component_value(client: Client, component: Entity, c: Cursor
 		end
 
 		local output = serdes.deserialize(appended, serdes_variants)
-		return component, output
+		return output
 	else
 		local variant_id = cursor.read_vlq(c)
 		if variant_id == 0 then
-			return component, nil
+			return nil
 		end
 		local value = (variants :: { any })[variant_id]
-		return component, value
+		return value
 	end
 end
 
@@ -219,6 +219,7 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	local total_components = cursor.read_vlq(c)
 	for _ = 1, total_components do
 		local component, value = read_component(client, c, variants)
+		print("COMPONENT AS", component, value)
 		client.world:set(entity, component, value)
 	end
 
