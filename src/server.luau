@@ -533,7 +533,7 @@ local function write_entity_relations_values(
 	local total_targets = 0
 
 	for target, value in targets do
-		write_entity_id(server, c, target, variants, 1)
+		write_entity_id(server, c, target, variants)
 		write_component_value(server, c, relation, value, variants)
 		total_targets += 1
 	end
