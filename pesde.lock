@@ -5,9 +5,16 @@ name = "pepeeltoro41/replecs"
 version = "0.0.1"
 target = "luau"
 
-[graph."marked/jecs@0.9.0-rc.7 luau"]
+[graph."marked/jecs@0.9.0-rc.9 luau"]
 direct = ["jecs", { name = "marked/jecs", version = "^0.9.0-rc.7", index = "default" }, "standard"]
 
-[graph."marked/jecs@0.9.0-rc.7 luau".pkg_ref]
+[graph."marked/jecs@0.9.0-rc.9 luau".pkg_ref]
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
+
+[graph."wally#pysephwasntavailable/remotepacketsizecounter@2.4.1 roblox"]
+direct = ["packet_size", { wally = "wally#pysephwasntavailable/remotepacketsizecounter", version = "^2.4.1", index = "default" }, "standard"]
+
+[graph."wally#pysephwasntavailable/remotepacketsizecounter@2.4.1 roblox".pkg_ref]
+ref_ty = "wally"
+index_url = "https://github.com/UpliftGames/wally-index"

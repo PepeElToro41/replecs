@@ -2,6 +2,7 @@
 --!native
 
 local jecs = require "../jecs"
+local packet_size = require "../packet_size"
 local utils = require "./utils"
 local common = require "./common"
 local masking_controller = require "./masking"
@@ -84,7 +85,7 @@ local PACKET_TYPES = {
 	reliable = 3,
 }
 
-local MAX_PACKET_SIZE = 900
+local MAX_PACKET_SIZE = 995
 local ENTITY_ID_TYPES = {
 	entity = 1,
 	custom = 2,
@@ -595,7 +596,6 @@ type Packet = {
 type MemberPackets = {
 	packets: Array<Packet>,
 	variants: { { any } },
-	total_size: number,
 }
 
 local function append_packet(
@@ -604,7 +604,6 @@ local function append_packet(
 	output: buffer,
 	variants: { { any } }
 )
-	local len = buffer.len(output)
 	for _, member in members do
 		local member_packets = packets[member]
 
@@ -613,7 +612,6 @@ local function append_packet(
 				buffer = output,
 				variants = variants,
 			})
-			member_packets.total_size += len
 		else
 			member_packets = {
 				packets = {
@@ -622,7 +620,6 @@ local function append_packet(
 						variants = variants,
 					},
 				},
-				total_size = len,
 			}
 			packets[member] = member_packets :: MemberPackets
 		end
@@ -659,7 +656,13 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: 
 		end
 		iterated = player
 
-		local combined, variants = combine_packet_outputs(data.packets, data.total_size, id)
+		local total_buffer_size = 0
+
+		for _, packet in data.packets do 
+			total_buffer_size += buffer.len(packet.buffer)
+		end
+
+		local combined, variants = combine_packet_outputs(data.packets, total_buffer_size, id)
 		return player, combined, variants
 	end
 	return iterator :: PacketIterator
@@ -669,34 +672,40 @@ local function create_unreliable_packet_iterator(packets: { [Player]: MemberPack
 	return coroutine.wrap(function()
 		for player, data in packets do
 			table.sort(data.packets, function(a, b)
-				return buffer.len(a.buffer) < buffer.len(b.buffer)
+				local a_size = buffer.len(a.buffer) + packet_size.GetDataByteSize(a.variants)
+				local b_size = buffer.len(b.buffer) + packet_size.GetDataByteSize(b.variants)
+
+				return a_size < b_size
 			end)
 			local total_packets = #data.packets
 
 			local current_packet_index = 1
 			while current_packet_index <= total_packets do
 				local sending = {} :: { Packet }
-				local total_size = 0
+				local total_buffer_size = 0
+				local total_variants_size = 0
 
 				while current_packet_index <= total_packets do
 					local packet = data.packets[current_packet_index]
 					local buffer_size = buffer.len(packet.buffer)
+					local variants_size = packet_size.GetDataByteSize(packet.variants)
 
-					if total_size + buffer_size > MAX_PACKET_SIZE and #sending > 0 then
+					if total_buffer_size + total_variants_size + buffer_size + variants_size > MAX_PACKET_SIZE and #sending > 0 then
 						break
 					end
 
 					table.insert(sending, packet)
-					total_size += buffer_size
+					total_buffer_size += buffer_size
+					total_variants_size += variants_size
 					current_packet_index += 1
 
-					if total_size >= MAX_PACKET_SIZE then
+					if total_buffer_size + total_variants_size >= MAX_PACKET_SIZE then
 						break
 					end
 				end
 
 				if #sending > 0 then
-					coroutine.yield(player, combine_packet_outputs(sending, total_size, PACKET_TYPES.unreliable))
+					coroutine.yield(player, combine_packet_outputs(sending, total_buffer_size, PACKET_TYPES.unreliable))
 				end
 			end
 		end
@@ -709,7 +718,7 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 		utils.logerror "attempted to replicate for a non registered member"
 	end
 	local packets: Array<Packet> = {}
-	local total_size = 0
+	local total_buffer_size = 0
 
 	-- maybe edges to quickly find all relevant storages improves performance?
 	for _, storage in server.masking.storages do
@@ -731,10 +740,10 @@ local function get_full(server: Server, member: Player): (buffer, { { any } })
 			buffer = output,
 			variants = variants,
 		})
-		total_size += buffer.len(output)
+		total_buffer_size += buffer.len(output)
 	end
 
-	return combine_packet_outputs(packets, total_size, PACKET_TYPES.full)
+	return combine_packet_outputs(packets, total_buffer_size, PACKET_TYPES.full)
 end
 
 local function write_vlq_bitmask(c: Cursor, value: number, mask: number, bit: number): number
