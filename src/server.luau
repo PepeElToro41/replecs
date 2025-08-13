@@ -658,7 +658,7 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: 
 
 		local total_buffer_size = 0
 
-		for _, packet in data.packets do 
+		for _, packet in data.packets do
 			total_buffer_size += buffer.len(packet.buffer)
 		end
 
@@ -690,7 +690,10 @@ local function create_unreliable_packet_iterator(packets: { [Player]: MemberPack
 					local buffer_size = buffer.len(packet.buffer)
 					local variants_size = packet_size.GetDataByteSize(packet.variants)
 
-					if total_buffer_size + total_variants_size + buffer_size + variants_size > MAX_PACKET_SIZE and #sending > 0 then
+					if
+						total_buffer_size + total_variants_size + buffer_size + variants_size > MAX_PACKET_SIZE
+						and #sending > 0
+					then
 						break
 					end
 
