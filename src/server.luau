@@ -346,7 +346,8 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 				break
 			end
 			index += 1
-			targets[target] = world:get(entity, jecs.pair(relation, target))
+			local value = world:get(entity, jecs.pair(relation, target))
+			targets[target] = if value == nil then NIL_COMPONENT_VALUE else value :: any
 		end
 		entity_storage.pairs_values[relation] = targets
 		info[entity] = TRACK_TYPES.pair_value
