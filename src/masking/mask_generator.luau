@@ -9,7 +9,8 @@ type SubscribeCallback = (generator: MaskGenerator) -> ()
 export type MaskGenerator = {
 	compute_callback: ComputeCallback?,
 	subscribed: SubscribeCallback?,
-	bitmask: utils.Bitmask,
+	result: utils.Bitmask,
+	bitmask: utils.Bitmask?,
 
 	tracking: { GeneratorInternal },
 	tracked_by: { GeneratorInternal },
@@ -19,6 +20,10 @@ export type MaskGenerator = {
 	run_subscribed: (self: MaskGenerator) -> (),
 	track: (self: MaskGenerator, tracking: MaskGenerator) -> (),
 	destroy: (self: MaskGenerator) -> (),
+}
+
+export type MaskGeneratorWithBitmask = MaskGenerator & {
+	bitmask: utils.Bitmask,
 }
 
 local mask_generator = {}
@@ -59,7 +64,7 @@ end
 function mask_generator.compute(generator: GeneratorInternal)
 	if generator.compute_callback then
 		local result = generator.compute_callback(generator :: GeneratorInternal)
-		generator.bitmask = result
+		generator.result = result
 	end
 	if generator.subscribed then
 		generator.subscribed(generator :: GeneratorInternal)
@@ -79,7 +84,8 @@ end
 function create(bitmask: utils.Bitmask?, compute: ComputeCallback?): MaskGenerator
 	local self = {} :: MaskGenerator
 
-	self.bitmask = bitmask or (compute :: ComputeCallback)(self)
+	self.bitmask = bitmask
+	self.result = if compute then compute(self) else bitmask :: utils.Bitmask
 	self.compute_callback = compute
 	self.subscribed = nil
 	self.tracking = {}
@@ -90,8 +96,8 @@ function create(bitmask: utils.Bitmask?, compute: ComputeCallback?): MaskGenerat
 end
 
 function follow(leading: MaskGenerator): MaskGenerator
-	local created = create(nil, function()
-		return leading.bitmask
+	local created = create(leading.result, function()
+		return leading.result
 	end)
 	created:track(leading)
 	return created

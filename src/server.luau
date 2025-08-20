@@ -41,6 +41,9 @@ export type Server = {
 	hooks: common.WorldHooks,
 	alive_tracked: Set<Entity>,
 
+	is_dirty: boolean,
+	requires_shared_lookup: { Entity },
+
 	track_info: TrackInfo,
 	additions: Set<Entity>,
 	custom_ids: Map<Entity, Entity<any>>,
@@ -63,6 +66,8 @@ export type Server = {
 	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
 	mark_player_ready: (self: Server, player: Player) -> (),
 	is_player_ready: (self: Server, player: Player) -> boolean,
+	add_player_alias: (self: Server, client: Player, alias: any) -> (),
+	remove_player_alias: (self: Server, client: Player, alias: any) -> (),
 }
 
 local cursor = utils.cursor
@@ -215,6 +220,8 @@ end
 local function cleanup_entity(server: Server, entity: Entity)
 	server.alive_tracked[entity] = nil
 	server.storage[entity] = nil
+	server.global_ids[entity] = nil
+	server.custom_ids[entity] = nil
 	server.additions[entity] = nil
 	server.masking:cleanup_entity(entity)
 end
@@ -302,7 +309,6 @@ local function track_entity_component(server: Server, entity: Entity, component:
 	local entity_storage = get_or_set_entity_storage(server, entity)
 
 	if world:has(component, ECS_COMPONENT) then
-		-- component
 		if world:has(entity, component) then
 			local value = world:get(entity, component)
 
@@ -317,7 +323,6 @@ local function track_entity_component(server: Server, entity: Entity, component:
 
 		return COMPONENT_TYPES.component
 	else
-		-- tag
 		if world:has(entity, component) then
 			entity_storage.tags[component] = true
 		end
@@ -589,6 +594,13 @@ local function write_entity(
 	write_entity_id(server, c, entity, variants)
 end
 
+local function resolve_dirty(server: Server)
+	if server.is_dirty then
+		server.shared = utils.create_shared_lookup(server.world, server.components)
+		server.is_dirty = false :: true -- wtf
+	end
+end
+
 type Packet = {
 	buffer: buffer,
 	variants: { { any } },
@@ -704,11 +716,13 @@ local function create_unreliable_packet_iterator(packets: { [Player]: MemberPack
 	end) :: PacketIterator
 end
 
-local function get_full(server: Server, member: Player): (buffer, { { any } })
-	local index = server.masking.member_indexes[member]
+local function get_full(server: Server, client: Player): (buffer, { { any } })
+	resolve_dirty(server)
+	local index = server.masking.client_indexes[client]
 	if index == nil then
-		utils.logerror "attempted to replicate for a non registered member"
+		utils.logerror "attempted to replicate for a non registered client"
 	end
+
 	local packets: Array<Packet> = {}
 	local total_size = 0
 
@@ -748,6 +762,7 @@ local function write_vlq_bitmask(c: Cursor, value: number, mask: number, bit: nu
 end
 
 local function collect_updates(server: Server)
+	resolve_dirty(server)
 	local packets: { [Player]: MemberPackets } = {}
 
 	for _, storage in server.masking.storages do
@@ -946,6 +961,7 @@ local function collect_updates(server: Server)
 end
 
 local function collect_unreliable(server: Server)
+	resolve_dirty(server)
 	local world = server.world
 	local packets: { [Player]: MemberPackets } = {}
 
@@ -1253,12 +1269,21 @@ function init(server: Server, _world: World?)
 		end
 	end))
 
+	for _, component in server.requires_shared_lookup do
+		hook(hooks.added(world, component, function()
+			server.is_dirty = true
+		end))
+		hook(hooks.removed(world, component, function()
+			server.is_dirty = true
+		end))
+	end
+
 	if game and game:GetService("RunService"):IsServer() then
 		local added = game:GetService("Players").PlayerAdded:Connect(function(player)
-			server.masking:register_member(player)
+			server.masking:register_client(player)
 		end)
 		local removed = game:GetService("Players").PlayerRemoving:Connect(function(player)
-			server.masking:unregister_member(player)
+			server.masking:register_client(player)
 		end)
 
 		table.insert(server.connections, added)
@@ -1267,11 +1292,19 @@ function init(server: Server, _world: World?)
 end
 
 local function mark_player_ready(server: Server, player: Player)
-	server.masking:activate_member(player)
+	server.masking:activate_client(player)
 end
 
 local function is_player_ready(server: Server, player: Player): boolean
 	return server.masking:member_is_active(player)
+end
+
+local function add_player_alias(server: Server, client: Player, alias: any)
+	server.masking.client_aliases[alias] = client
+end
+
+local function remove_player_alias(server: Server, client: Player, alias: any)
+	server.masking.client_aliases[alias] = nil
 end
 
 local function destroy(server: Server)
@@ -1299,6 +1332,8 @@ server.encode_component = encode_component
 server.decode_component = decode_component
 server.mark_player_ready = mark_player_ready
 server.is_player_ready = is_player_ready
+server.add_player_alias = add_player_alias
+server.remove_player_alias = remove_player_alias
 
 local function create(world: World?, components: common.Components): Server
 	local self = {} :: Server
@@ -1310,6 +1345,7 @@ local function create(world: World?, components: common.Components): Server
 	self.additions = {}
 	self.storage = {}
 	self.hooked = {}
+	self.is_dirty = false
 	self.global_ids = {}
 	self.pending_cleanups = {}
 	self.track_info = {
@@ -1321,6 +1357,12 @@ local function create(world: World?, components: common.Components): Server
 	self.masking = masking_controller.create()
 	self.alive_tracked = {}
 	self.custom_ids = {}
+	self.requires_shared_lookup = {
+		self.components.shared,
+		self.components.serdes,
+		self.components.bytespan,
+		jecs.Name,
+	}
 
 	return setmetatable(self, server) :: any
 end

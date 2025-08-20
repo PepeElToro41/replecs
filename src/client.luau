@@ -20,6 +20,8 @@ export type Client = {
 	is_replicating: boolean,
 	after_replication_callbacks: { () -> () },
 
+	is_dirty: boolean,
+	requires_shared_lookup: { Entity },
 	components: common.Components,
 	shared: common.Shared,
 	global_handler: ((id: number) -> Entity)?,
@@ -219,7 +221,6 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	local total_components = cursor.read_vlq(c)
 	for _ = 1, total_components do
 		local component, value = read_component(client, c, variants)
-		print("COMPONENT AS", component, value)
 		client.world:set(entity, component, value)
 	end
 
@@ -231,6 +232,13 @@ local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	local total_pairs_values = cursor.read_vlq(c)
 	for _ = 1, total_pairs_values do
 		process_entity_relation_values(client, entity, c, variants)
+	end
+end
+
+local function resolve_dirty(client: Client)
+	if client.is_dirty then
+		client.shared = utils.create_shared_lookup(client.world, client.components)
+		client.is_dirty = false :: true -- wtf
 	end
 end
 
@@ -261,6 +269,7 @@ end
 local function apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "reliable")
+	resolve_dirty(client)
 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
@@ -404,6 +413,7 @@ end
 local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "unreliable")
+	resolve_dirty(client)
 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
@@ -435,6 +445,7 @@ end
 local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "full")
+	resolve_dirty(client)
 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
@@ -480,14 +491,25 @@ local function init(client: Client, _world: World?)
 		client.custom_ids[component] = custom_get
 	end
 
-	local unhook = client.hooks.removed(world, components.__alive_tracking__, function(entity)
+	local alive_unhook = hooks.removed(world, components.__alive_tracking__, function(entity)
 		local server_id = client.client_ids[entity]
 		if server_id then
 			client.server_ids[server_id] = nil
 			client.client_ids[entity] = nil
 		end
 	end)
-	table.insert(client.hooked, unhook)
+	table.insert(client.hooked, alive_unhook)
+
+	for _, component in client.requires_shared_lookup do
+		local added_hook = hooks.added(world, component, function()
+			client.is_dirty = true
+		end)
+		local removed_hook = hooks.removed(world, component, function()
+			client.is_dirty = true
+		end)
+		table.insert(client.hooked, added_hook)
+		table.insert(client.hooked, removed_hook)
+	end
 end
 
 local function after_replication(client: Client, callback: () -> ())
@@ -541,6 +563,13 @@ local function create(world: World?, components: common.Components): Client
 	self.custom_ids = {}
 	self.server_ids = {}
 	self.client_ids = {}
+	self.is_dirty = false
+	self.requires_shared_lookup = {
+		self.components.shared,
+		self.components.serdes,
+		self.components.bytespan,
+		jecs.Name,
+	}
 	self.global_handler = nil
 	self.world = world :: any
 	self.inited = false
