@@ -35,7 +35,7 @@ world:add(player_entity, jecs.pair(replecs.custom, components.player))
 ```
 
 <Aside type="caution">
-The component used in the custom id must be [marked](/started/setting-up#marking-shared-components) as `shared`.
+The component used in the custom id must be [marked](/replecs/started/setting-up#marking-shared-components) as `shared`.
 </Aside>
 
 ---
@@ -58,7 +58,7 @@ end)
 ```
 
 <Aside>
-Custom Id components get affected by [Component Serialization](/guides/component-serialization/).
+Custom Id components get affected by [Component Serialization](/replecs/guides/component-serialization/).
 
 This means that you can set a serdes table to the component to compress it into a buffer. Allowing you to use custom ids in unreliable replication.
 

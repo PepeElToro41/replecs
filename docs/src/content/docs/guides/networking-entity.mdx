@@ -74,7 +74,7 @@ world:add(npc, jecs.pair(replecs.unreliable, components.position))
 
 <Aside type="danger">
 Replecs cannot infer the size of non-serialized values. 
-Because of this, its recommended that you provide a [Serialization](/guides/component-serialization/) table
+Because of this, its recommended that you provide a [Serialization](/replecs/guides/component-serialization/) table
 to every single component that will be replicated as unreliable to ensure the packet never exceeds the 1KB limit.
 </Aside>
 

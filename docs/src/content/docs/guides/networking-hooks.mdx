@@ -67,7 +67,7 @@ This does not distinguish component additions and changes.
 The arguments for the hook method will be:
 - entity: `Entity` <span class="sub-heading" style="white-space: pre;"> - entity to hook</span>
 - action: `"changed"` <span class="sub-heading" style="white-space: pre;"> - "changed" action</span>
-- replication_pair: `Pair` <span class="sub-heading" style="white-space: pre;"> - what component to hook to. This pair should mimic how you track components [in the server](/guides/networking-entity/#replication-types)</span> 
+- replication_pair: `Pair` <span class="sub-heading" style="white-space: pre;"> - what component to hook to. This pair should mimic how you track components [in the server](/replecs/guides/networking-entity/#replication-types)</span> 
 - callback: `(entity: Entity, id: Id, component: Component)` <span class="sub-heading" style="white-space: pre;"> - callback to run when the component is changed</span>
 
 ```luau
@@ -88,7 +88,7 @@ You can still access the component or pair right at this point.
 The arguments for the hook method will be:
 - entity: `Entity` <span class="sub-heading" style="white-space: pre;">  -  entity to hook</span>
 - action: `"removed"` <span class="sub-heading" style="white-space: pre;">  -  "removed" action</span>
-- replication_pair: `Pair` <span class="sub-heading" style="white-space: pre;">  -  what component to hook to. This pair should mimic how you track components [in the server](/guides/networking-entity/#replication-types)</span> 
+- replication_pair: `Pair` <span class="sub-heading" style="white-space: pre;">  -  what component to hook to. This pair should mimic how you track components [in the server](/replecs/guides/networking-entity/#replication-types)</span> 
 - callback: `(entity: Entity, id: Id)` <span class="sub-heading" style="white-space: pre;">  -  callback to run when the component is removed </span>
 
 ```luau

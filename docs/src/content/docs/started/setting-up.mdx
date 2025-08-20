@@ -36,7 +36,7 @@ You can then export each replicator type from their sides.
 Having a holder that has both `client` and `server` is useful for methods that would be used in a shared file where you cant
 require the client or server replicators directly.
 
-An example of this is the method for [hooking after replication](/guides/networking-hooks/#hook-after-replication)
+An example of this is the method for [hooking after replication](/replecs/guides/networking-hooks/#hook-after-replication)
 which most of the time will be called inside signals for shared components, but it's exclusive to the client.
 
 ---
