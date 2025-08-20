@@ -1,0 +1,69 @@
+---
+title: Networking Hooks
+sidebar:
+    order: 3
+---
+
+
+Hooks allow you to subscribe to the networking process in the client.
+
+
+## Hook After Replication
+
+You can set a callback to be called after replication has been completed using `replicator:after_replication(callback)`.
+This is useful for jecs signals because they will most likely be called in the middle of the networking process.
+
+Hooking after replication will ensure that all the components are available to be used.
+
+- This is not a signal, so it doesn't need to be disconnected.
+- Calling this when no replication is taking place will run the callback immediately.
+- This can also be called in the shared replicator that contains both the client and server replicators. 
+Calling this in the server will always run the callback immediately.
+
+
+```luau
+local replicator = require("@shared/replicator")
+
+world:added(components.car, function(entity)
+    replicator:after_replication(function()
+        -- safe to get the components since the car entity has been replicated entirely.
+        local car_model = world:get(entity, components.car_model)
+        local speed = world:get(entity, components.speed)
+    end)
+end)
+```
+
+## Entity Creation
+
+You can hook when a networked entity is created in the client by calling `replicator:added(callback)`.
+The callback is run immediately right after creation, because of this, the entity will be empty when the callback runs.
+You can hook to `after_replication` to wait for the components. The entity you get is the client entity.
+
+Unlike `after_replication`, this is a signal that needs to be disconnected, and this can only be called in the client replicator.
+
+```luau
+local replicator = require("@client/replicator")
+
+local disconnect = replicator:added(function(entity) 
+    replicator:after_replication(function()
+        local server_entity = replicator:get_server_entity(entity)
+        print("entity created from the server", server_entity)
+    end)
+end)
+disconnect() -- disconnect the signal
+```
+
+## Per-Entity Hooks
+
+You can set hooks to each entity individually when an action is performed.
+
+
+<div class="padded">
+### Components Changed
+</div>
+
+## Overriding Actions
+
+You can override actions.
+
+If you only want to hook to listen for the action, you will need to perform the action yourself.

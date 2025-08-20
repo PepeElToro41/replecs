@@ -1,0 +1,40 @@
+---
+title: Replecs
+description: Agnostic Replication Library for ECS.
+template: splash
+hero:
+  tagline: Agnostic Replication Library for ECS
+  image:
+    file: ../../assets/houston.webp
+  actions:
+    - text: Get Started
+      link: /started/installation/
+      icon: right-arrow
+    - text: API Reference
+      link: /guides/example/
+      variant: minimal
+      icon: right-arrow
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid>
+	<Card title="Granular Replication" icon="pencil">
+		Per-entity replication with granular component selection and player filtering
+	</Card>
+	<Card title="Heavily Optimized" icon="add-document">
+		Able to track and serialize up to 50K entities **with player filters** at 60 frames per second.
+	</Card>
+	<Card title="Buffer Serialization" icon="setting">
+		Bandwidth efficient buffer based replication with optional<br/>per-component serialization.
+	</Card>
+	<Card title="Replicate Anything" icon="open-book">
+		Supports any kind of replication: components, tags, pairs, pair values and more.
+	</Card>
+    <Card title="Unreliable Replication" icon="open-book">
+		Able to send components unreliably with automatic packet splitting for 1KB packet limit.
+	</Card>
+    <Card title="Library/Runtime Agnostic" icon="open-book">
+		Written to easily support any ECS library<br/> and run in non-roblox environments.
+	</Card>
+</CardGrid>

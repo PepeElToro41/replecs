@@ -1,0 +1,71 @@
+---
+title: Sending Updates
+sidebar:
+    order: 3
+---
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+import collect_updates from './examples/collect-updates.luau?raw';
+import apply_updates from './examples/apply-updates.luau?raw';
+import collect_all from './examples/collect-all.luau?raw';
+import apply_all from './examples/apply-all.luau?raw';
+
+## Sending Changes
+
+Once players have received the full state of the world, you will need to constantly send changes to your players.
+
+Changes should be sent inside a system that will run every frame.
+Its recommended that you throttle the updates to a lower interval, a good rate is somewhere around 10-30 times a second.
+
+In the server, you will call `server_replicator:collect_updates()`.
+This will return an iterator that will be executed for every player.
+
+The iterator will give you the following values:
+- player: `Player` <span class="sub-heading" style="white-space: pre;">  -  the player to send the updates to</span>
+- buf: `buffer` <span class="sub-heading" style="white-space: pre;">  -  the buffer containing the updates</span>
+- variants: `{any}` <span class="sub-heading" style="white-space: pre;">  -  the variants table containing non-serialized values</span>
+
+
+Updates can then be applied in the client using `client_replicator:apply_updates(buf, variants)`. 
+
+
+#### Example:
+
+<Tabs>
+    <TabItem label="Server (Collect Updates)">
+        <Code code={collect_updates} lang="luau" title="replecs system" />
+    </TabItem>
+    <TabItem label="Client (Apply Updates)">
+        <Code code={apply_updates} lang="luau" title="replecs system" />
+    </TabItem>
+</Tabs>
+
+## Sending Unreliable Values
+
+Unreliable updates are sent similarly to normal updates. You can call `server_replicator:collect_unreliable()`.
+This will return an iterator that will be executed for every player.
+
+The iterator will give you the same values as normal updates.
+
+Updates can then be applied in the client using `client_replicator:apply_unreliable(buf, variants)`.
+
+Because unreliable values are always sent,
+deciding how often you send them is crucial, making it slower to not overload the network or faster for smoother replication.
+
+
+<Aside>
+Due to automatic packet splitting, the iterator can be executed multiple times for the same player if the packet was split.
+</Aside>
+
+## Summary
+
+Combining both update types your client/server systems should look something like this:
+
+
+<Tabs>
+    <TabItem label="Server (Collect Updates)">
+        <Code code={collect_all} lang="luau" title="replecs system" />
+    </TabItem>
+    <TabItem label="Client (Apply Updates)">
+        <Code code={apply_all} lang="luau" title="replecs system" />
+    </TabItem>
+</Tabs>

@@ -1,0 +1,152 @@
+---
+title: Replicating Entities
+sidebar:
+    order: 1
+---
+import { Card, Aside } from '@astrojs/starlight/components';
+
+## Replicating Entities
+
+Replecs replication is _per-entity_. This means that you need to mark each entity to be networked.<br/>  
+You can do this by adding `replecs.networked` to the entity. This will allocate an entity creation event to be sent to the client.
+
+```luau
+local replecs = require("@pkg/replecs")
+local world = require("world")
+
+local npc = world:entity()
+world:add(npc, replecs.networked)
+```
+
+## Replicating Components
+
+After marking an entity as networked, you need to mark each component that you want to replicate and how you want to replicate it.
+
+This allows for a highly granular control over replication for each entity.
+
+
+#### Replication Types
+<div class="padded">
+
+### Components/Tags
+
+Components and tags should be marked with `replecs.reliable` with a pair. You will set what component to replicate as the target.
+
+```luau
+local replecs = require("@pkg/replecs")
+local jecs = require("@pkg/jecs")
+local world = require("world")
+local components = require("@shared/components")
+
+local npc = world:entity()
+world:add(npc, replecs.networked)
+
+world:set(npc, components.health, 100)
+world:add(npc, components.alive)
+-- mark components to be replicated
+world:add(npc, jecs.pair(replecs.reliable, components.health))
+world:add(npc, jecs.pair(replecs.reliable, components.alive))
+```
+
+### Unreliable Components
+
+Components can be marked to be replicated unreliably. 
+
+This will send the latest value of the component to the client no matter whether it changed or not.
+This kind of replication should be used when the component value changes too quickly in the server (every frame).
+
+Replecs will also automatically split buffer packets if they exceed the 1KB maximum unrealible size. 
+This will ensure that no packets get dropped.
+
+
+```luau
+local replecs = require("@pkg/replecs")
+local jecs = require("@pkg/jecs")
+local world = require("world")
+local components = require("@shared/components")
+
+local npc = world:entity()
+world:add(npc, replecs.networked)
+
+world:set(npc, components.position, Vector3.new(0, 0, 0))
+world:add(npc, jecs.pair(replecs.unreliable, components.position))
+```
+
+<Aside type="danger">
+Replecs cannot infer the size of non-serialized values. 
+Because of this, its recommended that you provide a [Serialization](/guides/component-serialization/) table
+to every single component that will be replicated as unreliable to ensure the packet never exceeds the 1KB limit.
+</Aside>
+
+### Relationships
+
+Pairs should be marked with `replecs.pair` with a pair. You will set what `relation` to replicate as the target.<br/>
+Note that if the relation target is an entity, this entity also needs to be marked as networked.
+
+```luau
+local replecs = require("@pkg/replecs")
+local jecs = require("@pkg/jecs")
+local world = require("world")
+
+-- create a relation
+local npc = world:entity()
+local player = world:entity()
+
+world:add(npc, replecs.networked)
+world:add(player, replecs.networked)
+
+-- create a pair
+world:add(npc, jecs.pair(components.attacking, player))
+world:add(npc, jecs.pair(replecs.pair, components.attacking))
+```
+
+---
+
+### Relationship Values
+
+Pairs that contain values can be marked like normal pairs, but replecs will only replicate pair values if the first id of the pair is a component.
+
+```luau
+local replecs = require("@pkg/replecs")
+local jecs = require("@pkg/jecs")
+local world = require("world")
+
+local value_relation = world:component()
+local no_value_relation = world:entity()
+
+-- this will replicate pair values
+world:add(relation, jecs.pair(replecs.pair, value_relation))
+-- this will not replicate pair values
+world:add(relation, jecs.pair(replecs.pair, no_value_relation))
+```
+
+</div>
+
+## Stopping Replication
+
+Entities and components can be stopped from being replicated at any time.
+
+<div class="padded">
+
+### Entities
+
+You can stop an entity from being replicated by removing the `replecs.networked` tag.
+This will also allocate an event to delete the entity in the client.
+
+All your components will still remain in the entity. You can reactivate the entity by adding `replecs.networked` again.
+
+This will correctly replicate back your entity with all its components. This is useful for streaming entities in and out dynamically.
+
+### Components
+
+You can stop a component from being replicated by removing the pair.
+This will also allocate an event to remove the component entirely in the client
+
+```luau
+world:remove(npc, jecs.pair(replecs.reliable, components.health))
+world:remove(npc, jecs.pair(replecs.reliable, components.alive))
+world:remove(npc, jecs.pair(replecs.unreliable, components.position))
+world:remove(npc, jecs.pair(replecs.pair, components.attacking))
+```
+
+</div>

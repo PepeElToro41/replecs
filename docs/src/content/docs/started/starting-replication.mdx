@@ -1,0 +1,63 @@
+---
+title: Starting Replication
+sidebar:
+    order: 2
+---
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Getting Full Data
+
+When a player joins the game, you will need to send the current state of the world.<br/>
+This can be done by calling `server_replicator:get_full(player)`.
+
+This will return two values: 
+- A `buffer` containing the data
+- A `variants` table contaning unserialized component values.
+
+You will apply this in the client by calling `client_replicator:apply_full(buffer, variants)`.
+
+<Tabs>
+    <TabItem label="Server">
+        ```luau
+        local replicator = require("@server/replicator")
+
+        -- remote function in the server
+        remotes_server.receive_full:set_callback(function(player)
+            return replicator:get_full(player)
+        end)
+        ```
+    </TabItem>
+    <TabItem label="Client">
+        ```luau
+        local replicator = require("@client/replicator")
+
+        -- remote function in the client
+        local buf, variants = remotes_client.receive_full:invoke_server()
+        replicator:apply_full(buf, variants)
+        ```
+    </TabItem>
+</Tabs>
+
+
+## Activating Players
+
+Replecs will automatically ignore all players that have joined the game. 
+This is to prevent players from getting updates when they haven't received the full state of the world yet.
+
+To activate a player to be replicated you will need to call `server_replicator:mark_player_ready`.<br/>
+You can check if a player has been marked as ready by calling `server_replicator:is_player_ready`.
+
+```luau
+local replicator = require("@server/replicator")
+
+-- remote function in the server
+remotes_server.receive_full:set_callback(function(player: Player) 
+    replicator:mark_player_ready(player) 
+    return replicator:get_full(player)
+end)
+
+```
+
+<Aside type="caution">
+Make sure you mark players as ready only **after** they have received the full state of the world.
+</Aside>

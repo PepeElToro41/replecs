@@ -1,0 +1,116 @@
+---
+title: Entity Remapping  
+sidebar:
+    order: 5
+---
+import { Card, Aside } from '@astrojs/starlight/components';
+
+Replecs will automatically create a lookup table to translate server entities to client entities.
+
+But there will be cases where you want to remap entities to a different id.
+For example, if you already created the equivalent entity in the client separately.
+
+Let's see how we can do this:
+
+## Custom Ids
+
+Customs Ids can be used if the value of a component can be used to know which entity this translates to in the client.
+
+For example, if we create the player entities in the client and server separately,
+we can use the `Player` object to get the respective entity in the client.
+
+To do this, we need to tell replecs what component value it should send using `replecs.custom` with a pair.
+setting the component as the target:
+
+```luau
+local Players = game:GetService("Players")
+local components = require("@shared/components")
+
+local player_entity = world:entity()
+world:add(player_entity, replecs.networked)
+world:set(player_entity, components.player, Players.Player1)
+
+-- this will send the value of player_component to the client
+world:add(player_entity, jecs.pair(replecs.custom, components.player))
+```
+
+<Aside type="caution">
+The component used in the custom id must be [marked](/started/setting-up#marking-shared-components) as `shared`.
+</Aside>
+
+---
+
+Now, we can set a handler using `replecs.custom_handler` in the client for the `player` component.
+This function will receive the value of the component and return the client entity.
+
+```luau
+local components = require("@shared/components")
+
+local player_refs: {[Player]: Entity} = {}
+
+local player_entity = world:entity()
+player_refs[Players.Player1] = player_entity
+world:set(player, components.player, Players.Player1)
+
+world:set(components.player, replecs.custom_handler, function(player: Player)
+    return player_refs[player]
+end)
+```
+
+<Aside>
+Custom Id components get affected by [Component Serialization](/guides/component-serialization/).
+
+This means that you can set a serdes table to the component to compress it into a buffer. Allowing you to use custom ids in unreliable replication.
+
+```luau
+world:set(components.player, replecs.serdes, {
+    serialize = function(value: Player)
+        local buf = buffer.create(8)
+        buffer.writef64(buf, 0, value.UserId)
+        return buf
+    end,
+    deserialize = function(buf: buffer)
+        local user_id = buffer.readf64(buf, 0)
+        return Players:GetPlayerByUserId(user_id)
+    end,
+})
+
+world:set(components.player, replecs.custom_handler, function(player: Player)
+    return player_refs[player]
+end)
+```
+</Aside>
+
+## Global Ids
+
+In essence, global ids are a worse version of custom ids. These are entities that get marked with a single number from `1 - 245`.
+There is no extra data associated like a component in Custom Ids. 
+
+The reason why they exist is because they are a lot more bandwidth efficient.
+They can be represented with a single byte rather than `6 bytes` for normal entities. Making it a good fit for cases where bandwidth is crucial.
+
+If packet size is not a concern, custom ids should be **always** prefered. Its the responsability of the user to give a meaning to the number
+
+To use global ids you need to set `replecs.global` to the entity with the number you want to use.
+
+```luau
+local replecs = require("@pkg/replecs")
+
+local entity = world:entity()
+world:set(entity, replecs.global, 1)
+```
+
+In the client, you set a handler globally by doing `client_replicator:handle_global(handler)`.
+
+This handler will receive the number, and should return an entity.
+
+```luau
+local entity = world:entity()
+
+client_replicator:handle_global(function(id: number)
+    if id == 1 then
+        return entity
+    else
+        error("invalid global id")
+    end
+end)

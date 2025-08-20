@@ -1,0 +1,125 @@
+---
+title: Component Serialization
+sidebar:
+    order: 4
+---
+import { Card, Aside } from '@astrojs/starlight/components';
+
+
+Components are sent outside of the main buffer by default.
+The raw components values get pushed into a `variants` array and only referenced by their position in the array in the buffer.
+
+You can provide a serialize/deserialize table to a component. 
+This will allow you to compress the component value into a buffer.
+that then will be appended into the main buffer, allowing you to optimize the bandwidth usage. 
+
+This will also avoid unreliable packets to get over the 1KB limit, which is necessary if you will use actual unreliable remotes
+
+### Adding a Serializer
+
+You can add a serializer to a component by adding `replecs.serdes`. It's important that this function is set in both the client and server.
+
+This value should be a table with this structure:
+
+```luau
+type SerdesTable = {
+    serialize: (value: any) -> buffer,
+    deserialize: (buf: buffer) -> any,
+
+    bytespan: number?,
+    includes_variants: boolean?,
+}
+```
+
+Let's see an example of how we can add a serializer to a position component.
+
+```luau
+local replecs = require("@pkg/replecs")
+local world = require("world")
+
+local position = world:component() :: Entity<Vector3>
+
+world:set(position, replecs.serdes, {
+    serialize = function(value: Vector3)
+        local buf = buffer.create(12)
+        buffer.writef32(buf, 0, transform.X)
+        buffer.writef32(buf, 4, transform.Y)
+        buffer.writef32(buf, 8, transform.Z)
+        return buf
+    end,
+    deserialize = function(buf: buffer)
+        local x = buffer.readf32(buf, 0)
+        local y = buffer.readf32(buf, 4)
+        local z = buffer.readf32(buf, 8)
+
+        return Vector3.new(x, y, z)
+    end,
+}
+```
+
+### Setting a bytespan
+
+If you want to optimize the bandwidth usage a little more, you can hardcode the size of the serialize buffer.
+This will skip saving the size of the buffer in the packet which is usually `1 Byte`.
+
+The `bytespan` should be taken as a micro-optimization, if the size of the buffer is dynamic, don't use this.
+
+```luau
+local position = world:component() :: Entity<Vector3>
+
+world:set(position, replecs.serdes, {
+    bytespan = 12,
+    serialize = function(value: Vector3)
+        local buf = buffer.create(12)
+        ...
+    end,
+    deserialize = function(value: Vector3)
+        ...
+    end,
+})
+```
+
+<Aside type="tip">
+Replecs will automatically ensure that the bytespan matches the buffer length before sending the packet, and will throw an error if it doesn't.
+</Aside>
+
+### Combining Variants and Buffers
+
+If the value of the component can't be fully serialized into a buffer, 
+you can return the unknown values in an array after the buffer. These values will be passed to the deserializer as the second argument.
+
+For replecs to be able to handle this, you need to set `includes_variants` to `true`.
+
+```luau
+local replecs = require("@pkg/replecs")
+local world = require("world")
+
+type Data = {
+    can_serialize: number,
+    cannot_serialize: Instance,
+}
+
+local data = world:component() :: Entity<Data>
+
+world:set(data, replecs.serdes, {
+    includes_variants = true,
+    serialize = function(value: Data)
+        local buf = buffer.create(4)
+        buffer.writef32(buf, 0, value.can_serialize)
+
+        return buf, { value.cannot_serialize }
+    end,
+    deserialize = function(buf: buffer, variants: { Instance }): Data
+        local can_serialize = buffer.readf32(buf, 0)
+        local cannot_serialize = variants[1]
+        return {
+            can_serialize = can_serialize,
+            cannot_serialize = cannot_serialize,
+        }
+    end,
+})
+```
+
+<Aside type="caution">
+Returning variants in serdes will put you back at risk of unreliable packets getting over the 1KB limit.
+</Aside>
