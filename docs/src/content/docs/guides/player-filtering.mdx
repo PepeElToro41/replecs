@@ -130,9 +130,9 @@ world:set(entity, replecs.networked, {
 ## Player Aliasing
 
 You can add aliases to refer to players with a different key. 
-This is useful if you mainly work with the player entities, rather than with player objects.
+This is useful if you mainly work with player entities, rather than with player objects.
 
-To set aliases you need to call `server_replicator:add_player_alias(player, alias)`
+To set aliases you would call `server_replicator:add_player_alias(player, alias)`
 
 ```luau
 local Players = game:GetService("Players")
@@ -155,7 +155,7 @@ world:set(entity, replecs.networked, {
 ```
 
 You can also remove aliases by calling `server_replicator:remove_player_alias(alias)`.
-This is important to do when a player leaves the game.
+This is important when a player leaves the game.
 
 ```luau
 local Players = game:GetService("Players")

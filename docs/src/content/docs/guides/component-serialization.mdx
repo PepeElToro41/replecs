@@ -6,14 +6,14 @@ sidebar:
 import { Card, Aside } from '@astrojs/starlight/components';
 
 
-Components are sent outside of the main buffer by default.
-The raw components values get pushed into a `variants` array and only referenced by their position in the array in the buffer.
+Component values are not saved in the main buffer by default.
+The raw values get pushed into the `variants` array and only referenced by their position in the array in the buffer.
 
 You can provide a serialize/deserialize table to a component. 
-This will allow you to compress the component value into a buffer.
-that then will be appended into the main buffer, allowing you to optimize the bandwidth usage. 
+This will allow you to compress the component value into a buffer
+that will be appended into the main buffer, allowing you to reduce bandwidth usage. 
 
-This will also avoid unreliable packets to get over the 1KB limit, which is necessary if you will use actual unreliable remotes
+This will also avoid unreliable packets getting over the 1KB limit, which is necessary if you want to use actual unreliable remotes.
 
 ### Adding a Serializer
 
@@ -56,6 +56,11 @@ world:set(position, replecs.serdes, {
     end,
 }
 ```
+
+<Aside type="tip">
+Libraries like [Squash](https://data-oriented-house.github.io/Squash/) will make this process easier,
+and do not require knowledge of buffers.
+</Aside>
 
 ### Setting a bytespan
 
