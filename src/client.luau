@@ -13,6 +13,23 @@ type World = jecs.World
 
 type Array<T> = { T }
 
+type HookMethod =
+	& (
+		self: Client,
+		entity: Entity,
+		action: "change",
+		relation: Entity,
+		callback: (entity: Entity, id: number, value: any) -> ()
+	) -> ()
+	& (
+		self: Client,
+		entity: Entity,
+		action: "removed",
+		relation: Entity,
+		callback: (entity: Entity, id: number) -> ()
+	) -> ()
+	& (self: Client, entity: Entity, action: "deleted", callback: (entity: Entity) -> ()) -> ()
+
 export type Client = {
 	world: World,
 	inited: boolean?,
@@ -42,6 +59,7 @@ export type Client = {
 
 	encode_component: (self: Client, component: Entity) -> number,
 	decode_component: (self: Client, component: number) -> Entity,
+	hook: HookMethod,
 
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
