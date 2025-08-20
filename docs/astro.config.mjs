@@ -5,6 +5,8 @@ import astroExpressiveCode from 'astro-expressive-code';
 
 // https://astro.build/config
 export default defineConfig({
+    site: 'https://pepeeltoro41.github.io',
+    base: '/docs',
     integrations: [
         astroExpressiveCode({
             themes: ['aurora-x'],
