@@ -122,8 +122,8 @@ end)
 
 ## Intercepting Actions
 
-You can override actions. When this happens, replecs will not perform the action, but instead call the callback.
-This allows add your own logic for changing/removing/deleting entities and components. 
+You can override actions. When this happens, replecs will not perform the action, but instead run the callback.
+This allows you add your own logic for changing/removing/deleting entities and components. 
 
 You override actions the same way you would hook to them,
 but calling `replicator:override(entity, action, ...)` instead.
