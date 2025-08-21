@@ -13,6 +13,7 @@
    },
    "files": [
       "out",
+      "!docs/**/*",
       "!**/*.tsbuildinfo",
       "!**/*.spec.lua",
       "!**/*.spec.d.ts"
