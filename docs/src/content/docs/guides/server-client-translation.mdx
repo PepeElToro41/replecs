@@ -1,0 +1,27 @@
+---
+title: Server/Client Translation
+sidebar:
+    order: 6
+---
+
+Replecs provides ways to translate entities and components when you want to send them through the network.
+
+
+## Translating Entities
+
+Replecs has a lookup map that saves the client's equivalent of server entities. You can access this map from the client replicator.
+
+- `client_replicator:get_server_entity(client_entity)` to translate a client entity to its equivalent in the server.
+- `client_replicator:get_client_entity(server_entity)` to translate a server entity to its equivalent in the client.
+
+## Translating Components
+
+Replecs has a special way to translate components in a way that the client and server can agree on.
+This system relies on the `replecs.shared` tag.
+
+You can use this same system to serialize components that get sent through the network.
+
+- `replicator:encode_component(component)` to encode a component. This returns a number between 1 to 255.
+- `replicator:decode_component(number)` to decode a component. This takes the number from `encode_component`.
+
+The methods for translating components are available in both the client and server replicators.

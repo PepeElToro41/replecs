@@ -1,7 +1,9 @@
+local stdio = require "@lune/stdio"
 local replecs = require "@replecs"
 local client = require "@replecs/client"
 local player_masking = require "@replecs/masking"
 local utils = require "@replecs/utils"
+local test_utils = require "./utils"
 local jecs = require "@pkg/jecs"
 local observers = require "./observers"
 local testkit = require "./testkit"
@@ -139,15 +141,15 @@ TEST("bitmasking", function()
 end)
 
 local function register_members(masking: player_masking.MaskingInternal)
-	local member0 = newproxy()
-	local member1 = newproxy()
-	local member2 = newproxy()
-	local member3 = newproxy()
+	local member0 = "member0"
+	local member1 = "member1"
+	local member2 = "member2"
+	local member3 = "member3"
 
-	masking:register_member(member0)
-	masking:register_member(member1)
-	masking:register_member(member2)
-	masking:register_member(member3)
+	masking:register_client(member0)
+	masking:register_client(member1)
+	masking:register_client(member2)
+	masking:register_client(member3)
 	return member0, member1, member2, member3
 end
 
@@ -161,7 +163,7 @@ end
 
 local function active_all_members(masking: player_masking.MaskingInternal)
 	for member in masking.member_indexes do
-		masking:activate_member(member)
+		masking:activate_client(member)
 	end
 end
 
@@ -170,22 +172,6 @@ TEST("mask generators", function()
 
 	local function PRE()
 		masking = player_masking.create() :: player_masking.MaskingInternal
-	end
-
-	do
-		CASE "should create a mask generator"
-		PRE()
-
-		local m1, m2, m3, m4 = register_members(masking)
-		masking:create_include_generator {
-			[m1] = true,
-			[m2] = true,
-			[m3] = true,
-		}
-		masking:create_exclude_generator {
-			[m2] = true,
-			[m4] = true,
-		}
 	end
 
 	do
@@ -204,13 +190,13 @@ TEST("mask generators", function()
 
 		generator.subscribed = function()
 			called += 1
-			CHECK(generator.bitmask:tostring() == check_mask)
+			CHECK(generator.result:tostring() == check_mask)
 		end
 		generator:run_subscribed()
 		check_mask = mask_hash { 0 }
-		masking:activate_member(m0)
+		masking:activate_client(m0)
 		check_mask = mask_hash { 0, 3 }
-		masking:activate_member(m3)
+		masking:activate_client(m3)
 	end
 
 	do
@@ -227,18 +213,14 @@ TEST("mask generators", function()
 		local called = 0
 		generator.subscribed = function()
 			called += 1
-			local s = generator.bitmask:tostring()
-			if s ~= check_mask then
-				print(s)
-			end
-			CHECK(generator.bitmask:tostring() == check_mask)
+			CHECK(generator.result:tostring() == check_mask)
 		end
 		check_mask = mask_hash { 0 }
-		masking:activate_member(m0)
+		masking:activate_client(m0)
 		check_mask = mask_hash { 0, 3 }
-		masking:activate_member(m3)
-		masking:activate_member(m2)
-		masking:activate_member(m1)
+		masking:activate_client(m3)
+		masking:activate_client(m2)
+		masking:activate_client(m1)
 		CHECK(called == 4)
 	end
 
@@ -255,11 +237,11 @@ TEST("mask generators", function()
 		generator.subscribed = function()
 			called += 1
 		end
-		masking:activate_member(m0)
+		masking:activate_client(m0)
 		generator:destroy()
-		masking:activate_member(m1)
-		masking:activate_member(m2)
-		masking:activate_member(m3)
+		masking:activate_client(m1)
+		masking:activate_client(m2)
+		masking:activate_client(m3)
 		CHECK(called == 1)
 	end
 end)
@@ -447,7 +429,7 @@ TEST("member bitmasking", function()
 
 		POST()
 	end
-
+	--FOCUS()
 	do
 		CASE "should change an entity filter"
 		PRE()
@@ -473,18 +455,18 @@ TEST("member bitmasking", function()
 	end
 
 	do
-		CHECK "should use the replicated filter with no explicit filter"
+		CASE "should use the replicated filter with no explicit filter"
 		PRE()
 
 		local member0, member1, member2, member3 = register_members(masking)
 		local entity = world:entity()
 		masking:start_entity(entity, nil)
 		check_entity_mask(entity, "")
-		masking:activate_member(member0)
+		masking:activate_client(member0)
 		check_entity_mask(entity, mask_hash { 0 })
-		masking:activate_member(member1)
+		masking:activate_client(member1)
 		check_entity_mask(entity, mask_hash { 0, 1 })
-		masking:activate_member(member3)
+		masking:activate_client(member3)
 		check_entity_mask(entity, mask_hash { 0, 1, 3 })
 
 		POST()
@@ -952,14 +934,162 @@ TEST("member bitmasking", function()
 
 		POST()
 	end
-
 	do
 		CASE "should merge two masks correctly"
+		PRE()
+		local member0, member1, member2 = register_members(masking)
+		active_all_members(masking)
+
+		local entity1 = world:entity()
+		local entity2 = world:entity()
+		local component1 = world:component()
+		local component2 = world:component()
+
+		masking:start_entity(entity1, {
+			[member0] = true,
+			[member1] = true,
+			[member2] = true,
+		})
+		masking:start_entity(entity2, {
+			[member0] = true,
+			--[member1] = true,
+			[member2] = true,
+		})
+		masking:start_component(entity2, component1, 1, {
+			[member0] = true,
+			[member1] = true,
+			[member2] = true,
+		})
+		masking:start_component(entity1, component2, 1, {
+			[member0] = true,
+		})
+
+		masking:unregister_client(member1)
+		masking:compact_members()
+
+		local compacted_hash = mask_hash { masking.member_indexes[member0], masking.member_indexes[member2] }
+		check_entity_mask(entity1, compacted_hash)
+		check_entity_mask(entity2, compacted_hash)
+
+		masking:unregister_client(member2)
+		masking:compact_members()
+
+		local compacted_hash2 = mask_hash { masking.member_indexes[member0] }
+		check_entity_mask(entity1, compacted_hash2)
+		check_entity_mask(entity2, compacted_hash2)
+
+		check_component_mask(entity2, component1, compacted_hash2)
+		check_component_mask(entity1, component2, compacted_hash2)
+
+		POST()
 	end
+	--FOCUS()
 	do
 		CASE "should postpone all components when an entity stops"
+		PRE()
+		local member0, member1, member2, member3 = register_members(masking)
+		active_all_members(masking)
+		local entity = world:entity()
+		local component1 = world:component()
+		local component2 = world:component()
+		local component3 = world:component()
+		local component4 = world:component()
+
+		masking:start_entity(entity, {
+			[member0] = true,
+			[member1] = true,
+			[member2] = true,
+		})
+		masking:start_component(entity, component1, 1, nil)
+		masking:start_component(entity, component2, 1, {
+			[member0] = true,
+			[member1] = true,
+		})
+		masking:start_component(entity, component3, 1, {
+			[member0] = true,
+			[member1] = true,
+			[member2] = true,
+		})
+		masking:start_component(entity, component4, 1, {
+			[member0] = true,
+			[member3] = true,
+		})
+		masking:stop_entity(entity)
+		masking:start_entity(entity, {
+			[member0] = true,
+			[member1] = true,
+			[member2] = true,
+		})
+
+		check_component_is_merged(entity, component1, mask_hash { 0, 1, 2 })
+		check_component_mask(entity, component2, mask_hash { 0, 1 })
+		check_component_mask(entity, component3, mask_hash { 0, 1, 2 })
+		check_component_mask(entity, component4, mask_hash { 0 })
+
+		POST()
+	end
+	do
+		CASE "it should allow aliases to be used"
+		PRE()
+		local member0, member1, member2 = register_members(masking)
+		active_all_members(masking)
+		local entity = world:entity()
+		local component = world:component()
+		masking.client_aliases["m0"] = member0
+		masking.client_aliases["m1"] = member1
+
+		masking:start_entity(entity, {
+			m0 = true,
+			m1 = true,
+			[member2] = true,
+		})
+		masking:start_component(entity, component, 1, {
+			m0 = false,
+		})
+
+		check_entity_mask(entity, mask_hash { 0, 1, 2 })
+		check_component_mask(entity, component, mask_hash { 1, 2 })
+		masking:set_entity(entity, {
+			m1 = false,
+		})
+		check_entity_mask(entity, mask_hash { 0, 2, 3 })
+		check_component_mask(entity, component, mask_hash { 2, 3 })
+
+		POST()
 	end
 end)
+
+TEST("storage moving", function()
+	do
+		CASE "it should move component additions"
+	end
+	do
+		CASE "it should move component changes"
+	end
+	do
+		CASE "it should move component removals"
+	end
+	do
+		CASE "it should move tag changes"
+	end
+	do
+		CASE "it should move tag removals"
+	end
+	do
+		CASE "it should move pair changes"
+	end
+	do
+		CASE "it should move pair removals"
+	end
+	do
+		CASE "it should move pair value changes"
+	end
+	do
+		CASE "it should move pair value removals"
+	end
+end)
+
+TEST("bitmask deltas", function() end)
 
 TEST("replecs server", function() end)
 
@@ -1088,7 +1218,7 @@ TEST("server -> client replication", function()
 			local member = newproxy(true)
 			getmetatable(member).__index = member_mt
 
-			server.masking:register_member(member)
+			server.masking:register_client(member)
 			table.insert(members, member)
 			table.insert(worlds, new_world)
 			table.insert(c_components, components)
@@ -1105,7 +1235,7 @@ TEST("server -> client replication", function()
 
 	local function activate_members(members: { MemberData })
 		for _, member in members do
-			server.masking:activate_member(member)
+			server.masking:activate_client(member)
 		end
 	end
 
@@ -1530,8 +1660,6 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity = world:entity()
-		--print("ENTITY", entity)
-		--print("CHILDOF", jecs.ChildOf)
 		world:add(entity, server.components.networked)
 
 		for _, member in members do
@@ -1546,15 +1674,10 @@ TEST("server -> client replication", function()
 
 		for _ = 1, 10 do
 			local target = world:entity()
-			--print("TARGET", target)
 			world:add(target, server.components.networked)
 			world:add(target, jecs.pair(replecs.pair, jecs.ChildOf))
 			world:add(target, jecs.pair(jecs.ChildOf, entity))
 		end
-
-		--print(server.masking.storages)
-		--print(server.masking.storages["00000011"])
-		--print(server.storage)
 
 		POST()
 	end

@@ -1,0 +1,26 @@
+.card {
+   border-radius: 0.7rem;
+}
+
+:root {
+   --sl-content-width: 57rem;
+   -- code {
+      color: var(--sl-color-accent-high);
+   }
+}
+
+.padded {
+   padding: 1.5rem;
+   border-radius: 0.5rem;
+
+   background-color: var(--sl-color-gray-6);
+}
+
+.starlight-aside code {
+   color: var(--sl-color-asides-text-accent);
+}
+
+.sub-heading {
+   color: var(--sl-color-gray-3);
+   font-size: var(--sl-text-sm);
+}

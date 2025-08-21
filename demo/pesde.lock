@@ -7,7 +7,7 @@ target = "roblox"
 
 [overrides."jabby>jecs"]
 wally = "wally#ukendio/jecs"
-version = "^0.9.0-rc.8"
+version = "^0.9.0-rc.10"
 index = "default"
 
 [graph."0x5eal/unzip@0.1.3 luau".pkg_ref]
@@ -89,29 +89,31 @@ core = [{ name = "pesde/toolchainlib", version = "^0.1.13", index = "https://git
 option = [{ name = "lukadev_0/option", version = "^1.2.0", index = "https://github.com/pesde-pkg/index" }, "standard"]
 result = [{ name = "lukadev_0/result", version = "^1.2.0", index = "https://github.com/pesde-pkg/index" }, "standard"]
 
-[graph."pesde/scripts_core@0.0.1 lune".pkg_ref]
+[graph."pesde/scripts_core@0.1.0 lune".pkg_ref]
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
 
-[graph."pesde/scripts_core@0.0.1 lune".pkg_ref.dependencies]
+[graph."pesde/scripts_core@0.1.0 lune".pkg_ref.dependencies]
+argon = [{ name = "pesde/argon", version = "^2.0.21", index = "https://github.com/pesde-pkg/index" }, "dev"]
 frktest = [{ name = "itsfrank/frktest", version = "^0.0.2", index = "https://github.com/pesde-pkg/index" }, "dev"]
 luau-lsp = [{ name = "pesde/luau_lsp", version = "^1.36.0", index = "https://github.com/pesde-pkg/index" }, "dev"]
 pathfs = [{ name = "jiwonz/pathfs", version = "^0.1.0", index = "https://github.com/pesde-pkg/index" }, "dev"]
+rojo = [{ name = "pesde/rojo", version = "^7.4.4", index = "https://github.com/pesde-pkg/index" }, "dev"]
 stylua = [{ name = "pesde/stylua", version = "^2.0.1", index = "https://github.com/pesde-pkg/index" }, "dev"]
 
-[graph."pesde/scripts_rojo@0.1.0 lune"]
+[graph."pesde/scripts_rojo@0.1.1 lune"]
 direct = ["scripts", { name = "pesde/scripts_rojo", version = "^0.1.0", index = "default", target = "lune" }, "dev"]
 
-[graph."pesde/scripts_rojo@0.1.0 lune".dependencies]
-core = ["pesde/scripts_core@0.0.1 lune", "standard"]
+[graph."pesde/scripts_rojo@0.1.1 lune".dependencies]
+core = ["pesde/scripts_core@0.1.0 lune", "standard"]
 rojo = ["pesde/rojo@7.5.1 lune", "peer"]
 
-[graph."pesde/scripts_rojo@0.1.0 lune".pkg_ref]
+[graph."pesde/scripts_rojo@0.1.1 lune".pkg_ref]
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"
 
-[graph."pesde/scripts_rojo@0.1.0 lune".pkg_ref.dependencies]
-core = [{ name = "pesde/scripts_core", version = "^0.0.1", index = "https://github.com/pesde-pkg/index", target = "lune" }, "standard"]
+[graph."pesde/scripts_rojo@0.1.1 lune".pkg_ref.dependencies]
+core = [{ name = "pesde/scripts_core", version = "^0.1.0", index = "https://github.com/pesde-pkg/index", target = "lune" }, "standard"]
 rojo = [{ name = "pesde/rojo", version = "^7.4.4", index = "https://github.com/pesde-pkg/index" }, "peer"]
 
 [graph."pesde/toolchainlib@0.1.15 lune".dependencies]
@@ -136,7 +138,7 @@ unzip = [{ name = "0x5eal/unzip", version = "^0.1.0", index = "https://github.co
 direct = ["jabby", { wally = "wally#alicesaidhi/jabby", version = "^0.3.1", index = "default" }, "standard"]
 
 [graph."wally#alicesaidhi/jabby@0.3.1 roblox".dependencies]
-jecs = ["wally#ukendio/jecs@0.9.0-rc.8 roblox", "standard"]
+jecs = ["wally#ukendio/jecs@0.9.0-rc.10 roblox", "standard"]
 pebble = ["wally#alicesaidhi/pebble@0.1.2 roblox", "standard"]
 vide = ["wally#centau/vide@0.3.1 roblox", "standard"]
 
@@ -163,9 +165,9 @@ vide = [{ wally = "wally#centau/vide", version = ">=0.3.1, <0.4.0", index = "htt
 ref_ty = "wally"
 index_url = "https://github.com/UpliftGames/wally-index"
 
-[graph."wally#ukendio/jecs@0.9.0-rc.8 roblox"]
-direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.9.0-rc.8", index = "default" }, "standard"]
+[graph."wally#ukendio/jecs@0.9.0-rc.10 roblox"]
+direct = ["jecs", { wally = "wally#ukendio/jecs", version = "^0.9.0-rc.10", index = "default" }, "standard"]
 
-[graph."wally#ukendio/jecs@0.9.0-rc.8 roblox".pkg_ref]
+[graph."wally#ukendio/jecs@0.9.0-rc.10 roblox".pkg_ref]
 ref_ty = "wally"
 index_url = "https://github.com/UpliftGames/wally-index"

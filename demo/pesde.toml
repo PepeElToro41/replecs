@@ -22,11 +22,11 @@ lib = "src/init.luau"
 scripts = { name = "pesde/scripts_rojo", version = "^0.1.0", target = "lune" }
 
 [dependencies]
-jecs = { wally = "ukendio/jecs", version = "^0.9.0-rc.8" }
+jecs = { wally = "ukendio/jecs", version = "^0.9.0-rc.10" }
 jabby = { wally = "alicesaidhi/jabby", version = "^0.3.1" }
 
 [overrides]
-"jabby>jecs" = { wally = "ukendio/jecs", version = "^0.9.0-rc.8" }
+"jabby>jecs" = { wally = "ukendio/jecs", version = "^0.9.0-rc.10" }
 
 [patches]
 "wally#alicesaidhi/jabby" = { "0.3.1 roblox" = "patches/wally#alicesaidhi+jabby-0.3.1+roblox.patch" }

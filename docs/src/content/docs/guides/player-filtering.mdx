@@ -1,0 +1,168 @@
+---
+title: Player Filtering
+sidebar:
+    order: 2
+---
+
+## Filtering Entities
+
+By default, entities will replicate to all active players. You can decide to which players you want to replicate certain entities.
+
+This can be done by setting a filter in the `replecs.networked` component. This filter can be a set of players or a single player.
+
+```luau
+
+local entity1 = world:entity()
+local entity2 = world:entity()
+local entity3 = world:entity()
+
+world:add(entity1, replecs.networked) -- replicate to all players
+world:set(entity3, replecs.networked, Player3) -- replicate to player3 only
+world:set(entity2, replecs.networked, { -- replicate to player1 and player2
+    [Player1] = true,
+    [Player2] = true,
+})
+
+```
+
+You can also convert this filter to a blacklist by setting it to `false`.
+
+```luau
+local entity = world:entity()
+
+world:set(entity, replecs.networked, { -- replicate to all players except player3
+    [Player3] = false,
+})
+```
+
+You can add a [non-ready](/replecs/started/starting-replication#activating-players) player to the filter, but it wont replicate until the player is marked as ready. 
+
+```luau
+local entity = world:entity()
+
+world:set(entity, replecs.networked, { -- replicates to no players
+    [Player1] = true,
+})
+
+replicator:mark_player_ready(Player1) -- finally will replicate to player1
+```
+
+---
+
+## Filtering Components
+
+By default, components will be replicated to the same players that the entity is replicated to.
+Components can also have player filters. This will make a specific component replicate to certain players, while the rest of the entity will replicate to all other players.
+
+You can set a filter to the component pair. Filters can be set to any type of replication.
+
+```luau
+local entity = world:entity()
+
+world:set(entity, jecs.pair(replecs.reliable, component), {
+    [Player1] = true,
+})
+world:set(entity, jecs.pair(replecs.pair, relation), {
+    [Player2] = true,
+})
+world:set(entity, jecs.pair(replecs.unreliable, component), {
+    [Player3] = true,
+})
+```
+
+Example:
+
+```luau
+local entity = world:entity()
+local position = world:component() :: Entity<Vector3>
+local password = world:component() :: Entity<string>
+
+world:set(entity, replecs.networked, {
+    [Player1] = true,
+    [Player2] = true,
+})
+-- position will replicate to player1 and player2
+world:add(entity, jecs.pair(replecs.reliable, position))
+-- password will replicate only to player1
+world:set(entity, jecs.pair(replecs.reliable, password), {
+    [Player1] = true,
+})
+
+```
+
+Component filters are limited to the entity filter. 
+This means that if you set a filter that includes a player that the entity does not include, the component will not replicate to that player.
+
+```luau
+local entity = world:entity()
+local password = world:component() :: Entity<string>
+
+world:set(entity, replecs.networked, {
+    [Player1] = true,
+    [Player2] = true,
+})
+world:set(entity, jecs.pair(replecs.reliable, password), {
+    [Player1] = true, -- only player1 will be able to see the password
+    [Player3] = true,
+})
+```
+
+
+## Modifying Filters
+
+Filters can be modified at any time, but you need to call `world:set` again to apply the changes.
+
+```luau
+local entity = world:entity()
+
+world:set(entity, replecs.networked, {
+    [Player1] = true,
+    [Player2] = true,
+})
+
+-- now it only replicates to player1
+world:set(entity, replecs.networked, {
+    [Player1] = true,
+})
+```
+
+
+## Player Aliasing
+
+You can add aliases to refer to players with a different key. 
+This is useful if you mainly work with player entities, rather than with player objects.
+
+To set aliases you would call `server_replicator:add_player_alias(player, alias)`
+
+```luau
+local Players = game:GetService("Players")
+local replicator = require("@server/replicator")
+
+local player = Players.Player1
+local player_entity = world:entity()
+
+replicator:add_player_alias(player, player_entity)
+
+local entity = world:entity()
+
+world:set(entity, replecs.networked, {
+    [player] = true, -- works as normal
+})
+world:set(entity, replecs.networked, {
+    [player_entity] = true, -- works too :D
+})
+
+```
+
+You can also remove aliases by calling `server_replicator:remove_player_alias(alias)`.
+This is important when a player leaves the game.
+
+```luau
+local Players = game:GetService("Players")
+local replicator = require("@server/replicator")
+
+Players.PlayerRemoving:Connect(function(player)
+    local player_entity = ref(player)
+    replicator:remove_player_alias(player_entity)
+end)
+```

@@ -1,0 +1,282 @@
+---
+title: Summary
+sidebar:
+    order: 4
+---
+
+import { FileTree, Steps, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This page will summarize the previous guides and create a basic project setup for replecs.
+
+
+<Steps>
+
+1. Create your world and require replecs. This is to avoid creating a world [before requiring replecs](/replecs/started/setting-up#providing-your-world).  
+    <FileTree>
+    - src
+        - shared
+            - **world.lua**
+    </FileTree>
+
+    <Tabs>
+        <TabItem label="world.luau">
+            ```luau
+            local jecs = require("@pkg/jecs")
+            require("@pkg/replecs")
+
+            return jecs.world()
+            ```
+        </TabItem>
+    </Tabs>
+    ---
+
+2. Create a `Replicator` in shared and re-export the `client` and `server` entries:
+
+    <FileTree>
+    - src
+        - client
+            - **replicator.lua**
+        - server
+            - **replicator.lua**
+        - shared
+            - **replicator.lua**
+            - world.lua
+    </FileTree>
+
+    <Tabs>
+        <TabItem label="shared/replicator.luau">
+            ```luau
+            local replecs = require("@pkg/replecs")
+            local world = require("@shared/world")
+
+            return replecs.create(world)
+            ```
+        </TabItem>
+        <TabItem label="server/replicator.luau">
+            ```luau
+            local replicator = require("@shared/replicator")
+
+            return replicator.server
+            ```
+        </TabItem>
+        <TabItem label="client/replicator.luau">
+            ```luau
+            local replicator = require("@shared/replicator")
+
+            return replicator.client
+            ```
+        </TabItem>
+    </Tabs>
+    ---
+
+3. Create your components and mark them as shared:
+
+    <FileTree>
+    - src
+        - client
+            - replicator.lua
+        - server
+            - replicator.lua
+        - shared
+            - **components.lua**
+            - replicator.lua
+            - world.lua
+    </FileTree>
+
+    <Tabs>
+        <TabItem label="components.luau">
+            ```luau
+            local jecs = require("@pkg/jecs")
+            local replecs = require("@pkg/replecs")
+            local world = require("@shared/world")
+
+            local components = {
+                position = world:component(),
+                velocity = world:component(),
+                player = world:component(),
+                health = world:component(),
+                alive = world:tag(),
+            }
+
+            for name, component in components do
+                world:add(component, replecs.shared)
+                world:set(component, jecs.Name, name)
+            end
+            ```
+        </TabItem>
+    </Tabs>
+    ---
+
+4. Initialize replicators and get the full state of the world:
+
+    <FileTree>
+    - src
+        - client
+            - replicator.lua
+            - **init.client.lua**
+        - server
+            - replicator.lua
+            - **init.server.lua**
+        - shared
+            - components.lua
+            - replicator.lua
+            - world.lua
+    </FileTree>
+
+    <Tabs>
+        <TabItem label="init.server.lua">
+            ```luau
+            local replicator = require("@server/replicator")
+            local remotes_server = require("@shared/remotes").server
+
+            replicator:init()
+
+            remotes_server.receive_full:set_callback(function(player)
+                replicator:mark_player_ready(player)
+                return replicator:get_full(player)
+            end)
+            ```
+        </TabItem>
+        <TabItem label="init.client.lua">
+            ```luau
+            local replicator = require("@client/replicator")
+            local remotes_client = require("@shared/remotes").client
+
+            replicator:init()
+
+            local buf, variants = remotes_client.receive_full:invoke_server()
+            replicator:apply_full(buf, variants)
+            ```
+        </TabItem>
+    </Tabs>
+
+5. Create systems to send updates and unreliable values:
+
+    <FileTree>
+    - src
+        - client
+            - systems
+                - **replecs-client.lua**
+            - replicator.lua
+        - server
+            - systems
+                - **replecs-server.lua**
+            - replicator.lua
+        - shared
+            - utils
+                - **collect.lua**
+                - **interval.lua**
+            - components.lua
+            - replicator.lua
+            - world.lua
+    </FileTree>
+
+    <Tabs>
+        <TabItem label="replecs-server.lua">
+            ```luau
+            local replicator = require("@server/replicator")
+            local interval = require("@utils/interval")
+
+            local updates_interval = interval(1 / 20)
+            local unreliables_interval = interval(1 / 30)
+
+            function replecs_server()
+                if updates_interval() then
+                    for player, buf, variants in replicator:collect_updates() do
+                        remotes_server.send_updates:fire(player, buf, variants)
+                    end
+                end
+
+                if unreliables_interval() then
+                    for player, buf, variants in replicator:collect_unreliable() do
+                        remotes_server.send_unreliables:fire(player, buf, variants)
+                    end
+                end
+            end
+
+            return replecs_server
+            ```
+        </TabItem>
+        <TabItem label="replecs-client.lua">
+            ```luau
+            local replicator = require("@client/replicator")
+            local collect = require("@utils/collect")
+
+            local updates = collect(remotes_client.send_updates)
+            local unreliables = collect(remotes_client.send_unreliables)
+
+            function replecs_client()
+                for buf, variants in updates do
+                    replicator:apply_updates(buf, variants)
+                end
+                for buf, variants in unreliables do
+                    replicator:apply_unreliable(buf, variants)
+                end
+            end
+
+            return replecs_client
+            ```
+        </TabItem>
+        <TabItem label="collect.lua">
+            ```luau
+            local function collect(event)
+                local storage = {}
+                local mt = {}
+                local iter = function()
+                    local n = #storage
+                    return function()
+                        if n <= 0 then
+                            mt.__iter = nil
+                            return nil
+                        end
+
+                        n -= 1
+                        return n + 1, unpack(table.remove(storage, 1) :: any)
+                    end
+                end
+
+                if type(event) == "function" then
+                    event(function(...)
+                        table.insert(storage, { ... })
+                        mt.__iter = iter
+                    end)
+                else
+                    event:Connect(function(...)
+                        table.insert(storage, { ... })
+                        mt.__iter = iter
+                    end)
+                end
+
+                setmetatable(storage, mt)
+                return (storage :: any) :: () -> (number, ...any)
+            end
+
+            return collect
+            ```
+        </TabItem>
+        <TabItem label="interval.lua">
+            ```luau
+            local function interval(s: number)
+                local pin: number = nil :: any
+
+                local function throttle()
+                    if not pin then
+                        pin = os.clock()
+                    end
+
+                    local elapsed = os.clock() - pin > s
+                    if elapsed then
+                        pin = os.clock()
+                    end
+
+                    return elapsed
+                end
+                return throttle
+            end
+
+            return interval
+            ```
+        </TabItem>
+    </Tabs>
+
+</Steps>

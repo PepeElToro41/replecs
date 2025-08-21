@@ -32,9 +32,7 @@ local components = {
 	unix = world:component() :: jecs.Entity<number>,
 }
 
-print("COMPONENTS", components)
-
-world:set(components.player, replecs.custom_id, function(player: Player)
+world:set(components.player, replecs.custom_handler, function(player: Player)
 	return ref(player) :: any
 end)
 
@@ -55,7 +53,6 @@ world:removed(components.cleanup, function(entity: jecs.Entity)
 	local callback = world:get(entity, components.cleanup)
 
 	if callback then
-		print "cleaning up entity"
 		callback(entity)
 	end
 end)

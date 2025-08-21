@@ -4,7 +4,7 @@ sourcemap.json
 roblox.yml
 roblox.toml
 
-/serve
+**/serve
 **/lune_packages
 **/luau_packages
 **/roblox_packages

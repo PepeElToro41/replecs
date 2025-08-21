@@ -633,36 +633,6 @@ function utils.read_number(buf: buffer, offset: number, span: number): (number, 
 	end
 end
 
-function utils.remove_all_relations(world: World, entity: Entity, relation: Entity)
-	local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
-	if not entity_index then
-		return
-	end
-	local archetype = entity_index.archetype
-
-	local wildcard = PAIR(relation, WILDCARD) :: any
-	local idr = world.component_index[wildcard]
-	if not idr then
-		return
-	end
-
-	local archetype_id = archetype.id
-	local count = idr.counts[archetype_id]
-	if not count then
-		return
-	end
-
-	local start = idr.records[archetype_id]
-	if not start then
-		return
-	end
-
-	for i = start, start + count - 1 do
-		local pair = archetype.types[i]
-		world:remove(entity, pair :: any)
-	end
-end
-
 function utils.setbit(mask: number, bit: number)
 	return bit32.bor(mask, bit32.lshift(1, bit))
 end

@@ -23,7 +23,7 @@ local replecs = {
 	networked = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	reliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
 	unreliable = jecs.component() :: jecs.Entity<(MemberFilter | Player)?>,
-	pair = jecs.tag(),
+	pair = jecs.component(),
 
 	serdes = jecs.component() :: jecs.Entity<common.Serdes>,
 	bytespan = jecs.component() :: jecs.Entity<number>,
@@ -55,6 +55,8 @@ jecs.meta(replecs.unreliable, jecs.Name, "replecs.unreliable")
 jecs.meta(replecs.pair, jecs.Name, "replecs.pair")
 jecs.meta(replecs.shared, jecs.Name, "replecs.shared")
 jecs.meta(replecs.global, jecs.Name, "replecs.global")
+
+jecs.meta(replecs.__alive_tracking__, jecs.Name, "replecs.__alive_tracking__")
 
 jecs.meta(replecs.custom, jecs.Exclusive)
 jecs.meta(replecs.global, jecs.Exclusive)

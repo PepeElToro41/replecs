@@ -1,0 +1,119 @@
+---
+title: Setting Up
+sidebar:
+    order: 1
+---
+
+import { Code, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+import creating_replicator from './examples/creating-replicators.luau?raw';
+import server_replicator from './examples/server-replicator.luau?raw';
+import client_replicator from './examples/client-replicator.luau?raw';
+
+## Creating Replicators
+
+To start you need to create a `Replicator` for the server and the client.
+
+Replecs exports `replecs.create`. This creates a holder that will have both `client` and `server` entries.
+These entries will only be present on the client and server respectively. 
+
+You can then export each replicator type from their sides. 
+
+<Tabs>
+    <TabItem label="Shared">
+        <Code code={creating_replicator} lang="luau" title="@shared/replicator.luau" />
+    </TabItem>
+    <TabItem label="Server">
+        <Code code={server_replicator} lang="luau" title="@server/replicator.luau" />
+    </TabItem>
+    <TabItem label="Client">
+        <Code code={client_replicator} lang="luau" title="@client/replicator.luau" />
+    </TabItem>
+</Tabs>
+
+---
+
+Having a holder that has both `client` and `server` is useful for methods that would be used in a shared file where you cant
+require the client or server replicators directly.
+
+An example of this is the method for [hooking after replication](/replecs/guides/networking-hooks/#hook-after-replication)
+which most of the time will be called inside signals for shared components, but it's exclusive to the client.
+
+---
+
+Additionally, you can create the client and server replicators separately using:
+- `replecs.create_client`
+- `replecs.create_server`.
+
+<Tabs>
+    <TabItem label="Server">
+    ```luau
+    local replecs = require("@pkg/replecs")
+    return replecs.create_server(world)
+    ```
+    </TabItem>
+    <TabItem label="Client">
+    ```luau
+    local replecs = require("@pkg/replecs")
+    return replecs.create_client(world)
+    ```
+    </TabItem>
+</Tabs>
+
+---
+
+## Providing Your World
+
+Your world can be provided to the replicator to be used in two ways:
+- Directly to the replicator constructor, *as seen in the previous examples.*
+- When initialiazing the replicator calling `replicator:init(world)`
+
+<Aside type="danger">
+Replecs uses preregisted components. You need to require replecs before creating a world, so these components are globally available.
+Not doing so causes weird behaviours that are hard to debug.
+
+The easiest way to make sure this is done properly is to require replecs right before creating the world in your `world.lua` file.
+</Aside>
+
+
+---
+
+## Marking Shared Components
+
+After creating your replicators. You must add `replecs.shared` to **every single** component/tag that can be replicated.
+These components also need to be named with `jecs.Name`.
+
+They need to be **equally** marked in both the client and server, This means that a marked component can't be missing from one of the two.
+
+Easiest way to do this is to save your components in a table and then iterate over them.
+
+```luau
+local replecs = require("@pkg/replecs")
+local world = require("world")
+
+-- create a table with all your components
+local shared_components = {
+    foo = world:component(),
+    baz = world:entity(),
+}
+
+for name, component in shared_components do
+    world:set(component, jecs.Name, name)
+    world:add(component, replecs.shared)
+end
+```
+
+<Aside>
+Attempting to replicate a component without `shared` will result in the following error: <br/>
+<code style="color: var(--sl-color-red)">attempted to replicate a non-shared component</code>
+</Aside>
+
+---
+
+## Initializing Replicators
+
+After creating your replicators. You need to initialize them by calling `replicator:init()` before using them.
+
+You can also provide your world here if you did not provide it in the constructor.
+This is useful in workflows where the world is not exported as a singleton.
+

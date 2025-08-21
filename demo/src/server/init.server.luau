@@ -27,3 +27,7 @@ zap.WaitForServer.SetCallback(function(player)
 	replicator:mark_player_ready(player)
 	return replicator:get_full(player)
 end)
+
+game:BindToClose(function()
+	task.wait(2)
+end)
