@@ -1,4 +1,4 @@
-import type { Entity, Tag, World } from "@rbxts/jecs";
+import type { Entity, Pair, Tag, World } from "@rbxts/jecs";
 
 declare namespace Replecs {
    export type SerdesTable =
@@ -56,19 +56,56 @@ declare namespace Replecs {
 
       init(world?: World): void;
       destroy(): void;
-      after_replication(callback: () => void): void;
 
-      apply_updates(buf: buffer, all_variants?: unknown[][]): void;
-      apply_unreliable(buf: buffer, all_variants?: unknown[][]): void;
-      apply_full(buf: buffer, all_variants?: unknown[][]): void;
+      handle_global(handler: (id: number) => Entity): void;
+
+      after_replication(callback: () => void): void;
+      added(callback: (entity: Entity) => void): () => void;
+      hook<T>(
+         entity: Entity,
+         action: "changed",
+         relation: Pair<MemberFilter, T>,
+         callback: (entity: Entity, id: Entity<T>, value: T) => void
+      ): () => void;
+      hook<T>(
+         entity: Entity,
+         action: "removed",
+         relation: Pair<MemberFilter, T>,
+         callback: (entity: Entity, id: Entity<T>) => void
+      ): () => void;
+      hook(
+         entity: Entity,
+         action: "deleted",
+         callback: (entity: Entity) => void
+      ): () => void;
+
+      override<T>(
+         entity: Entity,
+         action: "changed",
+         relation: Pair<MemberFilter, T>,
+         callback: (entity: Entity, id: Entity<T>, value: any) => void
+      ): () => void;
+      override<T>(
+         entity: Entity,
+         action: "removed",
+         relation: Pair<MemberFilter, T>,
+         callback: (entity: Entity, id: Entity<T>) => void
+      ): () => void;
+      override(
+         entity: Entity,
+         action: "deleted",
+         callback: (entity: Entity) => void
+      ): () => void;
 
       encode_component(component: Entity): number;
       decode_component(encoded: number): Entity;
 
-      handle_global(handler: (id: number) => Entity): void;
-
       get_server_entity(client_entity: Entity): number | undefined;
       get_client_entity(server_entity: number): Entity | undefined;
+
+      apply_updates(buf: buffer, all_variants?: unknown[][]): void;
+      apply_unreliable(buf: buffer, all_variants?: unknown[][]): void;
+      apply_full(buf: buffer, all_variants?: unknown[][]): void;
    }
 
    export interface Server {
@@ -91,6 +128,9 @@ declare namespace Replecs {
 
       mark_player_ready(player: Player): void;
       is_player_ready(player: Player): boolean;
+
+      add_player_alias(client: Player, alias: defined): void;
+      remove_player_alias(alias: defined): void;
 
       masking: MaskingController;
    }
