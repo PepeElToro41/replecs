@@ -56,8 +56,9 @@ disconnect() -- disconnect the signal
 ## Per-Entity Hooks
 
 You can set hooks to each entity individually when an action is performed. To do this, you need to call 
-`replicator:hook(entity, action, ...)`. The type of this method will vary depending on the action.
+`replicator:hook(entity, action, ...)`. The arguments of this method will change depending on the action.
 
+This method returns a disconnect function that you can call to remove the hook.
 
 <div class="padded">
 ### Component Changes
@@ -126,7 +127,7 @@ You can override actions. When this happens, replecs will not perform the action
 This allows you add your own logic for changing/removing/deleting entities and components. 
 
 You override actions the same way you would hook to them,
-but calling `replicator:override(entity, action, ...)` instead.
+but calling `replicator:override(entity, action, ...)` instead, you cant override and hook at the same time for the same replication pair and action.
 
 All action types behave the same way with the exception of "changed" since the component will not change at all.
 

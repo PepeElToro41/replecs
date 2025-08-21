@@ -9,26 +9,42 @@ local cursor = utils.cursor
 type Cursor = utils.Cursor
 
 type Entity<T = any> = jecs.Entity<T>
+type Id<T = any> = jecs.Id<T>
 type World = jecs.World
 
 type Array<T> = { T }
+type Map<K, V> = { [K]: V }
+type Disconnect = () -> ()
 
 type HookMethod =
-	& (
+	& ((
 		self: Client,
 		entity: Entity,
 		action: "change",
 		relation: Entity,
-		callback: (entity: Entity, id: number, value: any) -> ()
-	) -> ()
-	& (
+		callback: (entity: Entity, id: Id, value: any) -> ()
+	) -> Disconnect)
+	& ((
 		self: Client,
 		entity: Entity,
 		action: "removed",
 		relation: Entity,
-		callback: (entity: Entity, id: number) -> ()
-	) -> ()
-	& (self: Client, entity: Entity, action: "deleted", callback: (entity: Entity) -> ()) -> ()
+		callback: (entity: Entity, id: Id) -> ()
+	) -> Disconnect)
+	& (self: Client, entity: Entity, action: "deleted", callback: (entity: Entity) -> ()) -> Disconnect
+
+type ChangedHooksEntry = {
+	overrides: boolean,
+	callbacks: Array<(entity: Entity, id: Id, value: any) -> ()>,
+}
+type RemovedHooksEntry = {
+	overrides: boolean,
+	callbacks: Array<(entity: Entity, id: Id) -> ()>,
+}
+type DeletedHookEntry = {
+	overrides: boolean,
+	callbacks: Array<(entity: Entity) -> ()>,
+}
 
 export type Client = {
 	world: World,
@@ -49,7 +65,6 @@ export type Client = {
 
 	init: (self: Client, world: World?) -> (),
 	destroy: (self: Client) -> (),
-	after_replication: (self: Client, callback: () -> ()) -> (),
 	handle_global: (self: Client, handler: (id: number) -> Entity) -> (),
 	get_server_entity: (self: Client, client_entity: Entity) -> number?,
 	get_client_entity: (self: Client, server_entity: number) -> Entity?,
@@ -57,9 +72,21 @@ export type Client = {
 	hooks: common.WorldHooks,
 	hooked: Array<() -> ()>,
 
+	after_replication: (self: Client, callback: () -> ()) -> (),
+	added: (self: Client, callback: (entity: Entity) -> ()) -> Disconnect,
+	hook: HookMethod,
+	override: HookMethod,
+	addition_hooks: Array<(entity: Entity) -> ()>,
+	entity_hooks: {
+		[Entity]: {
+			changed: Map<Entity, ChangedHooksEntry>,
+			removed: Map<Entity, RemovedHooksEntry>,
+			deleted: DeletedHookEntry?,
+		},
+	},
+
 	encode_component: (self: Client, component: Entity) -> number,
 	decode_component: (self: Client, component: number) -> Entity,
-	hook: HookMethod,
 
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
@@ -79,6 +106,7 @@ local PACKET_TYPES = {
 }
 
 local ECS_NAME = jecs.Name
+local WILDCARD = jecs.Wildcard
 
 local function PAIR(first: Entity, second: Entity): Entity
 	return jecs.pair(first, second)
@@ -94,7 +122,99 @@ local function get_or_create_entity(client: Client, server_id: number): Entity
 
 		client.server_ids[server_id] = entity
 		client.client_ids[entity] = server_id
+
+		for _, callback in client.addition_hooks do
+			callback(entity)
+		end
+
 		return entity
+	end
+end
+
+local function network_entity_set(client: Client, entity: Entity, id: Id, value: any, changed_hooks: ChangedHooksEntry?)
+	if changed_hooks then
+		if not changed_hooks.overrides then
+			client.world:set(entity, id, value)
+		end
+		for _, callback in changed_hooks.callbacks do
+			callback(entity, id, value)
+		end
+	else
+		client.world:set(entity, id, value)
+	end
+end
+
+local function network_entity_add(client: Client, entity: Entity, component: Entity, changed_hooks: ChangedHooksEntry?)
+	if changed_hooks then
+		if not changed_hooks.overrides then
+			client.world:add(entity, component)
+		end
+		for _, callback in changed_hooks.callbacks do
+			callback(entity, component)
+		end
+	else
+		client.world:add(entity, component)
+	end
+end
+
+local function network_entity_remove(client: Client, entity: Entity, id: Entity, removed_hooks: RemovedHooksEntry?)
+	if removed_hooks then
+		for _, callback in removed_hooks.callbacks do
+			callback(entity, id)
+		end
+		if not removed_hooks.overrides then
+			client.world:remove(entity, id)
+		end
+	else
+		client.world:remove(entity, id)
+	end
+end
+
+local function network_entity_remove_relations(
+	client: Client,
+	entity: Entity,
+	relation: Entity,
+	removed_hooks: RemovedHooksEntry?
+)
+	local world = client.world
+	local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
+	if not entity_index then
+		return
+	end
+	local archetype = entity_index.archetype
+
+	local wildcard = PAIR(relation, WILDCARD) :: any
+	local idr = world.component_index[wildcard]
+	if not idr then
+		return
+	end
+
+	local archetype_id = archetype.id
+	local count = idr.counts[archetype_id]
+	if not count then
+		return
+	end
+
+	local start = idr.records[archetype_id]
+	if not start then
+		return
+	end
+
+	if removed_hooks then
+		for i = start, start + count - 1 do
+			local pair = archetype.types[i]
+			for _, callback in removed_hooks.callbacks do
+				callback(entity, pair)
+			end
+			if not removed_hooks.overrides then
+				world:remove(entity, pair :: any)
+			end
+		end
+	else
+		for i = start, start + count - 1 do
+			local pair = archetype.types[i]
+			world:remove(entity, pair :: any)
+		end
 	end
 end
 
@@ -206,51 +326,80 @@ local function process_entity_id(client: Client, c: Cursor, variants: { any }?)
 	end
 end
 
-local function process_entity_relations(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
+local function process_entity_relations(
+	client: Client,
+	entity: jecs.Entity,
+	changed_hooks: Map<Entity, ChangedHooksEntry>?,
+	c: Cursor,
+	variants: { any }?
+)
+	local components = client.components
 	local relation = read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
+	local pair_hooks = changed_hooks and changed_hooks[PAIR(components.pair, relation)]
 
 	for _ = 1, total_targets do
 		local target = process_entity_id(client, c, variants)
-		client.world:add(entity, PAIR(relation, target))
+		network_entity_add(client, entity, PAIR(relation, target), pair_hooks)
 	end
 end
 
-local function process_entity_relation_values(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
+local function process_entity_relation_values(
+	client: Client,
+	entity: jecs.Entity,
+	changed_hooks: Map<Entity, ChangedHooksEntry>?,
+	c: Cursor,
+	variants: { any }?
+)
 	local relation = read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
+	local components = client.components
+	local pair_hooks = changed_hooks and changed_hooks[PAIR(components.pair, relation)]
 
 	for _ = 1, total_targets do
 		local value = read_component_value(client, relation, c, variants)
 		local target = process_entity_id(client, c, variants)
-		client.world:set(entity, PAIR(relation, target), value)
+		network_entity_set(client, entity, PAIR(relation, target), value, pair_hooks)
 	end
 end
 
 local function process_entity(client: Client, c: Cursor, variants: { any }?)
 	local entity = process_entity_id(client, c, variants)
+	local entity_hooks = client.entity_hooks[entity]
+	local changed_hooks = entity_hooks and entity_hooks.changed
+	local components = client.components
 
 	local total_tags = cursor.read_vlq(c)
 	for _ = 1, total_tags do
 		local tag = read_component_id(client, c)
-		client.world:add(entity, tag)
+		local tag_hooks = changed_hooks and changed_hooks[PAIR(components.reliable, tag)]
+		network_entity_add(client, entity, tag, tag_hooks)
 	end
 
 	local total_components = cursor.read_vlq(c)
 	for _ = 1, total_components do
 		local component, value = read_component(client, c, variants)
-		client.world:set(entity, component, value)
+		local component_hooks = changed_hooks and changed_hooks[PAIR(components.reliable, component)]
+		network_entity_set(client, entity, component, value, component_hooks)
 	end
 
 	local total_pairs = cursor.read_vlq(c)
 	for _ = 1, total_pairs do
-		process_entity_relations(client, entity, c, variants)
+		process_entity_relations(client, entity, changed_hooks, c, variants)
 	end
 
 	local total_pairs_values = cursor.read_vlq(c)
 	for _ = 1, total_pairs_values do
-		process_entity_relation_values(client, entity, c, variants)
+		process_entity_relation_values(client, entity, changed_hooks, c, variants)
 	end
+end
+
+local function finish_replication(client: Client)
+	client.is_replicating = false
+	for _, callback in client.after_replication_callbacks do
+		callback()
+	end
+	table.clear(client.after_replication_callbacks)
 end
 
 local function resolve_dirty(client: Client)
@@ -288,7 +437,9 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 	local c = cursor.from(buf)
 	check_packet_type(c, "reliable")
 	resolve_dirty(client)
+	client.is_replicating = true
 
+	local components = client.components
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
@@ -306,26 +457,31 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			local entity = process_entity_id(client, c, variants)
 			local added_mask = cursor.readu8(c)
 
+			local entity_hooks = client.entity_hooks[entity]
+			local changed_hooks = entity_hooks and entity_hooks.changed
+
 			local total_tags = read_vlq_bitmask(c, added_mask, 0)
 			for _ = 1, total_tags do
 				local tag = read_component_id(client, c)
-				client.world:add(entity, tag)
+				local tag_hooks = changed_hooks and changed_hooks[PAIR(components.reliable, tag)]
+				network_entity_add(client, entity, tag, tag_hooks)
 			end
 
 			local total_components = read_vlq_bitmask(c, added_mask, 1)
 			for _ = 1, total_components do
 				local component, value = read_component(client, c, variants)
-				client.world:set(entity, component, value)
+				local component_hooks = changed_hooks and changed_hooks[PAIR(components.reliable, component)]
+				network_entity_set(client, entity, component, value, component_hooks)
 			end
 
 			local total_pairs = read_vlq_bitmask(c, added_mask, 2)
 			for _ = 1, total_pairs do
-				process_entity_relations(client, entity, c, variants)
+				process_entity_relations(client, entity, changed_hooks, c, variants)
 			end
 
 			local total_pairs_values = read_vlq_bitmask(c, added_mask, 3)
 			for _ = 1, total_pairs_values do
-				process_entity_relation_values(client, entity, c, variants)
+				process_entity_relation_values(client, entity, changed_hooks, c, variants)
 			end
 		end
 
@@ -334,27 +490,36 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			local entity = process_entity_id(client, c, variants)
 			local changed_mask = cursor.readu8(c)
 
+			local entity_hooks = client.entity_hooks[entity]
+			local changed_hooks = entity_hooks and entity_hooks.changed
+			local removed_hooks = entity_hooks and entity_hooks.removed
+
 			local total_tagged = read_vlq_bitmask(c, changed_mask, 0)
 			for _ = 1, total_tagged do
 				local tag = read_component_id(client, c)
-				client.world:add(entity, tag)
+				local tag_hooks = changed_hooks and changed_hooks[PAIR(components.reliable, tag)]
+				network_entity_add(client, entity, tag, tag_hooks)
 			end
 
 			local total_components = read_vlq_bitmask(c, changed_mask, 1)
 			for _ = 1, total_components do
 				local component, value = read_component(client, c, variants)
-				client.world:set(entity, component, value)
+				local component_hooks = changed_hooks and changed_hooks[PAIR(components.reliable, component)]
+				network_entity_set(client, entity, component, value, component_hooks)
 			end
 
 			local total_removed = read_vlq_bitmask(c, changed_mask, 2)
 			for _ = 1, total_removed do
 				local component = read_component_id(client, c)
-				client.world:remove(entity, component)
+				local component_hooks = removed_hooks and removed_hooks[PAIR(components.reliable, component)]
+				network_entity_remove(client, entity, component, component_hooks)
 			end
 
 			local total_pairs = read_vlq_bitmask(c, changed_mask, 3)
 			for _ = 1, total_pairs do
 				local relation = read_component_id(client, c)
+				local pair_changed_hooks = changed_hooks and changed_hooks[PAIR(components.pair, relation)]
+				local pair_removed_hooks = removed_hooks and removed_hooks[PAIR(components.pair, relation)]
 				local total_targets = cursor.read_vlq(c)
 
 				for _ = 1, total_targets do
@@ -362,11 +527,11 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 					if action_type == 1 then -- add pair
 						local target = process_entity_id(client, c, variants)
-						client.world:add(entity, PAIR(relation, target))
+						network_entity_add(client, entity, PAIR(relation, target), pair_changed_hooks)
 					elseif action_type == -1 then -- remove pair
 						local target = read_entity_id(client, c, variants)
 						if target then
-							client.world:remove(entity, PAIR(relation, target))
+							network_entity_remove(client, entity, PAIR(relation, target), pair_removed_hooks)
 						end
 					end
 				end
@@ -375,12 +540,13 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			local total_pairs_values_removed = read_vlq_bitmask(c, changed_mask, 4)
 			for _ = 1, total_pairs_values_removed do
 				local relation = read_component_id(client, c)
+				local pair_hooks = removed_hooks and removed_hooks[PAIR(components.pair, relation)]
 				local total_targets = cursor.read_vlq(c)
 
 				for _ = 1, total_targets do
 					local target = read_entity_id(client, c, variants)
 					if target then
-						client.world:remove(entity, PAIR(relation, target))
+						network_entity_remove(client, entity, PAIR(relation, target), pair_hooks)
 					end
 				end
 			end
@@ -388,12 +554,13 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 			local total_pairs_values = read_vlq_bitmask(c, changed_mask, 5)
 			for _ = 1, total_pairs_values do
 				local relation = read_component_id(client, c)
+				local pair_hooks = changed_hooks and changed_hooks[PAIR(components.pair, relation)]
 				local total_targets = cursor.read_vlq(c)
 
 				for _ = 1, total_targets do
 					local value = read_component_value(client, relation, c, variants)
 					local target = process_entity_id(client, c, variants)
-					client.world:set(entity, PAIR(relation, target), value)
+					network_entity_set(client, entity, PAIR(relation, target), value, pair_hooks)
 				end
 			end
 		end
@@ -401,17 +568,21 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		local total_component_deletions = read_vlq_bitmask(c, storage_mask, 3)
 		for _ = 1, total_component_deletions do
 			local entity = process_entity_id(client, c, variants)
+			local entity_hooks = client.entity_hooks[entity]
+			local removed_hooks = entity_hooks and entity_hooks.removed
 
 			local total_removed = cursor.read_vlq(c)
 			for _ = 1, total_removed do
 				local component = read_component_id(client, c)
-				client.world:remove(entity, component)
+				local component_hooks = removed_hooks and removed_hooks[PAIR(components.reliable, component)]
+				network_entity_remove(client, entity, component, component_hooks)
 			end
 
 			local total_pairs = cursor.read_vlq(c)
 			for _ = 1, total_pairs do
 				local relation = read_component_id(client, c)
-				utils.remove_all_relations(client.world, entity, relation)
+				local pair_hooks = removed_hooks and removed_hooks[PAIR(components.pair, relation)]
+				network_entity_remove_relations(client, entity, relation, pair_hooks)
 			end
 		end
 
@@ -419,20 +590,35 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		for _ = 1, total_deleted do
 			local entity, server_id = read_entity_id(client, c, variants)
 			if entity then
-				client.world:delete(entity)
+				local entity_hooks = client.entity_hooks[entity]
+				local deleted_hooks = entity_hooks and entity_hooks.deleted
+				if deleted_hooks then
+					for _, callback in deleted_hooks.callbacks do
+						callback(entity)
+					end
+					if not deleted_hooks.overrides then
+						client.world:delete(entity)
+					end
+				else
+					client.world:delete(entity)
+				end
 			end
 			if server_id then
 				client.server_ids[server_id] = nil
 			end
 		end
 	end
+
+	finish_replication(client)
 end
 
 local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "unreliable")
 	resolve_dirty(client)
+	client.is_replicating = true
 
+	local components = client.components
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
@@ -442,12 +628,17 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 
 		for _ = 1, total_entities do
 			local entity = read_entity_id(client, c, variants)
+
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
+				local entity_hooks = client.entity_hooks[entity]
+				local changed_hooks = entity_hooks and entity_hooks.changed
+
 				for _ = 1, total_unreliable do
 					local component_id, value = read_component(client, c, variants)
-					client.world:set(entity, component_id, value)
+					local unreliable_hooks = changed_hooks and changed_hooks[PAIR(components.unreliable, component_id)]
+					network_entity_set(client, entity, component_id, value, unreliable_hooks)
 				end
 			else
 				-- dont apply unreliable updates to entities that dont exist in the client yet
@@ -458,12 +649,15 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 			end
 		end
 	end
+
+	finish_replication(client)
 end
 
 local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "full")
 	resolve_dirty(client)
+	client.is_replicating = true
 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
@@ -476,6 +670,8 @@ local function apply_full(client: Client, buf: buffer, all_variants: { { any } }
 			process_entity(client, c, variants)
 		end
 	end
+
+	finish_replication(client)
 end
 
 local function init(client: Client, _world: World?)
@@ -515,6 +711,7 @@ local function init(client: Client, _world: World?)
 			client.server_ids[server_id] = nil
 			client.client_ids[entity] = nil
 		end
+		client.entity_hooks[entity] = nil
 	end)
 	table.insert(client.hooked, alive_unhook)
 
@@ -538,6 +735,97 @@ local function after_replication(client: Client, callback: () -> ())
 	end
 end
 
+local function added(client: Client, callback: (entity: Entity) -> ())
+	table.insert(client.addition_hooks, callback)
+	return function()
+		local index = table.find(client.addition_hooks, callback)
+		if index then
+			table.remove(client.addition_hooks, index)
+		end
+	end
+end
+
+local function get_or_create_entity_hooks(client: Client, entity: Entity)
+	local entity_hooks = client.entity_hooks[entity]
+	if not entity_hooks then
+		entity_hooks = {
+			changed = {},
+			removed = {},
+			deleted = nil :: DeletedHookEntry?,
+		}
+		client.entity_hooks[entity] = entity_hooks
+	end
+	return entity_hooks
+end
+
+local function add_hook_entry(client: Client, entity: Entity, action: string, ...): ({ overrides: boolean }, () -> ())
+	if action == "changed" or action == "removed" then
+		local relation = select(1, ...) :: Entity
+		local callback = select(2, ...) :: (entity: Entity, id: number, value: any) -> ()
+		local hooks = get_or_create_entity_hooks(client, entity)[action]
+		local entries = hooks[relation] :: ChangedHooksEntry
+
+		if not entries then
+			entries = {
+				overrides = false,
+				callbacks = {},
+			}
+			hooks[relation] = entries
+		end
+		table.insert(entries.callbacks, callback)
+
+		local function disconnect()
+			local callbacks = entries.callbacks
+			local index = table.find(callbacks, callback)
+			if index then
+				table.remove(callbacks, index)
+				if #callbacks == 0 then
+					hooks[relation] = nil
+				end
+			end
+		end
+		return entries, disconnect
+	elseif action == "deleted" then
+		local callback = select(1, ...) :: (entity: Entity) -> ()
+		local hooks = get_or_create_entity_hooks(client, entity)
+		local entries = hooks.deleted :: DeletedHookEntry
+
+		if not entries then
+			entries = {
+				overrides = false,
+				callbacks = {},
+			}
+			hooks.deleted = entries
+		end
+		table.insert(entries.callbacks, callback)
+
+		local function disconnect()
+			local callbacks = entries.callbacks
+			local index = table.find(callbacks, callback)
+			if index then
+				table.remove(callbacks, index)
+				if #callbacks == 0 then
+					hooks.deleted = nil
+				end
+			end
+		end
+		return entries, disconnect
+	else
+		error("invalid hook action: " .. action)
+	end
+end
+
+local function hook(client: Client, entity: Entity, action: string, ...)
+	local entry, disconnect = add_hook_entry(client, entity, action, ...)
+	entry.overrides = false
+	return disconnect
+end
+local function override(client: Client, entity: Entity, action: string, ...)
+	local entry, disconnect = add_hook_entry(client, entity, action, ...)
+	entry.overrides = true
+	return disconnect
+end
+
 local function get_server_entity(client: Client, client_entity: Entity): number?
 	return client.client_ids[client_entity]
 end
@@ -551,8 +839,9 @@ local function destroy(client: Client)
 		return warn "attempted to destroy a client twice"
 	end
 	client.inited = nil :: any
-	-- I'll add any logic here if I need to clean up something
-	-- right now this is kind of useless
+	for _, unhook in client.hooked do
+		unhook()
+	end
 end
 
 local function handle_global(client: Client, handler: (id: number) -> Entity)
@@ -563,7 +852,6 @@ local client = {}
 client.__index = client
 client.init = init
 client.destroy = destroy
-client.after_replication = after_replication
 client.apply_updates = apply_updates
 client.apply_unreliable = apply_unreliable
 client.apply_full = apply_full
@@ -572,6 +860,10 @@ client.decode_component = decode_component
 client.get_server_entity = get_server_entity
 client.get_client_entity = get_client_entity
 client.handle_global = handle_global
+client.after_replication = after_replication
+client.hook = hook
+client.override = override
+client.added = added
 
 local function create(world: World?, components: common.Components): Client
 	local self = {} :: Client
@@ -593,6 +885,9 @@ local function create(world: World?, components: common.Components): Client
 	self.inited = false
 	self.is_replicating = false
 	self.hooked = {}
+
+	self.addition_hooks = {}
+	self.entity_hooks = {}
 	self.after_replication_callbacks = {}
 
 	return setmetatable(self, client) :: any
