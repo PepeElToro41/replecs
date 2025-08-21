@@ -67,7 +67,7 @@ export type Server = {
 	mark_player_ready: (self: Server, player: Player) -> (),
 	is_player_ready: (self: Server, player: Player) -> boolean,
 	add_player_alias: (self: Server, client: Player, alias: any) -> (),
-	remove_player_alias: (self: Server, client: Player, alias: any) -> (),
+	remove_player_alias: (self: Server, alias: any) -> (),
 }
 
 local cursor = utils.cursor
@@ -1303,7 +1303,7 @@ local function add_player_alias(server: Server, client: Player, alias: any)
 	server.masking.client_aliases[alias] = client
 end
 
-local function remove_player_alias(server: Server, client: Player, alias: any)
+local function remove_player_alias(server: Server, alias: any)
 	server.masking.client_aliases[alias] = nil
 end
 
