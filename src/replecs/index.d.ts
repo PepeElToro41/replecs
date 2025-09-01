@@ -1,4 +1,4 @@
-import type { Entity, Pair, Tag, World } from "@rbxts/jecs";
+import type { Entity, Id, Pair, Tag, World } from "@rbxts/jecs";
 
 declare namespace Replecs {
    export type SerdesTable =
@@ -62,38 +62,34 @@ declare namespace Replecs {
       after_replication(callback: () => void): void;
       added(callback: (entity: Entity) => void): () => void;
       hook<T>(
-         entity: Entity,
          action: "changed",
          relation: Pair<MemberFilter, T>,
-         callback: (entity: Entity, id: Entity<T>, value: T) => void
+         callback: (entity: Entity, id: Id<T>, value: T) => void
       ): () => void;
       hook<T>(
-         entity: Entity,
          action: "removed",
          relation: Pair<MemberFilter, T>,
-         callback: (entity: Entity, id: Entity<T>) => void
+         callback: (entity: Entity, id: Id<T>) => void
       ): () => void;
       hook(
-         entity: Entity,
          action: "deleted",
+         entity: Entity,
          callback: (entity: Entity) => void
       ): () => void;
 
       override<T>(
-         entity: Entity,
          action: "changed",
          relation: Pair<MemberFilter, T>,
-         callback: (entity: Entity, id: Entity<T>, value: any) => void
+         callback: (entity: Entity, id: Id<T>, value: any) => void
       ): () => void;
       override<T>(
-         entity: Entity,
          action: "removed",
          relation: Pair<MemberFilter, T>,
-         callback: (entity: Entity, id: Entity<T>) => void
+         callback: (entity: Entity, id: Id<T>) => void
       ): () => void;
       override(
-         entity: Entity,
          action: "deleted",
+         entity: Entity,
          callback: (entity: Entity) => void
       ): () => void;
 
