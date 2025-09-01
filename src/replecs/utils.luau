@@ -531,10 +531,14 @@ local function tobinary(n: number): string
 	return string.rep("0", 8 - #result) .. result
 end
 
+local BYTES = table.create(6)
+
 function bitmask.tostring(self: Bitmask): string
+	local buf = self.buffer
+
 	local highest_entry = -1
 	for i = self.entries - 1, 0, -1 do
-		local value = bitmask.read(self, i)
+		local value = buffer.readu32(buf, i * BYTES_PER_ENTRY)
 		if value ~= 0 then
 			highest_entry = i
 			break
@@ -545,12 +549,12 @@ function bitmask.tostring(self: Bitmask): string
 		return ""
 	end
 
-	local str = ""
+	table.clear(BYTES)
 	for i = 0, highest_entry do
-		local value = bitmask.read(self, i)
-		str ..= tobinary(value)
+		table.insert(BYTES, buffer.readu32(buf, i * BYTES_PER_ENTRY))
 	end
-	return str
+
+	return table.concat(BYTES, "-")
 end
 
 utils.bitmask = {

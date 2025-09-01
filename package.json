@@ -20,9 +20,9 @@
    ],
    "scripts": {
       "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json",
-      "build": "rbxtsc",
-      "watch": "rbxtsc -w",
-      "prepublishOnly": "npm run build"
+      "test": "lune run tests/replecs.spec.luau",
+      "bench": "lune run tests/bench/replecs.bench.luau",
+      "dev": "lune run dev.luau"
    },
    "repository": {
       "type": "git",

@@ -1,9 +1,7 @@
-local stdio = require "@lune/stdio"
 local replecs = require "@replecs"
-local client = require "@replecs/client"
 local player_masking = require "@replecs/masking"
 local utils = require "@replecs/utils"
-local test_utils = require "./utils"
+
 local jecs = require "@pkg/jecs"
 local observers = require "./observers"
 local testkit = require "./testkit"
@@ -12,7 +10,7 @@ type Entity<T = any> = jecs.Entity<T>
 
 type MemberData = {
 	world: observers.PatchedWorld,
-	client: client.Client,
+	client: replecs.Client,
 	components: { jecs.Entity },
 	tags: { jecs.Entity },
 }
