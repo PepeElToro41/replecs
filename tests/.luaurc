@@ -1,6 +1,7 @@
 {
-    "aliases": {
-        "replecs": "../src/",
-        "pkg": "../luau_packages/"
-    }
+   "aliases": {
+      "replecs": "../src/",
+      "pkg": "../luau_packages/",
+      "testkit": "./testkit"
+   }
 }

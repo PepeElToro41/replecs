@@ -945,7 +945,6 @@ function masking_controller.update_entity_filter(
 		if not lookup then
 			lookup = masking.lookups.entities[entity]
 		end
-		local generator = generator :: MaskGenerator
 		local current_storage = lookup.storage_group
 
 		local new_storage = masking:move_entity_storage(entity, current_storage, generator.result)
@@ -1313,6 +1312,8 @@ function masking_controller.allocate_pair_value_removal(
 		removed = {}
 		changes.pairs_values.removed[relation] = removed
 	end
+	removed[target] = true
+
 	local values = changes.pairs_values.changed[relation]
 	if values ~= nil then
 		values[target] = nil

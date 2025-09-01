@@ -629,12 +629,10 @@ local function append_packet(
 			member_packets.total_size += len
 		else
 			member_packets = {
-				packets = {
-					{
-						buffer = output,
-						variants = variants,
-					},
-				},
+				packets = { {
+					buffer = output,
+					variants = variants,
+				} },
 				total_size = len,
 			}
 			packets[member] = member_packets :: MemberPackets
@@ -885,9 +883,11 @@ local function collect_updates(server: Server)
 			end
 			changed_mask = write_vlq_bitmask(c, total_tagged, changed_mask, 0)
 
-			cursor.writeu8(c, changed_mask)
-			write_entity_id(server, c, entity, variants)
-			changed += 1
+			if changed_mask ~= 0 then
+				cursor.writeu8(c, changed_mask)
+				write_entity_id(server, c, entity, variants)
+				changed += 1
+			end
 		end
 		table.clear(storage_changes.changed)
 		storage_mask = write_vlq_bitmask(c, changed, storage_mask, 2)
@@ -932,9 +932,11 @@ local function collect_updates(server: Server)
 			end
 			added_mask = write_vlq_bitmask(c, total_tags, added_mask, 0)
 
-			cursor.writeu8(c, added_mask)
-			write_entity_id(server, c, entity, variants)
-			total_components_added += 1
+			if added_mask ~= 0 then
+				cursor.writeu8(c, added_mask)
+				write_entity_id(server, c, entity, variants)
+				total_components_added += 1
+			end
 		end
 		table.clear(storage_changes.added_components)
 		storage_mask = write_vlq_bitmask(c, total_components_added, storage_mask, 1)
@@ -952,9 +954,11 @@ local function collect_updates(server: Server)
 		table.clear(storage_changes.added)
 		storage_mask = write_vlq_bitmask(c, total_added, storage_mask, 0)
 
-		cursor.writeu8(c, storage_mask)
-		local output = cursor.close(c)
-		append_packet(packets, storage.mask.members, output, variants)
+		if storage_mask ~= 0 then
+			cursor.writeu8(c, storage_mask)
+			local output = cursor.close(c)
+			append_packet(packets, storage.mask.members, output, variants)
+		end
 	end
 	table.clear(server.additions)
 	return create_packet_iterator(packets, PACKET_TYPES.reliable)
