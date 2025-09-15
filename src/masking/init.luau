@@ -1496,13 +1496,13 @@ function masking_controller.create_exclude_generator(masking: MaskingInternal, e
 	local bitmask = bitmask_from_set(masking, exclude)
 	local active_members = masking.active_members_generator
 
-	local generator = mask_generator.create(bitmask, function(generator)
-		local bitmask = generator.bitmask :: utils.Bitmask
-		return active_members.result:band(bitmask:bnot())
+	local new_generator = mask_generator.create(bitmask, function(generator)
+		local current = generator.bitmask :: utils.Bitmask
+		return active_members.result:band(current:bnot())
 	end)
-	generator:track(active_members)
+	new_generator:track(active_members)
 
-	return generator
+	return new_generator
 end
 
 -- TODO: check for players existing and register them if they don't
@@ -1510,13 +1510,13 @@ function masking_controller.create_include_generator(masking: MaskingInternal, i
 	local bitmask = bitmask_from_set(masking, include)
 	local active_members = masking.active_members_generator
 
-	local generator = mask_generator.create(bitmask, function(generator)
-		local bitmask = generator.bitmask :: utils.Bitmask
-		return bitmask:band(active_members.result)
+	local new_generator = mask_generator.create(bitmask, function(generator)
+		local current = generator.bitmask :: utils.Bitmask
+		return current:band(active_members.result)
 	end)
-	generator:track(active_members)
+	new_generator:track(active_members)
 
-	return generator
+	return new_generator
 end
 
 function masking_controller.create_all_members_generator(masking: MaskingInternal)
@@ -1544,9 +1544,9 @@ function masking_controller.create_active_generator(masking: MaskingController):
 	return new_generator
 end
 
-function masking_controller.register_mask_group(masking: MaskingInternal, group: Member) end
+--function masking_controller.register_mask_group(masking: MaskingInternal, group: Member) end
 
-function masking_controller.unregister_mask_group(masking: MaskingInternal, group: Member) end
+--function masking_controller.unregister_mask_group(masking: MaskingInternal, group: Member) end
 
 function masking_controller.register_client(masking: MaskingInternal, member: Member)
 	if masking.member_indexes[member] then

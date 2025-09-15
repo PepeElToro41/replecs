@@ -14,11 +14,6 @@ export type Cursor = {
 
 local ECS_NAME = jecs.Name
 local CHILD_OF = jecs.ChildOf
-local WILDCARD = jecs.Wildcard
-
-function PAIR(first: Entity, second: Entity): Entity
-	return jecs.pair(first, second)
-end
 
 local utils = {}
 
@@ -518,7 +513,7 @@ function bitmask.rshift(self: Bitmask, n: number): Bitmask
 	return result
 end
 
-local function tobinary(n: number): string
+local function _tobinary(n: number): string
 	if n == 0 then
 		return "0"
 	end

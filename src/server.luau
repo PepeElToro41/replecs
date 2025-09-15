@@ -1352,7 +1352,6 @@ local function init(server: Server, _world: World?)
 	server.hooks = hooks
 
 	local components = server.components
-	local masking = server.masking
 
 	server.shared = utils.create_shared_lookup(world, components)
 
