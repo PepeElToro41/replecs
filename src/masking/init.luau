@@ -163,8 +163,8 @@ export type MaskingController = {
 
 	propagate_entity_addition: (self: MaskingController, entity: Entity) -> (),
 
-	start_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
-	set_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
+	start_entity: (self: MaskingController, entity: Entity, filter: GivenFilter?) -> (),
+	set_entity: (self: MaskingController, entity: Entity, filter: GivenFilter?) -> (),
 	stop_entity: (self: MaskingController, entity: Entity) -> (),
 	cleanup_entity: (self: MaskingController, entity: Entity) -> (),
 
@@ -173,14 +173,14 @@ export type MaskingController = {
 		entity: Entity,
 		component: Entity,
 		component_type: number,
-		filter: MemberFilter?
+		filter: GivenFilter?
 	) -> (),
 	set_component: (
 		self: MaskingController,
 		entity: Entity,
 		component: Entity,
 		component_type: number,
-		filter: MemberFilter?
+		filter: GivenFilter?
 	) -> (),
 	stop_component: (self: MaskingController, entity: Entity, component: Entity, component_type: number) -> (),
 

@@ -1,8 +1,11 @@
 local replecs = require "@replecs"
 local jecs = require "@pkg/jecs"
 local testkit = require "@testkit"
+local extra_table = require "./extra-table"
 
 local BENCH, START = testkit.benchmark()
+
+print(extra_table.getAllocatedArraySize(table.create(17, 1)))
 
 function TITLE(str: string)
 	print()
