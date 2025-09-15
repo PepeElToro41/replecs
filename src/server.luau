@@ -120,7 +120,7 @@ local function IS_PAIR(id: Component): boolean
 end
 
 local function PAIR_SECOND(world: World, id: Entity): Entity
-	if IS_PAIR(id) then
+	if not IS_PAIR(id) then
 		error(`expected a pair, got: {utils.logcomponent(world, id)}`)
 	end
 	return jecs.pair_second(world, id)
