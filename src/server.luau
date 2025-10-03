@@ -1452,12 +1452,17 @@ local function init(server: Server, _world: World?)
 	end
 
 	if game and game:GetService("RunService"):IsServer() then
-		local added = game:GetService("Players").PlayerAdded:Connect(function(player)
+		local Players = game:GetService "Players"
+
+		local added = Players.PlayerAdded:Connect(function(player)
 			server.masking:register_client(player)
 		end)
-		local removed = game:GetService("Players").PlayerRemoving:Connect(function(player)
+		local removed = Players.PlayerRemoving:Connect(function(player)
 			server.masking:unregister_client(player)
 		end)
+		for _, player in Players:GetPlayers() do
+			server.masking:register_client(player)
+		end
 
 		table.insert(server.connections, added)
 		table.insert(server.connections, removed)
