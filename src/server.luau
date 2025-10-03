@@ -1452,7 +1452,7 @@ local function init(server: Server, _world: World?)
 	end
 
 	if game and game:GetService("RunService"):IsServer() then
-		local Players = game:GetService("Players")
+		local Players = game:GetService "Players"
 
 		local added = Players.PlayerAdded:Connect(function(player)
 			server.masking:register_client(player)
