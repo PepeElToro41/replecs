@@ -1,4 +1,6 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
+local ServerScriptService = game:GetService "ServerScriptService"
+local replicator = require(ServerScriptService.code.replicator)
 local c = require(ReplicatedStorage.code.components)
 local count_query = require(ReplicatedStorage.code.utils.count_query)
 local world = require(ReplicatedStorage.code.world)
@@ -20,11 +22,11 @@ function create_cube()
 	world:add(new_cube, c.wooble)
 	world:set(new_cube, c.unix, os.clock())
 
-	world:add(new_cube, replecs.networked)
-	world:add(new_cube, jecs.pair(replecs.unreliable, c.transform))
-	world:add(new_cube, jecs.pair(replecs.reliable, c.color))
-	world:add(new_cube, jecs.pair(replecs.reliable, c.cube))
-	world:add(new_cube, jecs.pair(replecs.reliable, c.size))
+	replicator:set_networked(new_cube)
+	replicator:set_unreliable(new_cube, c.transform)
+	replicator:set_reliable(new_cube, c.color)
+	replicator:set_reliable(new_cube, c.cube)
+	replicator:set_reliable(new_cube, c.size)
 
 	return new_cube
 end
