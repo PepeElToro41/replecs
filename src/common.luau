@@ -1,7 +1,17 @@
 local jecs = require "../jecs"
+local customid = require "./customid"
+
+export type FunctionFilter = (player: Player) -> boolean
+export type AnyFilter = PlayerFilter | Player
 
 export type PlayerFilter = {
 	[Player]: boolean,
+}
+
+export type SharedInfo<T> = {
+	lookup: { [string]: T },
+	indexes: { [number]: T },
+	members: { [T]: number },
 }
 
 export type Serdes = {
@@ -12,24 +22,21 @@ export type Serdes = {
 
 export type Components = {
 	shared: jecs.Entity,
-	networked: jecs.Entity<PlayerFilter?>,
-	reliable: jecs.Entity,
-	unreliable: jecs.Entity,
-	pair: jecs.Entity,
+	networked: jecs.Entity<AnyFilter?>,
+	reliable: jecs.Entity<AnyFilter?>,
+	unreliable: jecs.Entity<AnyFilter?>,
+	pair: jecs.Entity<AnyFilter?>,
 
 	serdes: jecs.Entity<Serdes>,
 	bytespan: jecs.Entity<number>,
-	custom: jecs.Entity,
-	custom_handler: jecs.Entity<(value: any) -> jecs.Entity>,
+	custom: jecs.Entity<customid.CustomId>,
 	global: jecs.Entity<number>,
 	__alive_tracking__: jecs.Entity,
 }
 
 export type Shared = {
-	lookup: { [string]: jecs.Entity },
-
-	components: { [number]: jecs.Entity },
-	ids: { [jecs.Entity]: number },
+	components: SharedInfo<jecs.Entity>,
+	custom_ids: SharedInfo<customid.CustomId>,
 
 	bytespan: { [jecs.Entity]: number },
 	serdes: { [jecs.Entity]: Serdes },

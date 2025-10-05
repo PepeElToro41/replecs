@@ -4,9 +4,11 @@
 local jecs = require "../jecs"
 local utils = require "./utils"
 local common = require "./common"
+local customid = require "./customid"
 local masking_controller = require "./masking"
 
 type Cursor = utils.Cursor
+type CustomId = customid.CustomId
 
 type World = jecs.World
 type Entity<T = any> = jecs.Entity<T>
@@ -16,8 +18,13 @@ type Set<T> = { [T]: boolean }
 type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
-type FunctionFilter = (player: Player) -> boolean
-type AnyFilter = common.PlayerFilter | Player
+type FunctionFilter = common.FunctionFilter
+type AnyFilter = common.AnyFilter
+
+type CustomIdSerialization = {
+	required: Map<Entity, CustomId>,
+	cursor_skip: number,
+}
 
 type TrackInfo = {
 	networked: Set<Entity>,
@@ -64,7 +71,7 @@ export type Server = ServerImpl & {
 
 	track_info: TrackInfo,
 	additions: Set<Entity>,
-	custom_ids: Map<Entity, Component>,
+	custom_ids: Map<Entity, CustomId>,
 	global_ids: Map<Entity, number>,
 	storage: Storage,
 	hooked: Array<() -> ()>,
@@ -73,11 +80,14 @@ export type Server = ServerImpl & {
 	connections: Array<RBXScriptConnection>,
 	function_filters: masking_controller.EntityComponentIndex<FunctionFilter>,
 
+	registered_custom_ids: Map<CustomId, boolean>,
+
 	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
 
 	encode_component: (self: Server, component: Component) -> number,
 	decode_component: (self: Server, component: number) -> Component,
+	register_custom_id: (self: Server, custom_id: CustomId) -> (),
 
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
@@ -113,6 +123,7 @@ local ENTITY_ID_TYPES = {
 	custom = 2,
 	shared = 3,
 }
+
 local ECS_COMPONENT = jecs.Component
 
 local function IS_PAIR(id: Component): boolean
@@ -490,12 +501,11 @@ local function untrack_entity_pair(server: Server, entity: Entity, relation: Ent
 	end
 
 	remove_entity_tracked(server, entity, relation)
-
 	return listen_type
 end
 
 local function encode_component(server: Server, component: Entity): number
-	local encoded = server.shared.ids[component]
+	local encoded = server.shared.components.members[component]
 	if not encoded then
 		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(server.world, component))
 		return 0
@@ -504,7 +514,7 @@ local function encode_component(server: Server, component: Entity): number
 end
 
 local function decode_component(server: Server, encoded: number): Entity
-	local component = server.shared.components[encoded]
+	local component = server.shared.components.indexes[encoded]
 	if not component then
 		print("NON SHARED COMPONENTS", encoded, server.shared.components)
 		error "attemped to decode a non shared component"
@@ -513,7 +523,7 @@ local function decode_component(server: Server, encoded: number): Entity
 end
 
 local function write_component_id(server: Server, c: Cursor, component: Entity)
-	local encoded = server.shared.ids[component]
+	local encoded = server.shared.components.members[component]
 	if not encoded then
 		utils.logerror(`attempted to replicate a non-shared component `, utils.logcomponent(server.world, component))
 		return
@@ -574,18 +584,23 @@ local function write_component(server: Server, c: Cursor, component: Entity, val
 	write_component_id(server, c, component)
 end
 
-local function write_entity_id(server: Server, c: Cursor, entity: Entity, variants: { any })
+local function write_entity_id(server: Server, c: Cursor, entity: Entity, custom_ids: Set<Entity>?)
 	local custom = server.custom_ids[entity]
 	local global_id = server.global_ids[entity]
 
 	if global_id then
 		cursor.writeu8(c, global_id + GLOBAL_ID_OFFSET)
-	elseif custom then
-		local value = server.world:get(entity, custom)
-		write_component(server, c, custom, value, variants)
+	elseif custom and custom_ids then
+		if custom_ids[entity] then
+			cursor.writeu8(c, 0)
+		else
+			custom_ids[entity] = true
+			cursor.writeu8(c, server.shared.custom_ids.members[custom])
+		end
+		cursor.writeu40(c, entity :: any)
 		cursor.writeu8(c, ENTITY_ID_TYPES.custom)
 	else
-		local shared_id = server.shared.ids[entity]
+		local shared_id = server.shared.components.members[entity]
 		if shared_id then
 			cursor.writeu8(c, shared_id)
 			cursor.writeu8(c, ENTITY_ID_TYPES.shared)
@@ -601,13 +616,13 @@ local function write_entity_relations(
 	storage: EntityStorage,
 	c: Cursor,
 	relation: Entity,
-	variants: { any }
+	custom_ids: Set<Entity>
 )
 	local targets = storage.pairs[relation]
 	local total_targets = 0
 
 	for target in targets do
-		write_entity_id(server, c, target, variants)
+		write_entity_id(server, c, target, custom_ids)
 		total_targets += 1
 	end
 	cursor.write_vlq(c, total_targets)
@@ -619,13 +634,14 @@ local function write_entity_relations_values(
 	storage: EntityStorage,
 	c: Cursor,
 	relation: Entity,
-	variants: { any }
+	variants: { any },
+	custom_ids: Set<Entity>
 )
 	local targets = storage.pairs_values[relation]
 	local total_targets = 0
 
 	for target, value in targets do
-		write_entity_id(server, c, target, variants)
+		write_entity_id(server, c, target, custom_ids)
 		write_component_value(server, c, relation, value, variants)
 		total_targets += 1
 	end
@@ -638,20 +654,21 @@ local function write_entity(
 	c: Cursor,
 	entity: Entity,
 	active: masking_controller.ActiveEntity,
-	variants: { any }
+	variants: { any },
+	custom_ids: Set<Entity>
 )
 	local storage = server.storage[entity]
 
 	local all_pairs_values = 0
 	for relation in active.components[COMPONENT_TYPES.pair_value] do
-		write_entity_relations_values(server, storage, c, relation, variants)
+		write_entity_relations_values(server, storage, c, relation, variants, custom_ids)
 		all_pairs_values += 1
 	end
 	cursor.write_vlq(c, all_pairs_values)
 
 	local all_pairs = 0
 	for relation in active.components[COMPONENT_TYPES.pair] do
-		write_entity_relations(server, storage, c, relation, variants)
+		write_entity_relations(server, storage, c, relation, custom_ids)
 		all_pairs += 1
 	end
 	cursor.write_vlq(c, all_pairs)
@@ -677,13 +694,13 @@ local function write_entity(
 		end
 	end
 	cursor.write_vlq(c, tags)
-	write_entity_id(server, c, entity, variants)
+	write_entity_id(server, c, entity, custom_ids)
 end
 
 local function resolve_dirty(server: Server)
 	if server.is_shared_dirty then
-		server.shared = utils.create_shared_lookup(server.world, server.components)
-		server.is_shared_dirty = false :: true -- wtf
+		server.shared = utils.resolved_shared(server.world, server.components, server.registered_custom_ids)
+		server.is_shared_dirty = false
 	end
 end
 
@@ -817,10 +834,11 @@ local function get_full(server: Server, client: Player): (buffer, { { any } })
 		end
 		local c = cursor.new()
 		local variants = {}
+		local custom_ids: Set<Entity> = {}
 
 		local total_entities = 0
 		for entity, active in storage.active do
-			write_entity(server, c, entity, active, variants)
+			write_entity(server, c, entity, active, variants, custom_ids)
 			total_entities += 1
 		end
 		cursor.write_vlq(c, total_entities)
@@ -853,12 +871,17 @@ local function collect_updates(server: Server)
 		local c = cursor.new()
 
 		local variants = {}
+		local custom_ids: Set<Entity> = {}
+
 		local storage_mask = 0
 
 		local total_deleted = 0
 		local entity_deletions = storage.deletions.entities
 		for entity in entity_deletions do
-			write_entity_id(server, c, entity, variants)
+			-- by passing nil, we are skipping custom_ids, because deletions dont need them
+			-- as they are gonna be deleted anyway. If the client cant parse the raw id right away
+			-- just leave it as is.
+			write_entity_id(server, c, entity, nil)
 			total_deleted += 1
 		end
 		table.clear(entity_deletions)
@@ -868,6 +891,7 @@ local function collect_updates(server: Server)
 		local component_deletions = storage.deletions.components
 		for entity, deleted in component_deletions do
 			local total_pairs = 0
+
 			for relation in deleted[COMPONENT_TYPES.pair_value] do
 				write_component_id(server, c, relation)
 				total_pairs += 1
@@ -889,7 +913,7 @@ local function collect_updates(server: Server)
 			end
 			cursor.write_vlq(c, total_removed)
 
-			write_entity_id(server, c, entity, variants)
+			write_entity_id(server, c, entity, custom_ids)
 			total_component_deleted += 1
 		end
 		table.clear(component_deletions)
@@ -905,7 +929,7 @@ local function collect_updates(server: Server)
 				local total_targets = 0
 
 				for target, value in targets do
-					write_entity_id(server, c, target, variants)
+					write_entity_id(server, c, target, custom_ids)
 					write_component_value(server, c, relation, value, variants)
 					total_targets += 1
 				end
@@ -920,7 +944,7 @@ local function collect_updates(server: Server)
 				local total_targets = 0
 
 				for target in targets do
-					write_entity_id(server, c, target, variants)
+					write_entity_id(server, c, target, custom_ids)
 					total_targets += 1
 				end
 				cursor.write_vlq(c, total_targets)
@@ -934,7 +958,7 @@ local function collect_updates(server: Server)
 				local total_targets = 0
 
 				for target, added in targets do
-					write_entity_id(server, c, target, variants)
+					write_entity_id(server, c, target, custom_ids)
 					if added then
 						cursor.writei8(c, 1)
 					else
@@ -971,7 +995,7 @@ local function collect_updates(server: Server)
 
 			if changed_mask ~= 0 then
 				cursor.writeu8(c, changed_mask)
-				write_entity_id(server, c, entity, variants)
+				write_entity_id(server, c, entity, custom_ids)
 				changed += 1
 			end
 		end
@@ -985,14 +1009,14 @@ local function collect_updates(server: Server)
 
 			local total_pairs_values = 0
 			for relation in components[COMPONENT_TYPES.pair_value] do
-				write_entity_relations_values(server, entity_storage, c, relation, variants)
+				write_entity_relations_values(server, entity_storage, c, relation, variants, custom_ids)
 				total_pairs_values += 1
 			end
 			added_mask = write_vlq_bitmask(c, total_pairs_values, added_mask, 3)
 
 			local total_pairs = 0
 			for relation in components[COMPONENT_TYPES.pair] do
-				write_entity_relations(server, entity_storage, c, relation, variants)
+				write_entity_relations(server, entity_storage, c, relation, custom_ids)
 				total_pairs += 1
 			end
 			added_mask = write_vlq_bitmask(c, total_pairs, added_mask, 2)
@@ -1020,7 +1044,7 @@ local function collect_updates(server: Server)
 
 			if added_mask ~= 0 then
 				cursor.writeu8(c, added_mask)
-				write_entity_id(server, c, entity, variants)
+				write_entity_id(server, c, entity, custom_ids)
 				total_components_added += 1
 			end
 		end
@@ -1034,7 +1058,7 @@ local function collect_updates(server: Server)
 				continue
 			end
 
-			write_entity(server, c, entity, active, variants)
+			write_entity(server, c, entity, active, variants, custom_ids)
 			total_added += 1
 		end
 		table.clear(storage_changes.added)
@@ -1060,16 +1084,19 @@ local function collect_unreliable(server: Server)
 
 		local c = cursor.new()
 		local variants = {} :: { { any } }
+		local custom_ids: Set<Entity> = {}
 		local total_entities = 0
 
 		local checkpoint_offset = 0
 		local checkpoint_variants_count = 0
 		local checkpoint_total_entities = 0
+		local checkpoint_entity: Entity? = nil
 
-		local function create_checkpoint()
+		local function create_checkpoint(entity: Entity)
 			checkpoint_offset = c.offset
 			checkpoint_variants_count = #variants
 			checkpoint_total_entities = total_entities
+			checkpoint_entity = entity
 		end
 
 		local function rollback_checkpoint()
@@ -1082,6 +1109,14 @@ local function collect_unreliable(server: Server)
 			for _ = #variants, checkpoint_variants_count + 1, -1 do
 				table.insert(new_variants, 1, table.remove(variants))
 			end
+
+			local new_custom_ids = {} :: Set<Entity>
+			if checkpoint_entity then
+				new_custom_ids[checkpoint_entity] = true
+				custom_ids[checkpoint_entity] = nil
+			end
+			custom_ids = new_custom_ids
+
 			variants = new_variants
 			total_entities = total_entities - checkpoint_total_entities
 		end
@@ -1097,7 +1132,7 @@ local function collect_unreliable(server: Server)
 		end
 
 		for entity, actives in active do
-			create_checkpoint()
+			create_checkpoint(entity)
 
 			local total_unreliable = 0
 			for component in actives.components[COMPONENT_TYPES.unreliable] do
@@ -1115,11 +1150,12 @@ local function collect_unreliable(server: Server)
 			end
 			total_entities += 1
 			cursor.write_vlq(c, total_unreliable)
-			write_entity_id(server, c, entity, variants)
+			write_entity_id(server, c, entity, custom_ids)
 
 			if c.offset > MAX_PACKET_SIZE then
 				local commit_cursor = c
 				local commit_variants = variants
+
 				rollback_checkpoint()
 				commit_checkpoint(commit_cursor, commit_variants, checkpoint_total_entities)
 			end
@@ -1181,7 +1217,6 @@ local function change_networked(server: Server, entity: Entity, filter: AnyFilte
 	local masking = server.masking
 	masking:set_entity(entity, filter)
 end
-
 local function change_reliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local world = server.world
 	local masking = server.masking
@@ -1219,7 +1254,6 @@ local function stop_networked(server: Server, entity: Entity)
 	server.additions[entity] = nil
 	server.track_info.networked[entity] = nil
 end
-
 local function stop_reliable(server: Server, entity: Entity, component: Component)
 	local masking = server.masking
 	if not server.track_info.entities[entity] then
@@ -1278,7 +1312,6 @@ local function set_networked(server: Server, entity: Entity, filter: AnyFilter?)
 		start_networked(server, entity, filter)
 	end
 end
-
 local function set_reliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local entity_tracked = server.track_info.entities[entity]
 	if entity_tracked and entity_tracked[component] then
@@ -1287,7 +1320,6 @@ local function set_reliable(server: Server, entity: Entity, component: Component
 		start_reliable(server, entity, component, filter)
 	end
 end
-
 local function set_unreliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local entity_tracked = server.track_info.entities[entity]
 	if entity_tracked and entity_tracked[component] then
@@ -1296,7 +1328,6 @@ local function set_unreliable(server: Server, entity: Entity, component: Compone
 		start_unreliable(server, entity, component, filter)
 	end
 end
-
 local function set_pair(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
 	local entity_tracked = server.track_info.entities[entity]
 	if entity_tracked and entity_tracked[relation] then
@@ -1305,14 +1336,12 @@ local function set_pair(server: Server, entity: Entity, relation: Component, fil
 		start_pair(server, entity, relation, filter)
 	end
 end
-
-local function set_custom(server: Server, entity: Entity, component: Component)
+local function set_custom(server: Server, entity: Entity, handler: CustomId)
 	if server.custom_ids[entity] then
 		utils.logwarn("attempted to register a custom_id twice for the same entity", debug.traceback())
 		return
 	end
-
-	server.custom_ids[entity] = component
+	server.custom_ids[entity] = handler
 end
 
 local function remove_custom(server: Server, entity: Entity)
@@ -1352,8 +1381,7 @@ local function init(server: Server, _world: World?)
 	server.hooks = hooks
 
 	local components = server.components
-
-	server.shared = utils.create_shared_lookup(world, components)
+	server.shared = utils.resolved_shared(world, components, server.registered_custom_ids)
 
 	local function hook(unhook: () -> ())
 		table.insert(server.hooked, unhook)
@@ -1408,9 +1436,8 @@ local function init(server: Server, _world: World?)
 		stop_unreliable(server, entity, component)
 	end))
 
-	hook(hooks.added(world, components.custom, function(entity, id)
-		local component = PAIR_SECOND(world, id)
-		set_custom(server, entity, component)
+	hook(hooks.added(world, components.custom, function(entity, _, handler: CustomId)
+		set_custom(server, entity, handler)
 	end))
 	hook(hooks.removed(world, components.custom, function(entity)
 		remove_custom(server, entity)
@@ -1549,6 +1576,7 @@ local function create(world: World?, components: common.Components): Server
 	self.masking = masking_controller.create()
 	self.alive_tracked = {}
 	self.custom_ids = {}
+	self.registered_custom_ids = {}
 	self.requires_shared_lookup = {
 		self.components.shared,
 		self.components.serdes,

@@ -235,7 +235,7 @@ end
 local function get_usable_filter(filter: (MemberFilter | any)?): MemberFilter?
 	if filter then
 		if type(filter) == "table" then
-			return filter
+			return filter :: MemberFilter
 		else
 			return { [filter] = true }
 		end
@@ -1582,9 +1582,6 @@ end
 
 function masking_controller.activate_client(masking: MaskingInternal, member: Member)
 	local index = masking.client_indexes[member]
-	if index == nil then
-		index = masking.client_indexes[member]
-	end
 
 	masking.unreplicated[member] = nil
 	masking.unactive_members_generator.bitmask:clear(index)

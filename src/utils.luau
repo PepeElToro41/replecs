@@ -2,6 +2,7 @@
 --!optimize 2
 
 local jecs = require "../jecs"
+local customid = require "./customid"
 local common = require "./common"
 
 type World = jecs.World
@@ -557,19 +558,50 @@ utils.bitmask = {
 	from_set = bitmask.from_set,
 }
 
-function utils.create_shared_lookup(world: World, components: common.Components)
-	local shared: common.Shared = {
-		lookup = {
-			["jecs.ChildOf"] = CHILD_OF,
-		},
+function utils.create_shared_lookup<T>(lookup: { [string]: T }): common.SharedInfo<T>
+	local keys = {}
+	local indexes = {}
+	local members = {}
+
+	for name in lookup do
+		table.insert(keys, name)
+	end
+	table.sort(keys)
+
+	for index, name in keys do
+		local member = lookup[name]
+		members[member] = index
+		indexes[index] = member
+	end
+
+	return {
+		lookup = lookup,
+		indexes = indexes,
+		members = members,
+	}
+end
+
+function utils.resolved_shared(
+	world: World,
+	components: common.Components,
+	registered_custom_ids: { [customid.CustomId]: boolean }
+): common.Shared
+	local shared = {
 		serdes = {},
 		bytespan = {},
-		ids = {},
-		components = {},
+	} :: common.Shared
+
+	local components_lookup: { [string]: jecs.Entity } = {
+		["jecs.ChildOf"] = CHILD_OF,
 	}
+	local custom_ids_lookup = {}
 
 	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
-		shared.lookup[name] = component
+		components_lookup[name] = component
+	end
+
+	for custom in registered_custom_ids do
+		custom_ids_lookup[custom.identifier] = custom
 	end
 
 	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
@@ -580,23 +612,9 @@ function utils.create_shared_lookup(world: World, components: common.Components)
 		shared.bytespan[component] = bytespan
 	end
 
-	local keys = {}
-	local component_ids = {}
-	local id_components = {}
+	shared.components = utils.create_shared_lookup(components_lookup)
+	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
 
-	for name in shared.lookup do
-		table.insert(keys, name)
-	end
-	table.sort(keys)
-
-	for id, name in keys do
-		local component = shared.lookup[name]
-		component_ids[shared.lookup[name]] = id
-		id_components[id] = component
-	end
-
-	shared.ids = component_ids
-	shared.components = id_components
 	return shared
 end
 

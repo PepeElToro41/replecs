@@ -1,1 +1,6 @@
 std = "selene_definitions"
+
+[lints]
+undefined_variable = "allow"
+shadowing = "allow"
+if_same_then_else = "allow"

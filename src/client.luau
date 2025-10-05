@@ -3,10 +3,13 @@
 
 local jecs = require "../jecs"
 local common = require "./common"
+local customid = require "./customid"
 local utils = require "./utils"
 
 local cursor = utils.cursor
+
 type Cursor = utils.Cursor
+type CustomId = customid.CustomId
 
 type Entity<T = any> = jecs.Entity<T>
 type Id<T = any> = jecs.Id<T>
@@ -14,7 +17,19 @@ type World = jecs.World
 
 type Array<T> = { T }
 type Map<K, V> = { [K]: V }
+type Set<T> = { [T]: boolean }
 type Disconnect = () -> ()
+
+type CommandBuffer = {
+	tags: { [Entity]: boolean },
+	components: { [Entity]: any },
+	unreliable_components: { [Entity]: any },
+	remove: { [Entity]: boolean },
+	pairs: { [Entity]: Set<Entity> },
+	pairs_values: { [Entity]: { [Entity]: { value: any } } },
+	pairs_remove: { [Entity]: Set<Entity> },
+	pairs_clear: Set<Entity>,
+}
 
 type HookMethod =
 	& ((
@@ -54,7 +69,9 @@ export type Client = {
 	server_ids: { [number]: Entity },
 	client_ids: { [Entity]: number },
 	ordered_creation: boolean,
-	custom_ids: { [Entity]: (any) -> Entity },
+	registered_custom_ids: { [CustomId]: boolean },
+	command_buffers: { [Entity]: CommandBuffer }?,
+	command_buffers_active: boolean,
 
 	init: (self: Client, world: World?) -> (),
 	destroy: (self: Client) -> (),
@@ -78,6 +95,7 @@ export type Client = {
 
 	encode_component: (self: Client, component: Entity) -> number,
 	decode_component: (self: Client, component: number) -> Entity,
+	register_custom_id: (self: Client, custom_id: CustomId) -> (),
 
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
@@ -96,7 +114,6 @@ local PACKET_TYPES = {
 	reliable = 3,
 }
 
-local ECS_NAME = jecs.Name
 local WILDCARD = jecs.Wildcard
 
 local function PAIR(first: Entity, second: Entity): Entity
@@ -122,20 +139,86 @@ local function get_or_create_entity(client: Client, server_id: number): Entity
 	end
 end
 
-local function network_entity_set(client: Client, entity: Entity, id: Id, value: any, changed_hooks: ChangedHooksEntry?)
-	if changed_hooks then
-		if not changed_hooks.overrides then
+local function get_command_buffer(client: Client, entity: Entity): CommandBuffer
+	local command_buffers = client.command_buffers
+
+	if not command_buffers then
+		error "attempted to use a command buffer without having one. (this should never happen)"
+	end
+
+	local command_buffer = command_buffers[entity :: any]
+	if not command_buffer then
+		command_buffer = {
+			tags = {},
+			components = {},
+			unreliable_components = {},
+			remove = {},
+			pairs = {},
+			pairs_values = {},
+			pairs_remove = {},
+			pairs_clear = {},
+		}
+		command_buffers[entity :: any] = command_buffer
+	end
+	return command_buffer
+end
+
+local function entity_set(client: Client, entity: Entity, id: Id, value: any, changed_hooks: ChangedHooksEntry?)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		command_buffer.components[id] = value
+	else
+		if changed_hooks then
+			if not changed_hooks.overrides then
+				client.world:set(entity, id, value)
+			end
+			for _, callback in changed_hooks.callbacks do
+				callback(entity, id, value)
+			end
+		else
 			client.world:set(entity, id, value)
 		end
-		for _, callback in changed_hooks.callbacks do
-			callback(entity, id, value)
-		end
-	else
-		client.world:set(entity, id, value)
 	end
 end
 
-local function network_entity_add(client: Client, entity: Entity, component: Entity, changed_hooks: ChangedHooksEntry?)
+local function entity_set_unreliable(
+	client: Client,
+	entity: Entity,
+	component: Entity,
+	value: any,
+	changed_hooks: ChangedHooksEntry?
+)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		command_buffer.unreliable_components[component] = value
+	else
+		entity_set(client, entity, component, value, changed_hooks)
+	end
+end
+
+local function entity_set_pair(
+	client: Client,
+	entity: Entity,
+	relation: Entity,
+	target: Entity,
+	value: any,
+	changed_hooks: ChangedHooksEntry?
+)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		local pair_relation = command_buffer.pairs_values[relation]
+
+		if pair_relation then
+			pair_relation[target] = { value = value }
+		else
+			command_buffer.pairs_values[relation] = { [target] = value }
+		end
+	else
+		entity_set(client, entity, PAIR(relation, target), value, changed_hooks)
+	end
+end
+
+local function entity_add(client: Client, entity: Entity, component: Entity, changed_hooks: ChangedHooksEntry?)
 	if changed_hooks then
 		if not changed_hooks.overrides then
 			client.world:add(entity, component)
@@ -148,69 +231,121 @@ local function network_entity_add(client: Client, entity: Entity, component: Ent
 	end
 end
 
-local function network_entity_remove(client: Client, entity: Entity, id: Entity, removed_hooks: RemovedHooksEntry?)
-	if removed_hooks then
-		for _, callback in removed_hooks.callbacks do
-			callback(entity, id)
-		end
-		if not removed_hooks.overrides then
-			client.world:remove(entity, id)
+local function entity_add_pair(
+	client: Client,
+	entity: Entity,
+	relation: Entity,
+	target: Entity,
+	changed_hooks: ChangedHooksEntry?
+)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		local pair_relation = command_buffer.pairs[relation]
+
+		if pair_relation then
+			pair_relation[target] = true
+		else
+			command_buffer.pairs[relation] = { [target] = true }
 		end
 	else
-		client.world:remove(entity, id)
+		entity_add(client, entity, PAIR(relation, target), changed_hooks)
 	end
 end
 
-local function network_entity_remove_relations(
+local function entity_remove(client: Client, entity: Entity, id: Entity, removed_hooks: RemovedHooksEntry?)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		command_buffer.remove[id] = true
+	else
+		if removed_hooks then
+			for _, callback in removed_hooks.callbacks do
+				callback(entity, id)
+			end
+			if not removed_hooks.overrides then
+				client.world:remove(entity, id)
+			end
+		else
+			client.world:remove(entity, id)
+		end
+	end
+end
+
+local function entity_remove_pair(
+	client: Client,
+	entity: Entity,
+	relation: Entity,
+	target: Entity,
+	removed_hooks: RemovedHooksEntry?
+)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		local pair_relation = command_buffer.pairs_remove[relation]
+
+		if pair_relation then
+			pair_relation[target] = true
+		else
+			command_buffer.pairs_remove[relation] = { [target] = true }
+		end
+	else
+		entity_remove(client, entity, PAIR(relation, target), removed_hooks)
+	end
+end
+
+local function entity_remove_relations(
 	client: Client,
 	entity: Entity,
 	relation: Entity,
 	removed_hooks: RemovedHooksEntry?
 )
-	local world = client.world
-	local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
-	if not entity_index then
-		return
-	end
-	local archetype = entity_index.archetype
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		command_buffer.pairs_clear[relation] = true
+	else
+		local world = client.world
+		local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
+		if not entity_index then
+			return
+		end
+		local archetype = entity_index.archetype
 
-	local wildcard = PAIR(relation, WILDCARD) :: any
-	local idr = world.component_index[wildcard]
-	if not idr then
-		return
-	end
+		local wildcard = PAIR(relation, WILDCARD) :: any
+		local idr = world.component_index[wildcard]
+		if not idr then
+			return
+		end
 
-	local archetype_id = archetype.id
-	local count = idr.counts[archetype_id]
-	if not count then
-		return
-	end
+		local archetype_id = archetype.id
+		local count = idr.counts[archetype_id]
+		if not count then
+			return
+		end
 
-	local start = idr.records[archetype_id]
-	if not start then
-		return
-	end
+		local start = idr.records[archetype_id]
+		if not start then
+			return
+		end
 
-	if removed_hooks then
-		for i = start, start + count - 1 do
-			local pair = archetype.types[i]
-			for _, callback in removed_hooks.callbacks do
-				callback(entity, pair)
+		if removed_hooks then
+			for i = start, start + count - 1 do
+				local pair = archetype.types[i]
+				for _, callback in removed_hooks.callbacks do
+					callback(entity, pair)
+				end
+				if not removed_hooks.overrides then
+					world:remove(entity, pair :: any)
+				end
 			end
-			if not removed_hooks.overrides then
+		else
+			for i = start, start + count - 1 do
+				local pair = archetype.types[i]
 				world:remove(entity, pair :: any)
 			end
-		end
-	else
-		for i = start, start + count - 1 do
-			local pair = archetype.types[i]
-			world:remove(entity, pair :: any)
 		end
 	end
 end
 
 local function encode_component(client: Client, component: Entity): number
-	local encoded = client.shared.ids[component]
+	local encoded = client.shared.components.members[component]
 	if not encoded then
 		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(client.world, component))
 		return 0
@@ -218,7 +353,7 @@ local function encode_component(client: Client, component: Entity): number
 	return encoded
 end
 local function decode_component(client: Client, encoded: number): Entity
-	local component = client.shared.components[encoded]
+	local component = client.shared.components.indexes[encoded]
 	if not component then
 		print("NON SHARED COMPONENT", encoded, client.shared.components)
 		error "attemped to decode a non shared component"
@@ -228,7 +363,7 @@ end
 
 local function read_component_id(client: Client, c: Cursor): Entity
 	local shared_id = cursor.readu8(c)
-	local component = client.shared.components[shared_id]
+	local component = client.shared.components.indexes[shared_id]
 	if not component then
 		print("NON SHARED COMPONENT", shared_id, client.shared.components)
 		error "received a non shared component"
@@ -280,56 +415,83 @@ local function resolve_global(client: Client, global_id: number): Entity
 	return parsed
 end
 
-local function read_entity_id(client: Client, c: Cursor, variants: { any }?): (Entity?, number?)
+-- returns entity, server_id, id_type
+local function read_entity_id(client: Client, c: Cursor): (Entity?, number?, number?)
 	local id_type = cursor.readu8(c)
 
 	if id_type <= GLOBAL_ID_OFFSET then
 		if id_type == ENTITY_ID_TYPES.entity then
 			local server_id = cursor.readu40(c)
-			return client.server_ids[server_id], server_id
+			return client.server_ids[server_id], server_id, id_type
 		elseif id_type == ENTITY_ID_TYPES.custom then
-			local component, value = read_component(client, c, variants)
-			local custom_getter = client.custom_ids[component]
-			if not custom_getter then
-				error(
-					`received a custom id for a non custom component, consider adding custom_id to component: {client.world:get(
-						component,
-						ECS_NAME
-					) or "(no name)"} id: {component}`
-				)
-			end
-			return custom_getter(value), nil
+			local server_id = cursor.readu40(c)
+			return client.server_ids[server_id], server_id, id_type
 		elseif id_type == ENTITY_ID_TYPES.shared then
-			return read_component_id(client, c), nil
+			return read_component_id(client, c), nil, id_type
 		end
-		error(`malformed entity id {id_type} ` .. cursor.readu32(c))
+		error(`malformed entity type {id_type} ` .. cursor.readu32(c))
 	else
-		return resolve_global(client, id_type - GLOBAL_ID_OFFSET), nil
+		return resolve_global(client, id_type - GLOBAL_ID_OFFSET), nil, id_type
 	end
 end
 
-local function process_entity_id(client: Client, c: Cursor, variants: { any }?)
-	local entity, server_id = read_entity_id(client, c, variants)
+local function process_entity_id(
+	client: Client,
+	c: Cursor,
+	custom_ids: { [Entity]: number },
+	process: (entity: Entity) -> ()
+)
+	local entity, server_id, id_type = read_entity_id(client, c)
 	if entity then
-		return entity
+		return process(entity)
 	else
-		return get_or_create_entity(client, server_id :: number)
+		if id_type == ENTITY_ID_TYPES.custom then
+			local custom_id = cursor.readu8(c)
+			if custom_id ~= 0 then
+				custom_ids[server_id :: any] = custom_id
+			end
+
+			if client.command_buffers_active then
+				-- negative id means it's a custom id,
+				-- meaning its a sever-id that needs to be translated first
+				process(-server_id :: any)
+			else
+				client.command_buffers_active = true
+				process(-server_id :: any)
+				client.command_buffers_active = false
+			end
+		else
+			local new_entity = get_or_create_entity(client, server_id :: number)
+			process(new_entity)
+		end
 	end
 end
 
-local function process_entity_relations(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
+local function process_entity_relations(
+	client: Client,
+	entity: jecs.Entity,
+	c: Cursor,
+	custom_ids: { [Entity]: number }
+)
 	local components = client.components
 	local relation = read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
 	local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
 
 	for _ = 1, total_targets do
-		local target = process_entity_id(client, c, variants)
-		network_entity_add(client, entity, PAIR(relation, target), pair_hooks)
+		process_entity_id(client, c, custom_ids, function(target)
+			entity_add_pair(client, entity, relation, target, pair_hooks)
+		end)
 	end
 end
 
-local function process_entity_relation_values(client: Client, entity: jecs.Entity, c: Cursor, variants: { any }?)
+local function process_entity_relation_values(
+	client: Client,
+	entity: jecs.Entity,
+	c: Cursor,
+	custom_ids: { [Entity]: number },
+	variants: { any }?
+)
 	local relation = read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
 	local components = client.components
@@ -337,39 +499,41 @@ local function process_entity_relation_values(client: Client, entity: jecs.Entit
 
 	for _ = 1, total_targets do
 		local value = read_component_value(client, relation, c, variants)
-		local target = process_entity_id(client, c, variants)
-		network_entity_set(client, entity, PAIR(relation, target), value, pair_hooks)
+		process_entity_id(client, c, custom_ids, function(target)
+			entity_set_pair(client, entity, relation, target, value, pair_hooks)
+		end)
 	end
 end
 
-local function process_entity(client: Client, c: Cursor, variants: { any }?)
-	local entity = process_entity_id(client, c, variants)
-	local changed_hooks = client.network_hooks.changed
-	local components = client.components
+local function process_entity(client: Client, c: Cursor, custom_ids: { [Entity]: number }, variants: { any }?)
+	process_entity_id(client, c, custom_ids, function(entity)
+		local changed_hooks = client.network_hooks.changed
+		local components = client.components
 
-	local total_tags = cursor.read_vlq(c)
-	for _ = 1, total_tags do
-		local tag = read_component_id(client, c)
-		local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-		network_entity_add(client, entity, tag, tag_hooks)
-	end
+		local total_tags = cursor.read_vlq(c)
+		for _ = 1, total_tags do
+			local tag = read_component_id(client, c)
+			local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
+			entity_add(client, entity, tag, tag_hooks)
+		end
 
-	local total_components = cursor.read_vlq(c)
-	for _ = 1, total_components do
-		local component, value = read_component(client, c, variants)
-		local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-		network_entity_set(client, entity, component, value, component_hooks)
-	end
+		local total_components = cursor.read_vlq(c)
+		for _ = 1, total_components do
+			local component, value = read_component(client, c, variants)
+			local component_hooks = changed_hooks[PAIR(components.reliable, component)]
+			entity_set(client, entity, component, value, component_hooks)
+		end
 
-	local total_pairs = cursor.read_vlq(c)
-	for _ = 1, total_pairs do
-		process_entity_relations(client, entity, c, variants)
-	end
+		local total_pairs = cursor.read_vlq(c)
+		for _ = 1, total_pairs do
+			process_entity_relations(client, entity, c, custom_ids)
+		end
 
-	local total_pairs_values = cursor.read_vlq(c)
-	for _ = 1, total_pairs_values do
-		process_entity_relation_values(client, entity, c, variants)
-	end
+		local total_pairs_values = cursor.read_vlq(c)
+		for _ = 1, total_pairs_values do
+			process_entity_relation_values(client, entity, c, custom_ids, variants)
+		end
+	end)
 end
 
 local function finish_replication(client: Client)
@@ -382,7 +546,7 @@ end
 
 local function resolve_dirty(client: Client)
 	if client.is_dirty then
-		client.shared = utils.create_shared_lookup(client.world, client.components)
+		client.shared = utils.resolved_shared(client.world, client.components, client.registered_custom_ids)
 		client.is_dirty = false :: true -- wtf
 	end
 end
@@ -411,6 +575,196 @@ local function read_vlq_bitmask(c: Cursor, mask: number, bit: number): number
 	end
 end
 
+local function apply_command_buffer(
+	client: Client,
+	entity: Entity,
+	command_buffer: CommandBuffer,
+	request: (e: Entity, ...any) -> Entity
+)
+	local components = client.components
+
+	for tag in command_buffer.tags do
+		local tag_hooks = client.network_hooks.changed[PAIR(components.reliable, tag)]
+		entity_add(client, entity, tag, tag_hooks)
+	end
+	for component, value in command_buffer.components do
+		local component_hooks = client.network_hooks.changed[PAIR(components.reliable, component)]
+		entity_set(client, entity, component, value, component_hooks)
+	end
+	for component, value in command_buffer.unreliable_components do
+		local component_hooks = client.network_hooks.changed[PAIR(components.unreliable, component)]
+		entity_set(client, entity, component, value, component_hooks)
+	end
+	for component in command_buffer.remove do
+		local component_hooks = client.network_hooks.removed[PAIR(components.reliable, component)]
+		entity_remove(client, entity, component, component_hooks)
+	end
+	for relation, targets in command_buffer.pairs do
+		local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
+		for target in targets do
+			entity_add_pair(client, entity, relation, request(target), pair_hooks)
+		end
+	end
+	for relation, targets in command_buffer.pairs_values do
+		local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
+		for target, value in targets do
+			entity_set_pair(client, entity, relation, request(target), value.value, pair_hooks)
+		end
+	end
+	for relation, targets in command_buffer.pairs_remove do
+		local pair_hooks = client.network_hooks.removed[PAIR(components.pair, relation)]
+		for target in targets do
+			entity_remove_pair(client, entity, relation, request(target), pair_hooks)
+		end
+	end
+	for relation in command_buffer.pairs_clear do
+		local pair_hooks = client.network_hooks.removed[PAIR(components.pair, relation)]
+		entity_remove_relations(client, entity, relation, pair_hooks)
+	end
+end
+
+local function find_component_in_buffer(command_buffer: CommandBuffer, component: Entity): any
+	return command_buffer.components[component] or command_buffer.unreliable_components[component]
+end
+
+local function find_has_in_buffer(command_buffer: CommandBuffer, tag: Entity): boolean
+	return (command_buffer.tags[tag] ~= nil)
+		or (command_buffer.components[tag] ~= nil)
+		or (command_buffer.unreliable_components[tag] ~= nil)
+end
+local function find_pair_in_buffer(command_buffer: CommandBuffer, relation: Entity, target: Entity): (boolean, any)
+	local value_relations = command_buffer.pairs_values[relation]
+	local value = value_relations and value_relations[target]
+
+	if value then
+		return true, value.value
+	end
+
+	local relations = command_buffer.pairs[relation]
+	local pair = relations and relations[target]
+
+	if pair then
+		return true, nil
+	end
+
+	return false, nil
+end
+
+local function find_target_in_buffer(command_buffer: CommandBuffer, relation: Entity, index: number?): Entity?
+	local pairs = command_buffer.pairs[relation]
+	if pairs then
+		local i = 0
+		for target in pairs do
+			if i == (index or 0) then
+				return target
+			end
+			i += 1
+		end
+	end
+	local pairs_values = command_buffer.pairs_values[relation]
+	if pairs_values then
+		local i = 0
+		for target in pairs_values do
+			if i == (index or 0) then
+				return target
+			end
+			i += 1
+		end
+	end
+	return nil
+end
+
+local function finish_custom_ids(
+	client: Client,
+	custom_ids: { [Entity]: number },
+	command_buffers: { [Entity]: CommandBuffer }
+)
+	local funcs = {} -- this is so process can use create_context even if its defined after
+	local processed: { [Entity]: boolean } = {}
+
+	local function process(entity: Entity, shared_custom_id: number?)
+		if (entity :: any) > 0 then
+			return entity
+		end
+		local server_entity = -(entity :: any)
+		local client_entity = client.server_ids[server_entity]
+		if client_entity then
+			return client_entity
+		end
+
+		if processed[server_entity] then
+			return nil :: any
+		end
+
+		local shared_custom_id = shared_custom_id or custom_ids[server_entity]
+		if not shared_custom_id then
+			return nil :: any
+		end
+
+		local custom_handler = client.shared.custom_ids.indexes[shared_custom_id]
+		if not custom_handler then
+			utils.logerror "attempted to use a custom id that wasn't registered"
+		end
+		local handle_callback = custom_handler.handle_callback
+		if not handle_callback then
+			utils.logerror(`custom id: {custom_handler.identifier} has no handle callback set`)
+		end
+
+		local new_entity = handle_callback(funcs.create_context(server_entity))
+		if new_entity then
+			client.server_ids[server_entity] = new_entity
+			apply_command_buffer(client, new_entity, command_buffers[server_entity], process)
+		end
+
+		processed[server_entity] = true
+		return new_entity
+	end
+
+	local function create_context(entity_id: Entity)
+		local function component(_, component: Entity): any
+			return find_component_in_buffer(command_buffers[entity_id], component)
+		end
+		local function target(_, relation: Entity, index: number?): Entity
+			local server_target = find_target_in_buffer(command_buffers[entity_id], relation, index)
+			if server_target then
+				return process(server_target :: any)
+			end
+			return nil :: any
+		end
+		local function pair_value(_, relation: Entity, target: Entity): any
+			local _, value = find_pair_in_buffer(command_buffers[entity_id], relation, target)
+			return value
+		end
+		local function has_pair(_, relation: Entity, target: Entity): boolean
+			local has = find_pair_in_buffer(command_buffers[entity_id], relation, target)
+			return has
+		end
+		local function has(_, tag: Entity): boolean
+			return find_has_in_buffer(command_buffers[entity_id], tag)
+		end
+		local function entity(_, entity: Entity): Entity
+			return process(-(entity :: any))
+		end
+
+		local context: customid.HandleContext = {
+			entity_id = entity_id,
+			has = has,
+			component = component,
+			target = target,
+			pair_value = pair_value,
+			has_pair = has_pair,
+			entity = entity,
+		}
+
+		return context
+	end
+	funcs.create_context = create_context
+
+	for entity, shared_custom_id in custom_ids do
+		process(-(entity :: any), shared_custom_id)
+	end
+end
+
 local function apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "reliable")
@@ -424,143 +778,150 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 	local removed_hooks = client.network_hooks.removed
 	local deleted_hooks = client.network_hooks.deleted
 
+	local command_buffers: { [Entity]: CommandBuffer } = {}
+	local custom_ids: { [Entity]: number } = {}
+
+	client.command_buffers = command_buffers
+
 	for a = 1, total_packets do
 		local variants = all_variants and all_variants[variant_start - a]
 		local storage_mask = cursor.readu8(c)
 
 		local total_added = read_vlq_bitmask(c, storage_mask, 0)
 		for _ = 1, total_added do
-			process_entity(client, c, variants)
+			process_entity(client, c, custom_ids, variants)
 		end
 
 		local total_components_added = read_vlq_bitmask(c, storage_mask, 1)
 		for _ = 1, total_components_added do
-			local entity = process_entity_id(client, c, variants)
-			local added_mask = cursor.readu8(c)
+			process_entity_id(client, c, custom_ids, function(entity)
+				local added_mask = cursor.readu8(c)
 
-			local total_tags = read_vlq_bitmask(c, added_mask, 0)
-			for _ = 1, total_tags do
-				local tag = read_component_id(client, c)
-				local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-				network_entity_add(client, entity, tag, tag_hooks)
-			end
+				local total_tags = read_vlq_bitmask(c, added_mask, 0)
+				for _ = 1, total_tags do
+					local tag = read_component_id(client, c)
+					local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
+					entity_add(client, entity, tag, tag_hooks)
+				end
 
-			local total_components = read_vlq_bitmask(c, added_mask, 1)
-			for _ = 1, total_components do
-				local component, value = read_component(client, c, variants)
-				local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-				network_entity_set(client, entity, component, value, component_hooks)
-			end
+				local total_components = read_vlq_bitmask(c, added_mask, 1)
+				for _ = 1, total_components do
+					local component, value = read_component(client, c, variants)
+					local component_hooks = changed_hooks[PAIR(components.reliable, component)]
+					entity_set(client, entity, component, value, component_hooks)
+				end
 
-			local total_pairs = read_vlq_bitmask(c, added_mask, 2)
-			for _ = 1, total_pairs do
-				process_entity_relations(client, entity, c, variants)
-			end
+				local total_pairs = read_vlq_bitmask(c, added_mask, 2)
+				for _ = 1, total_pairs do
+					process_entity_relations(client, entity, c, custom_ids)
+				end
 
-			local total_pairs_values = read_vlq_bitmask(c, added_mask, 3)
-			for _ = 1, total_pairs_values do
-				process_entity_relation_values(client, entity, c, variants)
-			end
+				local total_pairs_values = read_vlq_bitmask(c, added_mask, 3)
+				for _ = 1, total_pairs_values do
+					process_entity_relation_values(client, entity, c, custom_ids, variants)
+				end
+			end)
 		end
 
 		local total_changed = read_vlq_bitmask(c, storage_mask, 2)
 		for _ = 1, total_changed do
-			local entity = process_entity_id(client, c, variants)
-			local changed_mask = cursor.readu8(c)
+			process_entity_id(client, c, custom_ids, function(entity)
+				local changed_mask = cursor.readu8(c)
 
-			local total_tagged = read_vlq_bitmask(c, changed_mask, 0)
-			for _ = 1, total_tagged do
-				local tag = read_component_id(client, c)
-				local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-				network_entity_add(client, entity, tag, tag_hooks)
-			end
+				local total_tagged = read_vlq_bitmask(c, changed_mask, 0)
+				for _ = 1, total_tagged do
+					local tag = read_component_id(client, c)
+					local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
+					entity_add(client, entity, tag, tag_hooks)
+				end
 
-			local total_components = read_vlq_bitmask(c, changed_mask, 1)
-			for _ = 1, total_components do
-				local component, value = read_component(client, c, variants)
-				local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-				network_entity_set(client, entity, component, value, component_hooks)
-			end
+				local total_components = read_vlq_bitmask(c, changed_mask, 1)
+				for _ = 1, total_components do
+					local component, value = read_component(client, c, variants)
+					local component_hooks = changed_hooks[PAIR(components.reliable, component)]
+					entity_set(client, entity, component, value, component_hooks)
+				end
 
-			local total_removed = read_vlq_bitmask(c, changed_mask, 2)
-			for _ = 1, total_removed do
-				local component = read_component_id(client, c)
-				local component_hooks = removed_hooks[PAIR(components.reliable, component)]
-				network_entity_remove(client, entity, component, component_hooks)
-			end
+				local total_removed = read_vlq_bitmask(c, changed_mask, 2)
+				for _ = 1, total_removed do
+					local component = read_component_id(client, c)
+					local component_hooks = removed_hooks[PAIR(components.reliable, component)]
+					entity_remove(client, entity, component, component_hooks)
+				end
 
-			local total_pairs = read_vlq_bitmask(c, changed_mask, 3)
-			for _ = 1, total_pairs do
-				local relation = read_component_id(client, c)
-				local pair_changed_hooks = changed_hooks[PAIR(components.pair, relation)]
-				local pair_removed_hooks = removed_hooks[PAIR(components.pair, relation)]
-				local total_targets = cursor.read_vlq(c)
+				local total_pairs = read_vlq_bitmask(c, changed_mask, 3)
+				for _ = 1, total_pairs do
+					local relation = read_component_id(client, c)
+					local pair_changed_hooks = changed_hooks[PAIR(components.pair, relation)]
+					local pair_removed_hooks = removed_hooks[PAIR(components.pair, relation)]
+					local total_targets = cursor.read_vlq(c)
 
-				for _ = 1, total_targets do
-					local action_type = cursor.readi8(c)
+					for _ = 1, total_targets do
+						local action_type = cursor.readi8(c)
 
-					if action_type == 1 then -- add pair
-						local target = process_entity_id(client, c, variants)
-						network_entity_add(client, entity, PAIR(relation, target), pair_changed_hooks)
-					elseif action_type == -1 then -- remove pair
-						local target = read_entity_id(client, c, variants)
-						if target then
-							network_entity_remove(client, entity, PAIR(relation, target), pair_removed_hooks)
+						if action_type == 1 then -- add pair
+							process_entity_id(client, c, custom_ids, function(target)
+								entity_add_pair(client, entity, relation, target, pair_changed_hooks)
+							end)
+						elseif action_type == -1 then -- remove pair
+							process_entity_id(client, c, custom_ids, function(target)
+								entity_remove_pair(client, entity, relation, target, pair_removed_hooks)
+							end)
 						end
 					end
 				end
-			end
 
-			local total_pairs_values_removed = read_vlq_bitmask(c, changed_mask, 4)
-			for _ = 1, total_pairs_values_removed do
-				local relation = read_component_id(client, c)
-				local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
-				local total_targets = cursor.read_vlq(c)
+				local total_pairs_values_removed = read_vlq_bitmask(c, changed_mask, 4)
+				for _ = 1, total_pairs_values_removed do
+					local relation = read_component_id(client, c)
+					local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
+					local total_targets = cursor.read_vlq(c)
 
-				for _ = 1, total_targets do
-					local target = read_entity_id(client, c, variants)
-					if target then
-						network_entity_remove(client, entity, PAIR(relation, target), pair_hooks)
+					for _ = 1, total_targets do
+						process_entity_id(client, c, custom_ids, function(target)
+							entity_remove_pair(client, entity, relation, target, pair_hooks)
+						end)
 					end
 				end
-			end
 
-			local total_pairs_values = read_vlq_bitmask(c, changed_mask, 5)
-			for _ = 1, total_pairs_values do
-				local relation = read_component_id(client, c)
-				local pair_hooks = changed_hooks[PAIR(components.pair, relation)]
-				local total_targets = cursor.read_vlq(c)
+				local total_pairs_values = read_vlq_bitmask(c, changed_mask, 5)
+				for _ = 1, total_pairs_values do
+					local relation = read_component_id(client, c)
+					local pair_hooks = changed_hooks[PAIR(components.pair, relation)]
+					local total_targets = cursor.read_vlq(c)
 
-				for _ = 1, total_targets do
-					local value = read_component_value(client, relation, c, variants)
-					local target = process_entity_id(client, c, variants)
-					network_entity_set(client, entity, PAIR(relation, target), value, pair_hooks)
+					for _ = 1, total_targets do
+						local value = read_component_value(client, relation, c, variants)
+						process_entity_id(client, c, custom_ids, function(target)
+							entity_set_pair(client, entity, relation, target, value, pair_hooks)
+						end)
+					end
 				end
-			end
+			end)
 		end
 
 		local total_component_deletions = read_vlq_bitmask(c, storage_mask, 3)
 		for _ = 1, total_component_deletions do
-			local entity = process_entity_id(client, c, variants)
+			process_entity_id(client, c, custom_ids, function(entity)
+				local total_removed = cursor.read_vlq(c)
+				for _ = 1, total_removed do
+					local component = read_component_id(client, c)
+					local component_hooks = removed_hooks[PAIR(components.reliable, component)]
+					entity_remove(client, entity, component, component_hooks)
+				end
 
-			local total_removed = cursor.read_vlq(c)
-			for _ = 1, total_removed do
-				local component = read_component_id(client, c)
-				local component_hooks = removed_hooks[PAIR(components.reliable, component)]
-				network_entity_remove(client, entity, component, component_hooks)
-			end
-
-			local total_pairs = cursor.read_vlq(c)
-			for _ = 1, total_pairs do
-				local relation = read_component_id(client, c)
-				local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
-				network_entity_remove_relations(client, entity, relation, pair_hooks)
-			end
+				local total_pairs = cursor.read_vlq(c)
+				for _ = 1, total_pairs do
+					local relation = read_component_id(client, c)
+					local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
+					entity_remove_relations(client, entity, relation, pair_hooks)
+				end
+			end)
 		end
 
 		local total_deleted = read_vlq_bitmask(c, storage_mask, 4)
 		for _ = 1, total_deleted do
-			local entity, server_id = read_entity_id(client, c, variants)
+			local entity, server_id = read_entity_id(client, c)
 			if entity then
 				local deleted_hook = deleted_hooks[entity]
 				if deleted_hook then
@@ -580,6 +941,7 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		end
 	end
 
+	finish_custom_ids(client, custom_ids, command_buffers)
 	finish_replication(client)
 end
 
@@ -599,15 +961,14 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 		local variants = all_variants and all_variants[variant_start - a]
 
 		for _ = 1, total_entities do
-			local entity = read_entity_id(client, c, variants)
-
+			local entity = read_entity_id(client, c)
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
 				for _ = 1, total_unreliable do
 					local component_id, value = read_component(client, c, variants)
 					local unreliable_hooks = changed_hooks[PAIR(components.unreliable, component_id)]
-					network_entity_set(client, entity, component_id, value, unreliable_hooks)
+					entity_set_unreliable(client, entity, component_id, value, unreliable_hooks)
 				end
 			else
 				-- dont apply unreliable updates to entities that dont exist in the client yet
@@ -631,15 +992,21 @@ local function apply_full(client: Client, buf: buffer, all_variants: { { any } }
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
+	local command_buffers: { [Entity]: CommandBuffer } = {}
+	local custom_ids: { [Entity]: number } = {}
+
+	client.command_buffers = command_buffers
+
 	for a = 1, total_packets do
 		local total_entities = cursor.read_vlq(c)
 		local variants = all_variants and all_variants[variant_start - a]
 
 		for _ = 1, total_entities do
-			process_entity(client, c, variants)
+			process_entity(client, c, custom_ids, variants)
 		end
 	end
 
+	finish_custom_ids(client, custom_ids, command_buffers)
 	finish_replication(client)
 end
 
@@ -668,11 +1035,7 @@ local function init(client: Client, _world: World?)
 
 	local components = client.components
 
-	client.shared = utils.create_shared_lookup(world, components)
-
-	for component, custom_get in world:query(components.custom_handler):with(components.shared, ECS_NAME) do
-		client.custom_ids[component] = custom_get
-	end
+	client.shared = utils.resolved_shared(world, components, client.registered_custom_ids)
 
 	local alive_unhook = hooks.removed(world, components.__alive_tracking__, function(entity)
 		local server_id = client.client_ids[entity]
@@ -827,7 +1190,6 @@ local function create(world: World?, components: common.Components): Client
 
 	self.components = components
 	self.ordered_creation = true
-	self.custom_ids = {}
 	self.server_ids = {}
 	self.client_ids = {}
 	self.is_dirty = false
@@ -842,6 +1204,7 @@ local function create(world: World?, components: common.Components): Client
 	self.inited = false
 	self.is_replicating = false
 	self.hooked = {}
+	self.registered_custom_ids = {}
 
 	self.addition_hooks = {}
 	self.network_hooks = {
