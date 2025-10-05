@@ -114,8 +114,8 @@ The arguments for the hook method will be:
 ```luau
 local replicator = require("@client/replicator")
 
-replicator:hook(car, "deleted", function(entity)
-    print("car", entity, "was deleted")
+replicator:hook("deleted", entity, function(entity)
+    print(entity, "was deleted")
 end)
 ```
 </div>
@@ -128,7 +128,7 @@ This allows you add your own logic for changing/removing/deleting entities and c
 You override actions the same way you would hook to them,
 but calling `replicator:override(entity, action, ...)` instead, you cant override and hook at the same time for the same component and action.
 
-All action types behave the same way with the exception of "changed" since the component will never change.
+All actions behave the same way with the exception of "changed" since the component will never change.
 
 ```luau
 local replicator = require("@client/replicator")
