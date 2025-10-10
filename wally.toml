@@ -16,4 +16,4 @@ include = [
 exclude = ["**"]
 
 [dependencies]
-jecs = "ukendio/jecs@0.9.0-rc.12"
+jecs = "ukendio/jecs@0.9.0"
