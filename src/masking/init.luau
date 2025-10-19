@@ -1356,11 +1356,14 @@ local function bitmask_from_set(masking: MaskingInternal, member_set: { [Member]
 	for member: Member in member_set do
 		local index = masking.member_indexes[member]
 		if not index then
-			if utils.is_client_valid(member) then
+			local alias = masking.member_indexes[masking.client_aliases[member]]
+			if alias then
+				if utils.is_client_valid(alias) then
+					index = alias
+				end
+			elseif utils.is_client_valid(member) then
 				masking_controller.register_client(masking, member)
 				index = masking.member_indexes[member]
-			else
-				index = masking.member_indexes[masking.client_aliases[member]]
 			end
 		end
 		if index then
