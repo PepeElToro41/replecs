@@ -3,6 +3,7 @@ local customid = require "./customid"
 
 export type FunctionFilter = (player: Player) -> boolean
 export type AnyFilter = PlayerFilter | Player
+type Entity<T = any> = jecs.Entity<T>
 
 export type PlayerFilter = {
 	[Player]: boolean,
@@ -21,39 +22,40 @@ export type Serdes = {
 }
 
 export type Components = {
-	shared: jecs.Entity,
-	networked: jecs.Entity<AnyFilter?>,
-	reliable: jecs.Entity<AnyFilter?>,
-	unreliable: jecs.Entity<AnyFilter?>,
-	pair: jecs.Entity<AnyFilter?>,
+	shared: Entity,
+	networked: Entity<AnyFilter?>,
+	reliable: Entity<AnyFilter?>,
+	unreliable: Entity<AnyFilter?>,
+	pair: Entity<AnyFilter?>,
 
-	serdes: jecs.Entity<Serdes>,
-	bytespan: jecs.Entity<number>,
-	custom: jecs.Entity<customid.CustomId>,
-	global: jecs.Entity<number>,
-	__alive_tracking__: jecs.Entity,
+	serdes: Entity<Serdes>,
+	bytespan: Entity<number>,
+	custom: Entity,
+	custom_handler: Entity<(val: any) -> Entity?>,
+	global: Entity<number>,
+	__alive_tracking__: Entity,
 }
 
 export type Shared = {
-	components: SharedInfo<jecs.Entity>,
+	components: SharedInfo<Entity>,
 	custom_ids: SharedInfo<customid.CustomId>,
 
-	bytespan: { [jecs.Entity]: number },
-	serdes: { [jecs.Entity]: Serdes },
+	bytespan: { [Entity]: number },
+	serdes: { [Entity]: Serdes },
 }
 
 export type WorldHooks = {
 	added: (
 		world: jecs.World,
-		component: jecs.Entity,
-		fn: (entity: jecs.Entity, id: jecs.Id, value: any) -> ()
+		component: Entity,
+		fn: (entity: Entity, id: jecs.Id, value: any) -> ()
 	) -> () -> (),
 	changed: (
 		world: jecs.World,
-		component: jecs.Entity,
-		fn: (entity: jecs.Entity, id: jecs.Id, value: any) -> ()
+		component: Entity,
+		fn: (entity: Entity, id: jecs.Id, value: any) -> ()
 	) -> () -> (),
-	removed: (world: jecs.World, component: jecs.Entity, fn: (entity: jecs.Entity, id: jecs.Id) -> ()) -> () -> (),
+	removed: (world: jecs.World, component: Entity, fn: (entity: Entity, id: jecs.Id) -> ()) -> () -> (),
 }
 
 return nil

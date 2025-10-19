@@ -3,13 +3,12 @@ local player_masking = require "@replecs/masking"
 local utils = require "@replecs/utils"
 
 local jecs = require "@pkg/jecs"
-local observers = require "./observers"
 local testkit = require "./testkit"
 
 type Entity<T = any> = jecs.Entity<T>
 
 type MemberData = {
-	world: observers.PatchedWorld,
+	world: jecs.World,
 	client: replecs.Client,
 	components: { jecs.Entity },
 	tags: { jecs.Entity },
@@ -852,7 +851,7 @@ TEST("member bitmasking", function()
 		CASE "should postpone a component with no filter"
 		PRE()
 
-		local member0, member1, member2, member3 = register_members(masking)
+		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
 		local entity = world:entity()
@@ -1093,43 +1092,341 @@ TEST("replecs server", function() end)
 
 TEST("replecs client", function() end)
 
+local function create_test_components(test_world: jecs.World)
+	local components = {} :: { jecs.Entity<any> }
+	for i = 1, 6 do
+		local component = test_world:component()
+		test_world:add(component, replecs.shared)
+		test_world:set(component, jecs.Name, "component" .. i)
+
+		table.insert(components, component)
+	end
+
+	return components
+end
+
+local function create_test_tags(test_world: jecs.World)
+	local tags = {} :: { jecs.Entity<number> }
+	for i = 1, 6 do
+		local tag = test_world:entity()
+		test_world:add(tag, replecs.shared)
+		test_world:set(tag, jecs.Name, "tag" .. i)
+
+		table.insert(tags, tag)
+	end
+
+	return tags
+end
+
+TEST("custom ids", function()
+	local s_world: jecs.World = nil :: any
+	local c_world: jecs.World = nil :: any
+	local server: replecs.Server = nil :: any
+	local client: replecs.Client = nil :: any
+
+	local function PRE()
+		s_world = jecs.world()
+		c_world = jecs.world()
+		server = replecs.create_server(s_world)
+		client = replecs.create_client(c_world)
+	end
+	local function POST()
+		server:destroy()
+		client:destroy()
+	end
+
+	do
+		CASE "should use custom ids"
+		PRE()
+
+		local created_entity: jecs.Entity? = nil
+		local called = 0
+
+		local custom = replecs.create_custom_id("custom", function()
+			created_entity = c_world:entity()
+			called += 1
+			return created_entity
+		end)
+
+		local plr = newproxy()
+
+		client:register_custom_id(custom)
+		server:register_custom_id(custom)
+
+		server:init()
+		client:init()
+		server.masking:register_client(plr)
+		server.masking:activate_client(plr)
+
+		local e1 = s_world:entity()
+		server:set_custom(e1, custom)
+		server:set_networked(e1)
+		local e2 = s_world:entity()
+		server:set_networked(e2)
+
+		local buf, var = server:get_full(plr)
+		client:apply_full(buf, var)
+
+		CHECK(called == 1)
+		CHECK(client:get_client_entity(e1 :: any) == created_entity)
+		CHECK(client:get_client_entity(e2 :: any) ~= created_entity)
+
+		POST()
+	end
+	do
+		CASE "should find component in buffer"
+		PRE()
+
+		local foo_entity: Entity? = nil
+		local baz_entity: Entity? = nil
+
+		local s_components = create_test_components(s_world)
+		local c_components = create_test_components(c_world)
+
+		local custom = replecs.create_custom_id("custom", function(ctx)
+			local entity = c_world:entity()
+			if ctx.component(c_components[1]) == "foo" then
+				foo_entity = entity
+				return entity
+			else
+				baz_entity = entity
+				return entity
+			end
+		end)
+
+		local plr = newproxy()
+
+		client:register_custom_id(custom)
+		server:register_custom_id(custom)
+
+		server:init()
+		client:init()
+
+		server.masking:register_client(plr)
+		server.masking:activate_client(plr)
+
+		local s_foo = s_world:entity()
+		s_world:set(s_foo, s_components[1], "foo")
+
+		server:set_custom(s_foo, custom)
+		server:set_reliable(s_foo, s_components[1])
+		server:set_networked(s_foo)
+
+		local s_baz = s_world:entity()
+		s_world:set(s_baz, s_components[1], "baz")
+
+		server:set_custom(s_baz, custom)
+		server:set_reliable(s_baz, s_components[1])
+		server:set_networked(s_foo)
+
+		local buf, variants = server:get_full(plr)
+		client:apply_full(buf, variants)
+
+		CHECK(client:get_client_entity(s_foo :: any) == foo_entity)
+		CHECK(client:get_client_entity(s_baz :: any) == baz_entity)
+		POST()
+	end
+	do
+		CASE "should add targets of customids to buffers"
+		PRE()
+
+		local created_entity: Entity
+
+		local s_tags = create_test_tags(s_world)
+		local c_tags = create_test_tags(c_world)
+
+		local custom = replecs.create_custom_id("custom", function()
+			created_entity = c_world:entity()
+			return created_entity
+		end)
+
+		local plr = newproxy()
+
+		client:register_custom_id(custom)
+		server:register_custom_id(custom)
+
+		server:init()
+		client:init()
+
+		server.masking:register_client(plr)
+		server.masking:activate_client(plr)
+
+		local s_target = s_world:entity()
+		server:set_custom(s_target, custom)
+		server:set_networked(s_target)
+
+		local s_entity = s_world:entity()
+		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		server:set_pair(s_entity, s_tags[1])
+		server:set_networked(s_entity)
+
+		local buf, variants = server:get_full(plr)
+		client:apply_full(buf, variants)
+
+		local c_entity = client:get_client_entity(s_entity :: any) :: Entity
+		CHECK(c_entity ~= nil)
+
+		CHECK(c_world:has(c_entity, jecs.pair(c_tags[1], created_entity)))
+		POST()
+	end
+	do
+		CASE "should recursively process custom id targets when applying buffers"
+		PRE()
+
+		local created_target: Entity
+		local created_custom: Entity
+
+		local s_tags = create_test_tags(s_world)
+		local c_tags = create_test_tags(c_world)
+
+		local custom = replecs.create_custom_id("custom", function()
+			created_custom = c_world:entity()
+			return created_custom
+		end)
+		local target_custom = replecs.create_custom_id("target_custom", function()
+			created_target = c_world:entity()
+			return created_target
+		end)
+
+		local plr = newproxy()
+
+		client:register_custom_id(custom)
+		server:register_custom_id(custom)
+		client:register_custom_id(target_custom)
+		server:register_custom_id(target_custom)
+
+		server:init()
+		client:init()
+
+		server.masking:register_client(plr)
+		server.masking:activate_client(plr)
+
+		local s_target = s_world:entity()
+		server:set_custom(s_target, target_custom)
+		server:set_networked(s_target)
+
+		local s_entity = s_world:entity()
+		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		server:set_custom(s_entity, custom)
+		server:set_pair(s_entity, s_tags[1])
+		server:set_networked(s_entity)
+
+		local buf, variants = server:get_full(plr)
+		client:apply_full(buf, variants)
+
+		local c_entity = client:get_client_entity(s_entity :: any) :: Entity
+		CHECK(c_entity ~= nil)
+
+		CHECK(c_entity == created_custom)
+		CHECK(c_world:target(c_entity, c_tags[1]) == created_target)
+		POST()
+	end
+	do
+		CASE "should get target from context"
+		PRE()
+
+		local s_tags = create_test_tags(s_world)
+		local c_tags = create_test_tags(c_world)
+
+		local plr = newproxy()
+
+		server:init()
+		client:init()
+
+		server.masking:register_client(plr)
+		server.masking:activate_client(plr)
+
+		local s_target = s_world:entity()
+		server:set_networked(s_target)
+
+		local custom = replecs.create_custom_id("custom", function(ctx)
+			if ctx.target(c_tags[1]) == client:get_client_entity(s_target :: any) then
+				return c_world:entity()
+			else
+				error "invalid target"
+			end
+		end)
+
+		client:register_custom_id(custom)
+		server:register_custom_id(custom)
+
+		local s_entity = s_world:entity()
+		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		server:set_custom(s_entity, custom)
+		server:set_pair(s_entity, s_tags[1])
+		server:set_networked(s_entity)
+
+		local buf, variants = server:get_full(plr)
+		client:apply_full(buf, variants)
+		POST()
+	end
+	do
+		CASE "should get unprocessed customid target from context"
+		PRE()
+
+		local s_tags = create_test_tags(s_world)
+		local c_tags = create_test_tags(c_world)
+
+		local plr = newproxy()
+
+		server:init()
+		client:init()
+
+		server.masking:register_client(plr)
+		server.masking:activate_client(plr)
+
+		local target_entity: Entity
+		local callstack: { number } = {}
+
+		local target_custom = replecs.create_custom_id("target_custom", function()
+			table.insert(callstack, 2)
+			target_entity = c_world:entity()
+			return target_entity
+		end)
+
+		local custom = replecs.create_custom_id("custom", function(ctx)
+			table.insert(callstack, 1)
+			if ctx.target(c_tags[1]) == target_entity then
+				table.insert(callstack, 3)
+				return c_world:entity()
+			else
+				error "invalid target"
+			end
+		end)
+
+		client:register_custom_id(custom)
+		server:register_custom_id(custom)
+		client:register_custom_id(target_custom)
+		server:register_custom_id(target_custom)
+
+		local s_target = s_world:entity()
+		server:set_custom(s_target, target_custom)
+		server:set_networked(s_target)
+
+		local s_entity = s_world:entity()
+		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		server:set_custom(s_entity, custom)
+		server:set_pair(s_entity, s_tags[1])
+		server:set_networked(s_entity)
+
+		local buf, variants = server:get_full(plr)
+		client:apply_full(buf, variants)
+		CHECK(deep_eq(callstack, { 1, 2, 3 }))
+		POST()
+	end
+end)
+
 TEST("server -> client replication", function()
 	local world: jecs.World = nil :: any
 	local server: replecs.Server = nil :: any
 
 	local function PRE()
-		world = observers(jecs.world())
+		world = jecs.world()
 		server = replecs.create_server(world)
 	end
 
 	local function POST()
 		server:destroy()
-	end
-
-	local function create_test_components(test_world: jecs.World)
-		local components = {} :: { jecs.Entity<any> }
-		for i = 1, 6 do
-			local component = test_world:component()
-			test_world:add(component, replecs.shared)
-			test_world:set(component, jecs.Name, "component" .. i)
-
-			table.insert(components, component)
-		end
-
-		return components
-	end
-
-	local function create_test_tags(test_world: jecs.World)
-		local tags = {} :: { jecs.Entity<number> }
-		for i = 1, 6 do
-			local tag = test_world:entity()
-			test_world:add(tag, replecs.shared)
-			test_world:set(tag, jecs.Name, "tag" .. i)
-
-			table.insert(tags, tag)
-		end
-
-		return tags
 	end
 
 	local function client_entity(member: MemberData, server_entity: jecs.Entity): jecs.Entity?
@@ -1202,7 +1499,7 @@ TEST("server -> client replication", function()
 		local c_tags = {}
 
 		for i = 1, (count or 3) do
-			local new_world = observers(jecs.world())
+			local new_world = jecs.world()
 			local components = create_test_components(new_world)
 			local tags = create_test_tags(new_world)
 			local replicator = replecs.create_client(new_world)

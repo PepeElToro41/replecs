@@ -14,4 +14,5 @@ export type ComponentRecord = module.ComponentRecord
 export type ComponentIndex = module.ComponentIndex
 export type Archetypes = module.Archetypes
 export type EntityIndex = module.EntityIndex
+
 return module

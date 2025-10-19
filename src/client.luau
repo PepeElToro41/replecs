@@ -22,8 +22,8 @@ type Disconnect = () -> ()
 
 type CommandBuffer = {
 	tags: { [Entity]: boolean },
-	components: { [Entity]: any },
-	unreliable_components: { [Entity]: any },
+	components: { [Entity]: { value: any } },
+	unreliable_components: { [Entity]: { value: any } },
 	remove: { [Entity]: boolean },
 	pairs: { [Entity]: Set<Entity> },
 	pairs_values: { [Entity]: { [Entity]: { value: any } } },
@@ -54,6 +54,8 @@ type DeletedHookEntry = {
 	callbacks: Array<(entity: Entity) -> ()>,
 }
 
+type CustomIdMap = { [CustomId]: CustomId | Entity }
+
 export type Client = {
 	world: World,
 	inited: boolean?,
@@ -61,7 +63,7 @@ export type Client = {
 	is_replicating: boolean,
 	after_replication_callbacks: { () -> () },
 
-	is_dirty: boolean,
+	is_shared_dirty: boolean,
 	requires_shared_lookup: { Entity },
 	components: common.Components,
 	shared: common.Shared,
@@ -102,11 +104,16 @@ export type Client = {
 	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 }
 
+local client_replicator = {}
+client_replicator.__index = client_replicator
+
 local GLOBAL_ID_OFFSET = 10
+
 local ENTITY_ID_TYPES = {
 	entity = 1,
-	custom = 2,
-	shared = 3,
+	custom_handler = 2,
+	custom_id = 3,
+	shared = 4,
 }
 local PACKET_TYPES = {
 	full = 1,
@@ -163,10 +170,16 @@ local function get_command_buffer(client: Client, entity: Entity): CommandBuffer
 	return command_buffer
 end
 
-local function entity_set(client: Client, entity: Entity, id: Id, value: any, changed_hooks: ChangedHooksEntry?)
+function client_replicator.entity_set(
+	client: Client,
+	entity: Entity,
+	id: Id,
+	value: any,
+	changed_hooks: ChangedHooksEntry?
+)
 	if client.command_buffers_active then
 		local command_buffer = get_command_buffer(client, entity)
-		command_buffer.components[id] = value
+		command_buffer.components[id] = { value = value }
 	else
 		if changed_hooks then
 			if not changed_hooks.overrides then
@@ -181,7 +194,7 @@ local function entity_set(client: Client, entity: Entity, id: Id, value: any, ch
 	end
 end
 
-local function entity_set_unreliable(
+function client_replicator.entity_set_unreliable(
 	client: Client,
 	entity: Entity,
 	component: Entity,
@@ -192,11 +205,11 @@ local function entity_set_unreliable(
 		local command_buffer = get_command_buffer(client, entity)
 		command_buffer.unreliable_components[component] = value
 	else
-		entity_set(client, entity, component, value, changed_hooks)
+		client_replicator.entity_set(client, entity, component, value, changed_hooks)
 	end
 end
 
-local function entity_set_pair(
+function client_replicator.entity_set_pair(
 	client: Client,
 	entity: Entity,
 	relation: Entity,
@@ -214,11 +227,16 @@ local function entity_set_pair(
 			command_buffer.pairs_values[relation] = { [target] = value }
 		end
 	else
-		entity_set(client, entity, PAIR(relation, target), value, changed_hooks)
+		client_replicator.entity_set(client, entity, PAIR(relation, target), value, changed_hooks)
 	end
 end
 
-local function entity_add(client: Client, entity: Entity, component: Entity, changed_hooks: ChangedHooksEntry?)
+function client_replicator.entity_add(
+	client: Client,
+	entity: Entity,
+	component: Entity,
+	changed_hooks: ChangedHooksEntry?
+)
 	if changed_hooks then
 		if not changed_hooks.overrides then
 			client.world:add(entity, component)
@@ -231,7 +249,7 @@ local function entity_add(client: Client, entity: Entity, component: Entity, cha
 	end
 end
 
-local function entity_add_pair(
+function client_replicator.entity_add_pair(
 	client: Client,
 	entity: Entity,
 	relation: Entity,
@@ -248,11 +266,11 @@ local function entity_add_pair(
 			command_buffer.pairs[relation] = { [target] = true }
 		end
 	else
-		entity_add(client, entity, PAIR(relation, target), changed_hooks)
+		client_replicator.entity_add(client, entity, PAIR(relation, target), changed_hooks)
 	end
 end
 
-local function entity_remove(client: Client, entity: Entity, id: Entity, removed_hooks: RemovedHooksEntry?)
+function client_replicator.entity_remove(client: Client, entity: Entity, id: Entity, removed_hooks: RemovedHooksEntry?)
 	if client.command_buffers_active then
 		local command_buffer = get_command_buffer(client, entity)
 		command_buffer.remove[id] = true
@@ -270,7 +288,7 @@ local function entity_remove(client: Client, entity: Entity, id: Entity, removed
 	end
 end
 
-local function entity_remove_pair(
+function client_replicator.entity_remove_pair(
 	client: Client,
 	entity: Entity,
 	relation: Entity,
@@ -287,11 +305,11 @@ local function entity_remove_pair(
 			command_buffer.pairs_remove[relation] = { [target] = true }
 		end
 	else
-		entity_remove(client, entity, PAIR(relation, target), removed_hooks)
+		client_replicator.entity_remove(client, entity, PAIR(relation, target), removed_hooks)
 	end
 end
 
-local function entity_remove_relations(
+function client_replicator.entity_remove_relations(
 	client: Client,
 	entity: Entity,
 	relation: Entity,
@@ -344,7 +362,7 @@ local function entity_remove_relations(
 	end
 end
 
-local function encode_component(client: Client, component: Entity): number
+function client_replicator.encode_component(client: Client, component: Entity): number
 	local encoded = client.shared.components.members[component]
 	if not encoded then
 		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(client.world, component))
@@ -352,7 +370,7 @@ local function encode_component(client: Client, component: Entity): number
 	end
 	return encoded
 end
-local function decode_component(client: Client, encoded: number): Entity
+function client_replicator.decode_component(client: Client, encoded: number): Entity
 	local component = client.shared.components.indexes[encoded]
 	if not component then
 		print("NON SHARED COMPONENT", encoded, client.shared.components)
@@ -361,7 +379,7 @@ local function decode_component(client: Client, encoded: number): Entity
 	return component
 end
 
-local function read_component_id(client: Client, c: Cursor): Entity
+function client_replicator.read_component_id(client: Client, c: Cursor): Entity
 	local shared_id = cursor.readu8(c)
 	local component = client.shared.components.indexes[shared_id]
 	if not component then
@@ -371,7 +389,7 @@ local function read_component_id(client: Client, c: Cursor): Entity
 	return component
 end
 
-local function read_component_value(client: Client, component: Entity, c: Cursor, variants: { any }?): any
+function client_replicator.read_component_value(client: Client, component: Entity, c: Cursor, variants: { any }?): any
 	local serdes = client.shared.serdes[component]
 
 	if serdes then
@@ -401,13 +419,13 @@ local function read_component_value(client: Client, component: Entity, c: Cursor
 	end
 end
 
-local function read_component(client: Client, c: Cursor, variants: { any }?): (Entity, any)
-	local component = read_component_id(client, c)
-	local value = read_component_value(client, component, c, variants)
+function client_replicator.read_component(client: Client, c: Cursor, variants: { any }?): (Entity, any)
+	local component = client_replicator.read_component_id(client, c)
+	local value = client_replicator.read_component_value(client, component, c, variants)
 	return component, value
 end
 
-local function resolve_global(client: Client, global_id: number): Entity
+function client_replicator.resolve_global(client: Client, global_id: number): Entity
 	if not client.global_handler then
 		error "global id parser not set, consider using client:handle_global()"
 	end
@@ -416,44 +434,61 @@ local function resolve_global(client: Client, global_id: number): Entity
 end
 
 -- returns entity, server_id, id_type
-local function read_entity_id(client: Client, c: Cursor): (Entity?, number?, number?)
+function client_replicator.read_entity_id(client: Client, c: Cursor): (Entity?, number?, number?)
 	local id_type = cursor.readu8(c)
 
 	if id_type <= GLOBAL_ID_OFFSET then
-		if id_type == ENTITY_ID_TYPES.entity then
-			local server_id = cursor.readu40(c)
-			return client.server_ids[server_id], server_id, id_type
-		elseif id_type == ENTITY_ID_TYPES.custom then
+		if
+			id_type == ENTITY_ID_TYPES.entity
+			or id_type == ENTITY_ID_TYPES.custom_id
+			or id_type == ENTITY_ID_TYPES.custom_handler
+		then
 			local server_id = cursor.readu40(c)
 			return client.server_ids[server_id], server_id, id_type
 		elseif id_type == ENTITY_ID_TYPES.shared then
-			return read_component_id(client, c), nil, id_type
+			return client_replicator.read_component_id(client, c), nil, id_type
 		end
 		error(`malformed entity type {id_type} ` .. cursor.readu32(c))
 	else
-		return resolve_global(client, id_type - GLOBAL_ID_OFFSET), nil, id_type
+		return client_replicator.resolve_global(client, id_type - GLOBAL_ID_OFFSET), nil, id_type
 	end
 end
 
-local function process_entity_id(
+function client_replicator.process_entity_id(
 	client: Client,
 	c: Cursor,
-	custom_ids: { [Entity]: number },
+	custom_ids: CustomIdMap,
 	process: (entity: Entity) -> ()
 )
-	local entity, server_id, id_type = read_entity_id(client, c)
+	local entity, server_id, id_type = client_replicator.read_entity_id(client, c)
+
 	if entity then
+		-- skip customid, keep cursor offset
+		if id_type == ENTITY_ID_TYPES.custom_id then
+			client_replicator.read_component_id(client, c)
+		elseif id_type == ENTITY_ID_TYPES.custom_handler then
+			cursor.readu8(c)
+		end
+
 		return process(entity)
 	else
-		if id_type == ENTITY_ID_TYPES.custom then
-			local custom_id = cursor.readu8(c)
-			if custom_id ~= 0 then
-				custom_ids[server_id :: any] = custom_id
+		if id_type == ENTITY_ID_TYPES.custom_id or id_type == ENTITY_ID_TYPES.custom_handler then
+			if id_type == ENTITY_ID_TYPES.custom_id then
+				local component_id = client_replicator.read_component_id(client, c)
+				custom_ids[server_id :: any] = component_id
+			elseif id_type == ENTITY_ID_TYPES.custom_handler then
+				local shared_custom_id = cursor.readu8(c)
+				local handler = client.shared.custom_ids.indexes[shared_custom_id]
+
+				if not handler then
+					utils.logerror "attempted to use a custom id that wasn't registered"
+				end
+				custom_ids[server_id :: any] = handler
 			end
 
 			if client.command_buffers_active then
 				-- negative id means it's a custom id,
-				-- meaning its a sever-id that needs to be translated first
+				-- it needs to be translated first
 				process(-server_id :: any)
 			else
 				client.command_buffers_active = true
@@ -467,76 +502,76 @@ local function process_entity_id(
 	end
 end
 
-local function process_entity_relations(
+function client_replicator.process_entity_relations(
 	client: Client,
 	entity: jecs.Entity,
 	c: Cursor,
-	custom_ids: { [Entity]: number }
+	custom_ids: CustomIdMap
 )
 	local components = client.components
-	local relation = read_component_id(client, c)
+	local relation = client_replicator.read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
 	local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
 
 	for _ = 1, total_targets do
-		process_entity_id(client, c, custom_ids, function(target)
-			entity_add_pair(client, entity, relation, target, pair_hooks)
+		client_replicator.process_entity_id(client, c, custom_ids, function(target)
+			client_replicator.entity_add_pair(client, entity, relation, target, pair_hooks)
 		end)
 	end
 end
 
-local function process_entity_relation_values(
+function client_replicator.process_entity_relation_values(
 	client: Client,
 	entity: jecs.Entity,
 	c: Cursor,
-	custom_ids: { [Entity]: number },
+	custom_ids: CustomIdMap,
 	variants: { any }?
 )
-	local relation = read_component_id(client, c)
+	local relation = client_replicator.read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
 	local components = client.components
 	local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
 
 	for _ = 1, total_targets do
-		local value = read_component_value(client, relation, c, variants)
-		process_entity_id(client, c, custom_ids, function(target)
-			entity_set_pair(client, entity, relation, target, value, pair_hooks)
+		local value = client_replicator.read_component_value(client, relation, c, variants)
+		client_replicator.process_entity_id(client, c, custom_ids, function(target)
+			client_replicator.entity_set_pair(client, entity, relation, target, value, pair_hooks)
 		end)
 	end
 end
 
-local function process_entity(client: Client, c: Cursor, custom_ids: { [Entity]: number }, variants: { any }?)
-	process_entity_id(client, c, custom_ids, function(entity)
+function client_replicator.process_entity(client: Client, c: Cursor, custom_ids: CustomIdMap, variants: { any }?)
+	client_replicator.process_entity_id(client, c, custom_ids, function(entity)
 		local changed_hooks = client.network_hooks.changed
 		local components = client.components
 
 		local total_tags = cursor.read_vlq(c)
 		for _ = 1, total_tags do
-			local tag = read_component_id(client, c)
+			local tag = client_replicator.read_component_id(client, c)
 			local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-			entity_add(client, entity, tag, tag_hooks)
+			client_replicator.entity_add(client, entity, tag, tag_hooks)
 		end
 
 		local total_components = cursor.read_vlq(c)
 		for _ = 1, total_components do
-			local component, value = read_component(client, c, variants)
+			local component, value = client_replicator.read_component(client, c, variants)
 			local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-			entity_set(client, entity, component, value, component_hooks)
+			client_replicator.entity_set(client, entity, component, value, component_hooks)
 		end
 
 		local total_pairs = cursor.read_vlq(c)
 		for _ = 1, total_pairs do
-			process_entity_relations(client, entity, c, custom_ids)
+			client_replicator.process_entity_relations(client, entity, c, custom_ids)
 		end
 
 		local total_pairs_values = cursor.read_vlq(c)
 		for _ = 1, total_pairs_values do
-			process_entity_relation_values(client, entity, c, custom_ids, variants)
+			client_replicator.process_entity_relation_values(client, entity, c, custom_ids, variants)
 		end
 	end)
 end
 
-local function finish_replication(client: Client)
+function client_replicator.finish_replication(client: Client)
 	client.is_replicating = false
 	for _, callback in client.after_replication_callbacks do
 		callback()
@@ -544,10 +579,10 @@ local function finish_replication(client: Client)
 	table.clear(client.after_replication_callbacks)
 end
 
-local function resolve_dirty(client: Client)
-	if client.is_dirty then
+function client_replicator.resolve_dirty(client: Client)
+	if client.is_shared_dirty then
 		client.shared = utils.resolved_shared(client.world, client.components, client.registered_custom_ids)
-		client.is_dirty = false :: true -- wtf
+		client.is_shared_dirty = false :: true -- wtf
 	end
 end
 
@@ -575,64 +610,77 @@ local function read_vlq_bitmask(c: Cursor, mask: number, bit: number): number
 	end
 end
 
-local function apply_command_buffer(
+function client_replicator.apply_command_buffer(
 	client: Client,
 	entity: Entity,
 	command_buffer: CommandBuffer,
-	request: (e: Entity, ...any) -> Entity
+	request: (e: Entity, ...any) -> Entity?
 )
 	local components = client.components
 
 	for tag in command_buffer.tags do
 		local tag_hooks = client.network_hooks.changed[PAIR(components.reliable, tag)]
-		entity_add(client, entity, tag, tag_hooks)
+		client_replicator.entity_add(client, entity, tag, tag_hooks)
 	end
 	for component, value in command_buffer.components do
 		local component_hooks = client.network_hooks.changed[PAIR(components.reliable, component)]
-		entity_set(client, entity, component, value, component_hooks)
+		client_replicator.entity_set(client, entity, component, value, component_hooks)
 	end
 	for component, value in command_buffer.unreliable_components do
 		local component_hooks = client.network_hooks.changed[PAIR(components.unreliable, component)]
-		entity_set(client, entity, component, value, component_hooks)
+		client_replicator.entity_set(client, entity, component, value, component_hooks)
 	end
 	for component in command_buffer.remove do
 		local component_hooks = client.network_hooks.removed[PAIR(components.reliable, component)]
-		entity_remove(client, entity, component, component_hooks)
+		client_replicator.entity_remove(client, entity, component, component_hooks)
 	end
 	for relation, targets in command_buffer.pairs do
 		local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
 		for target in targets do
-			entity_add_pair(client, entity, relation, request(target), pair_hooks)
+			local client_target = request(target)
+			if client_target then
+				client_replicator.entity_add_pair(client, entity, relation, client_target, pair_hooks)
+			end
 		end
 	end
 	for relation, targets in command_buffer.pairs_values do
 		local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
 		for target, value in targets do
-			entity_set_pair(client, entity, relation, request(target), value.value, pair_hooks)
+			local client_target = request(target)
+			if client_target then
+				client_replicator.entity_set_pair(client, entity, relation, client_target, value.value, pair_hooks)
+			end
 		end
 	end
 	for relation, targets in command_buffer.pairs_remove do
 		local pair_hooks = client.network_hooks.removed[PAIR(components.pair, relation)]
 		for target in targets do
-			entity_remove_pair(client, entity, relation, request(target), pair_hooks)
+			local client_target = request(target)
+			if client_target then
+				client_replicator.entity_remove_pair(client, entity, relation, client_target, pair_hooks)
+			end
 		end
 	end
 	for relation in command_buffer.pairs_clear do
 		local pair_hooks = client.network_hooks.removed[PAIR(components.pair, relation)]
-		entity_remove_relations(client, entity, relation, pair_hooks)
+		client_replicator.entity_remove_relations(client, entity, relation, pair_hooks)
 	end
 end
 
-local function find_component_in_buffer(command_buffer: CommandBuffer, component: Entity): any
+function client_replicator.find_component_in_buffer(command_buffer: CommandBuffer, component: Entity): { value: any }?
 	return command_buffer.components[component] or command_buffer.unreliable_components[component]
 end
 
-local function find_has_in_buffer(command_buffer: CommandBuffer, tag: Entity): boolean
+function client_replicator.find_has_in_buffer(command_buffer: CommandBuffer, tag: Entity): boolean
 	return (command_buffer.tags[tag] ~= nil)
 		or (command_buffer.components[tag] ~= nil)
 		or (command_buffer.unreliable_components[tag] ~= nil)
 end
-local function find_pair_in_buffer(command_buffer: CommandBuffer, relation: Entity, target: Entity): (boolean, any)
+function client_replicator.find_pair_in_buffer(
+	command_buffer: CommandBuffer,
+	relation: Entity,
+	target: Entity
+): (boolean, any)
 	local value_relations = command_buffer.pairs_values[relation]
 	local value = value_relations and value_relations[target]
 
@@ -650,7 +698,11 @@ local function find_pair_in_buffer(command_buffer: CommandBuffer, relation: Enti
 	return false, nil
 end
 
-local function find_target_in_buffer(command_buffer: CommandBuffer, relation: Entity, index: number?): Entity?
+function client_replicator.find_target_in_buffer(
+	command_buffer: CommandBuffer,
+	relation: Entity,
+	index: number?
+): Entity?
 	local pairs = command_buffer.pairs[relation]
 	if pairs then
 		local i = 0
@@ -674,15 +726,16 @@ local function find_target_in_buffer(command_buffer: CommandBuffer, relation: En
 	return nil
 end
 
-local function finish_custom_ids(
+function client_replicator.finish_custom_ids(
 	client: Client,
-	custom_ids: { [Entity]: number },
+	custom_ids: CustomIdMap,
 	command_buffers: { [Entity]: CommandBuffer }
 )
 	local funcs = {} -- this is so process can use create_context even if its defined after
 	local processed: { [Entity]: boolean } = {}
 
-	local function process(entity: Entity, shared_custom_id: number?)
+	local function process(entity: Entity, custom_handler: (CustomId | Entity)?): Entity?
+		-- negative entities means they are still server ids that haven't been processed yet
 		if (entity :: any) > 0 then
 			return entity
 		end
@@ -693,27 +746,52 @@ local function finish_custom_ids(
 		end
 
 		if processed[server_entity] then
-			return nil :: any
+			return nil
 		end
 
-		local shared_custom_id = shared_custom_id or custom_ids[server_entity]
-		if not shared_custom_id then
-			return nil :: any
+		local new_entity: Entity? = nil
+		local command_buffer = command_buffers[entity :: any]
+		custom_handler = custom_handler or custom_ids[server_entity]
+
+		if type(custom_handler) == "number" then
+			local component: Entity = custom_handler :: any
+
+			local handler = client.world:get(component, client.components.custom_handler)
+			if not handler then
+				return utils.logerror(
+					`received a custom id for a non custom component, consider adding custom_id to component: {utils.logcomponent(
+						client.world,
+						component
+					)}`
+				)
+			end
+			if command_buffer then
+				local value = client_replicator.find_component_in_buffer(command_buffer, component)
+				if value then
+					new_entity = handler(value.value)
+				else
+					utils.logwarn(
+						`No component found for custom id handler: {utils.logcomponent(client.world, component)}`
+					)
+					new_entity = handler(nil)
+				end
+			else
+				utils.logwarn(`No component found for custom id handler: {utils.logcomponent(client.world, component)}`)
+				new_entity = handler(nil)
+				warn "No "
+			end
+		else
+			custom_handler = custom_handler or custom_ids[server_entity :: any]
+			local handle_callback = (custom_handler :: CustomId).handle_callback
+			new_entity = handle_callback(funcs.create_context(entity))
 		end
 
-		local custom_handler = client.shared.custom_ids.indexes[shared_custom_id]
-		if not custom_handler then
-			utils.logerror "attempted to use a custom id that wasn't registered"
-		end
-		local handle_callback = custom_handler.handle_callback
-		if not handle_callback then
-			utils.logerror(`custom id: {custom_handler.identifier} has no handle callback set`)
-		end
-
-		local new_entity = handle_callback(funcs.create_context(server_entity))
 		if new_entity then
 			client.server_ids[server_entity] = new_entity
-			apply_command_buffer(client, new_entity, command_buffers[server_entity], process)
+			if command_buffer then
+				client_replicator.apply_command_buffer(client, new_entity, command_buffer, process)
+				command_buffers[entity] = nil
+			end
 		end
 
 		processed[server_entity] = true
@@ -721,33 +799,51 @@ local function finish_custom_ids(
 	end
 
 	local function create_context(entity_id: Entity)
-		local function component(_, component: Entity): any
-			return find_component_in_buffer(command_buffers[entity_id], component)
+		local command_buffer = command_buffers[entity_id]
+
+		local function component(component: Entity): any
+			if not command_buffer then
+				return nil
+			end
+			local val = client_replicator.find_component_in_buffer(command_buffer, component)
+			return val and val.value
 		end
-		local function target(_, relation: Entity, index: number?): Entity
-			local server_target = find_target_in_buffer(command_buffers[entity_id], relation, index)
+		local function target(relation: Entity, index: number?): Entity
+			if not command_buffer then
+				return nil :: any
+			end
+			local server_target = client_replicator.find_target_in_buffer(command_buffer, relation, index)
 			if server_target then
-				return process(server_target :: any)
+				return process(server_target :: any) :: Entity
 			end
 			return nil :: any
 		end
-		local function pair_value(_, relation: Entity, target: Entity): any
-			local _, value = find_pair_in_buffer(command_buffers[entity_id], relation, target)
+		local function pair_value(relation: Entity, target: Entity): any
+			if not command_buffer then
+				return nil :: any
+			end
+			local _, value = client_replicator.find_pair_in_buffer(command_buffer, relation, target)
 			return value
 		end
-		local function has_pair(_, relation: Entity, target: Entity): boolean
-			local has = find_pair_in_buffer(command_buffers[entity_id], relation, target)
+		local function has_pair(relation: Entity, target: Entity): boolean
+			if not command_buffer then
+				return nil :: any
+			end
+			local has = client_replicator.find_pair_in_buffer(command_buffer, relation, target)
 			return has
 		end
-		local function has(_, tag: Entity): boolean
-			return find_has_in_buffer(command_buffers[entity_id], tag)
+		local function has(tag: Entity): boolean
+			if not command_buffer then
+				return nil :: any
+			end
+			return client_replicator.find_has_in_buffer(command_buffer, tag)
 		end
-		local function entity(_, entity: Entity): Entity
-			return process(-(entity :: any))
+		local function entity(server_entity: number): Entity
+			return process(-server_entity :: any) :: Entity
 		end
 
 		local context: customid.HandleContext = {
-			entity_id = entity_id,
+			entity_id = math.abs(entity_id :: any),
 			has = has,
 			component = component,
 			target = target,
@@ -760,15 +856,22 @@ local function finish_custom_ids(
 	end
 	funcs.create_context = create_context
 
-	for entity, shared_custom_id in custom_ids do
-		process(-(entity :: any), shared_custom_id)
+	for entity, custom_handler in custom_ids do
+		process(-(entity :: any), custom_handler)
+	end
+
+	for entity, command_buffer in command_buffers do
+		if (entity :: any) < 0 then
+			continue
+		end
+		client_replicator.apply_command_buffer(client, entity, command_buffer, process)
 	end
 end
 
-local function apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
+function client_replicator.apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "reliable")
-	resolve_dirty(client)
+	client_replicator.resolve_dirty(client)
 	client.is_replicating = true
 
 	local components = client.components
@@ -779,7 +882,7 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 	local deleted_hooks = client.network_hooks.deleted
 
 	local command_buffers: { [Entity]: CommandBuffer } = {}
-	local custom_ids: { [Entity]: number } = {}
+	local custom_ids: CustomIdMap = {}
 
 	client.command_buffers = command_buffers
 
@@ -789,69 +892,69 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 		local total_added = read_vlq_bitmask(c, storage_mask, 0)
 		for _ = 1, total_added do
-			process_entity(client, c, custom_ids, variants)
+			client_replicator.process_entity(client, c, custom_ids, variants)
 		end
 
 		local total_components_added = read_vlq_bitmask(c, storage_mask, 1)
 		for _ = 1, total_components_added do
-			process_entity_id(client, c, custom_ids, function(entity)
+			client_replicator.process_entity_id(client, c, custom_ids, function(entity)
 				local added_mask = cursor.readu8(c)
 
 				local total_tags = read_vlq_bitmask(c, added_mask, 0)
 				for _ = 1, total_tags do
-					local tag = read_component_id(client, c)
+					local tag = client_replicator.read_component_id(client, c)
 					local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-					entity_add(client, entity, tag, tag_hooks)
+					client_replicator.entity_add(client, entity, tag, tag_hooks)
 				end
 
 				local total_components = read_vlq_bitmask(c, added_mask, 1)
 				for _ = 1, total_components do
-					local component, value = read_component(client, c, variants)
+					local component, value = client_replicator.read_component(client, c, variants)
 					local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-					entity_set(client, entity, component, value, component_hooks)
+					client_replicator.entity_set(client, entity, component, value, component_hooks)
 				end
 
 				local total_pairs = read_vlq_bitmask(c, added_mask, 2)
 				for _ = 1, total_pairs do
-					process_entity_relations(client, entity, c, custom_ids)
+					client_replicator.process_entity_relations(client, entity, c, custom_ids)
 				end
 
 				local total_pairs_values = read_vlq_bitmask(c, added_mask, 3)
 				for _ = 1, total_pairs_values do
-					process_entity_relation_values(client, entity, c, custom_ids, variants)
+					client_replicator.process_entity_relation_values(client, entity, c, custom_ids, variants)
 				end
 			end)
 		end
 
 		local total_changed = read_vlq_bitmask(c, storage_mask, 2)
 		for _ = 1, total_changed do
-			process_entity_id(client, c, custom_ids, function(entity)
+			client_replicator.process_entity_id(client, c, custom_ids, function(entity)
 				local changed_mask = cursor.readu8(c)
 
 				local total_tagged = read_vlq_bitmask(c, changed_mask, 0)
 				for _ = 1, total_tagged do
-					local tag = read_component_id(client, c)
+					local tag = client_replicator.read_component_id(client, c)
 					local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-					entity_add(client, entity, tag, tag_hooks)
+					client_replicator.entity_add(client, entity, tag, tag_hooks)
 				end
 
 				local total_components = read_vlq_bitmask(c, changed_mask, 1)
 				for _ = 1, total_components do
-					local component, value = read_component(client, c, variants)
+					local component, value = client_replicator.read_component(client, c, variants)
 					local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-					entity_set(client, entity, component, value, component_hooks)
+					client_replicator.entity_set(client, entity, component, value, component_hooks)
 				end
 
 				local total_removed = read_vlq_bitmask(c, changed_mask, 2)
 				for _ = 1, total_removed do
-					local component = read_component_id(client, c)
+					local component = client_replicator.read_component_id(client, c)
 					local component_hooks = removed_hooks[PAIR(components.reliable, component)]
-					entity_remove(client, entity, component, component_hooks)
+					client_replicator.entity_remove(client, entity, component, component_hooks)
 				end
 
 				local total_pairs = read_vlq_bitmask(c, changed_mask, 3)
 				for _ = 1, total_pairs do
-					local relation = read_component_id(client, c)
+					local relation = client_replicator.read_component_id(client, c)
 					local pair_changed_hooks = changed_hooks[PAIR(components.pair, relation)]
 					local pair_removed_hooks = removed_hooks[PAIR(components.pair, relation)]
 					local total_targets = cursor.read_vlq(c)
@@ -860,12 +963,18 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 						local action_type = cursor.readi8(c)
 
 						if action_type == 1 then -- add pair
-							process_entity_id(client, c, custom_ids, function(target)
-								entity_add_pair(client, entity, relation, target, pair_changed_hooks)
+							client_replicator.process_entity_id(client, c, custom_ids, function(target)
+								client_replicator.entity_add_pair(client, entity, relation, target, pair_changed_hooks)
 							end)
 						elseif action_type == -1 then -- remove pair
-							process_entity_id(client, c, custom_ids, function(target)
-								entity_remove_pair(client, entity, relation, target, pair_removed_hooks)
+							client_replicator.process_entity_id(client, c, custom_ids, function(target)
+								client_replicator.entity_remove_pair(
+									client,
+									entity,
+									relation,
+									target,
+									pair_removed_hooks
+								)
 							end)
 						end
 					end
@@ -873,27 +982,27 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 				local total_pairs_values_removed = read_vlq_bitmask(c, changed_mask, 4)
 				for _ = 1, total_pairs_values_removed do
-					local relation = read_component_id(client, c)
+					local relation = client_replicator.read_component_id(client, c)
 					local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
 					local total_targets = cursor.read_vlq(c)
 
 					for _ = 1, total_targets do
-						process_entity_id(client, c, custom_ids, function(target)
-							entity_remove_pair(client, entity, relation, target, pair_hooks)
+						client_replicator.process_entity_id(client, c, custom_ids, function(target)
+							client_replicator.entity_remove_pair(client, entity, relation, target, pair_hooks)
 						end)
 					end
 				end
 
 				local total_pairs_values = read_vlq_bitmask(c, changed_mask, 5)
 				for _ = 1, total_pairs_values do
-					local relation = read_component_id(client, c)
+					local relation = client_replicator.read_component_id(client, c)
 					local pair_hooks = changed_hooks[PAIR(components.pair, relation)]
 					local total_targets = cursor.read_vlq(c)
 
 					for _ = 1, total_targets do
-						local value = read_component_value(client, relation, c, variants)
-						process_entity_id(client, c, custom_ids, function(target)
-							entity_set_pair(client, entity, relation, target, value, pair_hooks)
+						local value = client_replicator.read_component_value(client, relation, c, variants)
+						client_replicator.process_entity_id(client, c, custom_ids, function(target)
+							client_replicator.entity_set_pair(client, entity, relation, target, value, pair_hooks)
 						end)
 					end
 				end
@@ -902,26 +1011,26 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 
 		local total_component_deletions = read_vlq_bitmask(c, storage_mask, 3)
 		for _ = 1, total_component_deletions do
-			process_entity_id(client, c, custom_ids, function(entity)
+			client_replicator.process_entity_id(client, c, custom_ids, function(entity)
 				local total_removed = cursor.read_vlq(c)
 				for _ = 1, total_removed do
-					local component = read_component_id(client, c)
+					local component = client_replicator.read_component_id(client, c)
 					local component_hooks = removed_hooks[PAIR(components.reliable, component)]
-					entity_remove(client, entity, component, component_hooks)
+					client_replicator.entity_remove(client, entity, component, component_hooks)
 				end
 
 				local total_pairs = cursor.read_vlq(c)
 				for _ = 1, total_pairs do
-					local relation = read_component_id(client, c)
+					local relation = client_replicator.read_component_id(client, c)
 					local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
-					entity_remove_relations(client, entity, relation, pair_hooks)
+					client_replicator.entity_remove_relations(client, entity, relation, pair_hooks)
 				end
 			end)
 		end
 
 		local total_deleted = read_vlq_bitmask(c, storage_mask, 4)
 		for _ = 1, total_deleted do
-			local entity, server_id = read_entity_id(client, c)
+			local entity, server_id = client_replicator.read_entity_id(client, c)
 			if entity then
 				local deleted_hook = deleted_hooks[entity]
 				if deleted_hook then
@@ -941,14 +1050,14 @@ local function apply_updates(client: Client, buf: buffer, all_variants: { { any 
 		end
 	end
 
-	finish_custom_ids(client, custom_ids, command_buffers)
-	finish_replication(client)
+	client_replicator.finish_custom_ids(client, custom_ids, command_buffers)
+	client_replicator.finish_replication(client)
 end
 
-local function apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
+function client_replicator.apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "unreliable")
-	resolve_dirty(client)
+	client_replicator.resolve_dirty(client)
 	client.is_replicating = true
 
 	local components = client.components
@@ -961,39 +1070,39 @@ local function apply_unreliable(client: Client, buf: buffer, all_variants: { { a
 		local variants = all_variants and all_variants[variant_start - a]
 
 		for _ = 1, total_entities do
-			local entity = read_entity_id(client, c)
+			local entity = client_replicator.read_entity_id(client, c)
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
 				for _ = 1, total_unreliable do
-					local component_id, value = read_component(client, c, variants)
+					local component_id, value = client_replicator.read_component(client, c, variants)
 					local unreliable_hooks = changed_hooks[PAIR(components.unreliable, component_id)]
-					entity_set_unreliable(client, entity, component_id, value, unreliable_hooks)
+					client_replicator.entity_set_unreliable(client, entity, component_id, value, unreliable_hooks)
 				end
 			else
 				-- dont apply unreliable updates to entities that dont exist in the client yet
 				-- but we still need to process the values to keep the cursor in the right place
 				for _ = 1, total_unreliable do
-					read_component(client, c, variants)
+					client_replicator.read_component(client, c, variants)
 				end
 			end
 		end
 	end
 
-	finish_replication(client)
+	client_replicator.finish_replication(client)
 end
 
-local function apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
+function client_replicator.apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	local c = cursor.from(buf)
 	check_packet_type(c, "full")
-	resolve_dirty(client)
+	client_replicator.resolve_dirty(client)
 	client.is_replicating = true
 
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
 
 	local command_buffers: { [Entity]: CommandBuffer } = {}
-	local custom_ids: { [Entity]: number } = {}
+	local custom_ids: CustomIdMap = {}
 
 	client.command_buffers = command_buffers
 
@@ -1002,15 +1111,15 @@ local function apply_full(client: Client, buf: buffer, all_variants: { { any } }
 		local variants = all_variants and all_variants[variant_start - a]
 
 		for _ = 1, total_entities do
-			process_entity(client, c, custom_ids, variants)
+			client_replicator.process_entity(client, c, custom_ids, variants)
 		end
 	end
 
-	finish_custom_ids(client, custom_ids, command_buffers)
-	finish_replication(client)
+	client_replicator.finish_custom_ids(client, custom_ids, command_buffers)
+	client_replicator.finish_replication(client)
 end
 
-local function init(client: Client, _world: World?)
+function client_replicator.init(client: Client, _world: World?)
 	if client.inited == true then
 		return warn "attempted to init a client twice"
 	end
@@ -1049,17 +1158,17 @@ local function init(client: Client, _world: World?)
 
 	for _, component in client.requires_shared_lookup do
 		local added_hook = hooks.added(world, component, function()
-			client.is_dirty = true
+			client.is_shared_dirty = true
 		end)
 		local removed_hook = hooks.removed(world, component, function()
-			client.is_dirty = true
+			client.is_shared_dirty = true
 		end)
 		table.insert(client.hooked, added_hook)
 		table.insert(client.hooked, removed_hook)
 	end
 end
 
-local function after_replication(client: Client, callback: () -> ())
+function client_replicator.after_replication(client: Client, callback: () -> ())
 	if client.is_replicating then
 		table.insert(client.after_replication_callbacks, callback)
 	else
@@ -1067,7 +1176,7 @@ local function after_replication(client: Client, callback: () -> ())
 	end
 end
 
-local function added(client: Client, callback: (entity: Entity) -> ())
+function client_replicator.added(client: Client, callback: (entity: Entity) -> ())
 	table.insert(client.addition_hooks, callback)
 	return function()
 		local index = table.find(client.addition_hooks, callback)
@@ -1135,26 +1244,31 @@ local function add_hook_entry(client: Client, action: string, ...): ({ overrides
 	end
 end
 
-local function hook(client: Client, action: string, ...)
+function client_replicator.hook(client: Client, action: string, ...)
 	local entry, disconnect = add_hook_entry(client, action, ...)
 	entry.overrides = false
 	return disconnect
 end
-local function override(client: Client, action: string, ...)
+function client_replicator.override(client: Client, action: string, ...)
 	local entry, disconnect = add_hook_entry(client, action, ...)
 	entry.overrides = true
 	return disconnect
 end
 
-local function get_server_entity(client: Client, client_entity: Entity): number?
+function client_replicator.get_server_entity(client: Client, client_entity: Entity): number?
 	return client.client_ids[client_entity]
 end
 
-local function get_client_entity(client: Client, client_entity: number): Entity?
+function client_replicator.get_client_entity(client: Client, client_entity: number): Entity?
 	return client.server_ids[client_entity]
 end
 
-local function destroy(client: Client)
+function client_replicator.register_custom_id(client: Client, custom_id: CustomId)
+	client.registered_custom_ids[custom_id] = true
+	client.is_shared_dirty = true
+end
+
+function client_replicator.destroy(client: Client)
 	if client.inited == nil then
 		return warn "attempted to destroy a client twice"
 	end
@@ -1164,26 +1278,9 @@ local function destroy(client: Client)
 	end
 end
 
-local function handle_global(client: Client, handler: (id: number) -> Entity)
+function client_replicator.handle_global(client: Client, handler: (id: number) -> Entity)
 	client.global_handler = handler
 end
-
-local client = {}
-client.__index = client
-client.init = init
-client.destroy = destroy
-client.apply_updates = apply_updates
-client.apply_unreliable = apply_unreliable
-client.apply_full = apply_full
-client.encode_component = encode_component
-client.decode_component = decode_component
-client.get_server_entity = get_server_entity
-client.get_client_entity = get_client_entity
-client.handle_global = handle_global
-client.after_replication = after_replication
-client.hook = hook
-client.override = override
-client.added = added
 
 local function create(world: World?, components: common.Components): Client
 	local self = {} :: Client
@@ -1192,7 +1289,7 @@ local function create(world: World?, components: common.Components): Client
 	self.ordered_creation = true
 	self.server_ids = {}
 	self.client_ids = {}
-	self.is_dirty = false
+	self.is_shared_dirty = false
 	self.requires_shared_lookup = {
 		self.components.shared,
 		self.components.serdes,
@@ -1214,9 +1311,10 @@ local function create(world: World?, components: common.Components): Client
 	}
 	self.after_replication_callbacks = {}
 
-	return setmetatable(self, client) :: any
+	return setmetatable(self, client_replicator) :: any
 end
 
-client.create = create
-
-return client :: { create: typeof(create) }
+return {
+	create = create,
+	client_replicator = client_replicator,
+}

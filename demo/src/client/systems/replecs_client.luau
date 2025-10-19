@@ -1,8 +1,7 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 
 local replicator = require(script.Parent.Parent.replicator)
-local scheduler = require(ReplicatedStorage.code.ecs.scheduler)
-local world = require(ReplicatedStorage.code.world)
+local scheduler = require(ReplicatedStorage.code.utils.ecs.scheduler)
 local zap = require(ReplicatedStorage.code.zap)
 
 function REPLECS_CLIENT()

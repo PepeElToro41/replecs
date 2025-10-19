@@ -1,8 +1,8 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local world = require(script.Parent.world)
-local add_names = require(ReplicatedStorage.code.ecs.add_names)
-local add_shared = require(ReplicatedStorage.code.ecs.add_shared)
-local ref = require(ReplicatedStorage.code.ecs.ref)
+local add_names = require(ReplicatedStorage.code.utils.ecs.add_names)
+local add_shared = require(ReplicatedStorage.code.utils.ecs.add_shared)
+local ref = require(ReplicatedStorage.code.utils.ecs.ref)
 local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
 
@@ -33,7 +33,9 @@ local components = {
 }
 
 world:set(components.player, replecs.custom_handler, function(player: Player)
-	return ref(player) :: any
+	local entity = ref(player)
+	print("GETTING CUSTOM PLAYER", player, entity)
+	return entity
 end)
 
 world:set(components.transform, replecs.serdes, {

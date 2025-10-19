@@ -1,7 +1,7 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local Workspace = game:GetService "Workspace"
 local c = require(ReplicatedStorage.code.components)
-local scheduler = require(ReplicatedStorage.code.ecs.scheduler)
+local scheduler = require(ReplicatedStorage.code.utils.ecs.scheduler)
 local world = require(ReplicatedStorage.code.world)
 
 local q_transforms = world:query(c.basepart, c.transform):cached()

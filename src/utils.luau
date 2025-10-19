@@ -514,7 +514,7 @@ function bitmask.rshift(self: Bitmask, n: number): Bitmask
 	return result
 end
 
-local function _tobinary(n: number): string
+local function tobinary(n: number): string
 	if n == 0 then
 		return "0"
 	end
@@ -546,11 +546,14 @@ function bitmask.tostring(self: Bitmask): string
 	end
 
 	table.clear(BYTES)
+	local str = ""
 	for i = 0, highest_entry do
-		table.insert(BYTES, buffer.readu32(buf, i * BYTES_PER_ENTRY))
+		str = str .. tobinary(buffer.readu32(buf, i * BYTES_PER_ENTRY))
+		--table.insert(BYTES, buffer.readu32(buf, i * BYTES_PER_ENTRY))
 	end
 
-	return table.concat(BYTES, "-")
+	--return table.concat(BYTES, "-")
+	return str
 end
 
 utils.bitmask = {
@@ -616,6 +619,17 @@ function utils.resolved_shared(
 	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
 
 	return shared
+end
+
+function utils.is_client_valid(player: any): boolean
+	if game then
+		if typeof(player) == "Instance" then
+			return player.ClassName == "Player" and player:IsDescendantOf(game:GetService "Players")
+		else
+			return false
+		end
+	end
+	return true
 end
 
 function utils.vlq_span(length: number): number

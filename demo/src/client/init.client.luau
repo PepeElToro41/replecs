@@ -3,10 +3,11 @@ local ReplicatedStorage = game:GetService "ReplicatedStorage"
 require(ReplicatedStorage.packages.replecs)
 
 local c = require(ReplicatedStorage.code.components)
-local ref = require(ReplicatedStorage.code.ecs.ref)
+
 local players = require(ReplicatedStorage.code.players)
 local systems_order = require(script.systems_order)
 local start = require(ReplicatedStorage.code.start)
+local ref = require(ReplicatedStorage.code.utils.ecs.ref)
 local import_paths = require(ReplicatedStorage.code.utils.import_paths)
 local world = require(ReplicatedStorage.code.world)
 local zap = require(ReplicatedStorage.code.zap)

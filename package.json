@@ -10,7 +10,7 @@
    },
    "scripts": {
       "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json",
-      "test": "lune run tests/replecs.spec.luau",
+      "test": "zune run tests/replecs.spec.luau",
       "bench": "lune run tests/bench/replecs.bench.luau",
       "release": "lune run release.luau",
       "dev": "lune run dev.luau"

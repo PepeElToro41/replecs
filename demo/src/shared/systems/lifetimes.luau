@@ -1,6 +1,6 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local c = require(ReplicatedStorage.code.components)
-local scheduler = require(ReplicatedStorage.code.ecs.scheduler)
+local scheduler = require(ReplicatedStorage.code.utils.ecs.scheduler)
 local world = require(ReplicatedStorage.code.world)
 
 local q_lifetimes = world:query(c.unix, c.lifetime):cached()

@@ -7,7 +7,11 @@ local customid = require "@self/customid"
 
 export type Server = server.Server
 export type Client = client.Client
+
+export type HandleContext = customid.HandleContext
 export type CustomId = customid.CustomId
+
+type Entity = jecs.Entity
 
 export type ReplecsLib = {
 	server: Server,
@@ -22,7 +26,7 @@ type Replecs = common.Components & {
 
 	create_server: (world: jecs.World?) -> Server,
 	create_client: (world: jecs.World?) -> Client,
-	create_custom_id: (identifier: string) -> CustomId,
+	create_custom_id: (identifier: string, handler: (ctx: HandleContext) -> Entity?) -> CustomId,
 }
 
 type MemberFilter = {
@@ -38,7 +42,8 @@ local replecs = {
 
 	serdes = jecs.component(),
 	bytespan = jecs.component(),
-	custom = jecs.component(),
+	custom = jecs.tag(),
+	custom_handler = jecs.component(),
 	global = jecs.component(),
 	__alive_tracking__ = jecs.tag(),
 }
@@ -47,6 +52,7 @@ replecs.__index = replecs
 replecs.Serdes = replecs.serdes
 replecs.Bytespan = replecs.bytespan
 replecs.Custom = replecs.custom
+replecs.CustomHandler = replecs.custom_handler
 replecs.Networked = replecs.networked
 replecs.Reliable = replecs.reliable
 replecs.Unreliable = replecs.unreliable
@@ -57,6 +63,7 @@ replecs.Global = replecs.global
 jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
 jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
 jecs.meta(replecs.custom, jecs.Name, "replecs.custom")
+jecs.meta(replecs.custom_handler, jecs.Name, "replecs.custom_handler")
 jecs.meta(replecs.networked, jecs.Name, "replecs.networked")
 jecs.meta(replecs.reliable, jecs.Name, "replecs.reliable")
 jecs.meta(replecs.unreliable, jecs.Name, "replecs.unreliable")
@@ -93,8 +100,8 @@ function replecs.create(world: jecs.World?): ReplecsLib
 	return setmetatable(lib, replecs) :: any
 end
 
-function replecs.create_custom_id(identifier: string)
-	return customid.create(identifier)
+function replecs.create_custom_id(identifier: string, handler: (ctx: HandleContext) -> Entity?)
+	return customid.create(identifier, handler)
 end
 
 function replecs.after_replication(lib: ReplecsLib, callback: () -> ())
