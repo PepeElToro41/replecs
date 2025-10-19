@@ -685,17 +685,6 @@ function masking_controller.move_entity_storage(
 	return target_storage
 end
 
-function masking_controller.remove_component_in_storage(
-	masking: MaskingInternal,
-	entity: Entity,
-	component: Entity,
-	component_type: number,
-	storage: StorageGroup
-)
-	remove_component_active(storage, entity, component, component_type)
-	remove_component_index_entry(storage.shared_with, entity, component, component_type)
-end
-
 function masking_controller.move_component_storage(
 	masking: MaskingInternal,
 	entity: Entity,
