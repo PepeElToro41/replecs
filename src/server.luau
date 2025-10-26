@@ -786,6 +786,12 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: 
 	local iterated: Player? = nil
 	local function iterator()
 		local player, data = next(packets, iterated)
+		while not utils.is_client_valid(player) do
+			if not player and not data then
+				break
+			end
+			player, data = next(packets, iterated)
+		end
 		if not player then
 			return nil :: any
 		end
@@ -800,6 +806,10 @@ end
 local function create_unreliable_packet_iterator(packets: { [Player]: MemberPackets })
 	return coroutine.wrap(function()
 		for player, data in packets do
+			if not utils.is_client_valid(player) then
+				continue
+			end
+
 			table.sort(data.packets, function(a, b)
 				return buffer.len(a.buffer) < buffer.len(b.buffer)
 			end)
