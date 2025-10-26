@@ -102,6 +102,9 @@ export type Client = {
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
+
+	generate_handshake: (self: Client) -> common.ReplicationHandshake,
+	verify_handshake: (self: Client, handshake: common.ReplicationHandshake) -> (boolean, string?),
 }
 
 local client_replicator = {}
@@ -380,8 +383,9 @@ function client_replicator.decode_component(client: Client, encoded: number): En
 end
 
 function client_replicator.read_component_id(client: Client, c: Cursor): Entity
-	local shared_id = cursor.readu8(c)
-	local component = client.shared.components.indexes[shared_id]
+	local shared_components = client.shared.components
+	local shared_id = cursor.read_span(c, #shared_components.keys)
+	local component = shared_components.indexes[shared_id]
 	if not component then
 		print("NON SHARED COMPONENT", shared_id, client.shared.components)
 		error "received a non shared component"
@@ -393,7 +397,7 @@ function client_replicator.read_component_value(client: Client, component: Entit
 	local serdes = client.shared.serdes[component]
 
 	if serdes then
-		local bytespan = client.shared.bytespan[component] or cursor.read_vlq(c)
+		local bytespan = serdes.bytespan or cursor.read_vlq(c)
 
 		local appended = cursor.read_buffer(c, bytespan)
 		local serdes_variants: { any }? = nil
@@ -1268,6 +1272,16 @@ function client_replicator.register_custom_id(client: Client, custom_id: CustomI
 	client.is_shared_dirty = true
 end
 
+function client_replicator.generate_handshake(client: Client): common.ReplicationHandshake
+	client_replicator.resolve_dirty(client)
+	return utils.generate_handshake(client.world, client.shared)
+end
+
+function client_replicator.verify_handshake(client: Client, handshake: common.ReplicationHandshake): (boolean, string?)
+	client_replicator.resolve_dirty(client)
+	return utils.verify_handshake(client.world, client.shared, handshake, "server", "client")
+end
+
 function client_replicator.destroy(client: Client)
 	if client.inited == nil then
 		return warn "attempted to destroy a client twice"
@@ -1293,7 +1307,6 @@ local function create(world: World?, components: common.Components): Client
 	self.requires_shared_lookup = {
 		self.components.shared,
 		self.components.serdes,
-		self.components.bytespan,
 		jecs.Name,
 	}
 	self.global_handler = nil

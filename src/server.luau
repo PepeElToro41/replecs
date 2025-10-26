@@ -94,10 +94,15 @@ export type Server = ServerImpl & {
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
 	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
 	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
+
 	mark_player_ready: (self: Server, player: Player) -> (),
 	is_player_ready: (self: Server, player: Player) -> boolean,
+
 	add_player_alias: (self: Server, client: Player, alias: any) -> (),
 	remove_player_alias: (self: Server, alias: any) -> (),
+
+	generate_handshake: (self: Server) -> common.ReplicationHandshake,
+	verify_handshake: (self: Server, handshake: common.ReplicationHandshake) -> (boolean, string?),
 }
 
 local server_replicator = {}
@@ -129,9 +134,14 @@ local ENTITY_ID_TYPES = {
 }
 
 local ECS_COMPONENT = jecs.Component
+local WILDCARD = jecs.Wildcard
 
 local function IS_PAIR(id: Component): boolean
 	return jecs.IS_PAIR(id)
+end
+
+local function PAIR(relation: Entity, target: Entity): Entity
+	return jecs.pair(relation, target)
 end
 
 local function PAIR_SECOND(world: World, id: Entity): Entity
@@ -527,12 +537,13 @@ function server_replicator.decode_component(server: Server, encoded: number): En
 end
 
 function server_replicator.write_component_id(server: Server, c: Cursor, component: Entity)
-	local encoded = server.shared.components.members[component]
+	local shared_componens = server.shared.components
+	local encoded = shared_componens.members[component]
 	if not encoded then
 		utils.logerror(`attempted to replicate a non-shared component `, utils.logcomponent(server.world, component))
 		return
 	end
-	cursor.writeu8(c, encoded)
+	cursor.write_span(c, encoded, #shared_componens.keys)
 end
 
 function server_replicator.write_component_value(
@@ -565,7 +576,7 @@ function server_replicator.write_component_value(
 			)
 		end
 
-		local bytespan = server.shared.bytespan[component]
+		local bytespan = serdes.bytespan
 		cursor.write_buffer(c, output)
 		if bytespan then
 			if bytespan ~= buffer.len(output) then
@@ -1368,6 +1379,30 @@ local function check_created(server: Server)
 	return true
 end
 
+local function query_tracking_type(server: Server, track_type: Component)
+	for entity in server.world:query(PAIR(track_type, WILDCARD)):iter() do
+		local index = 0
+		while true do
+			local target = server.world:target(entity, track_type, index)
+			if not target then
+				break
+			end
+			server.set_reliable(server, entity, target, server.world:get(entity, PAIR(track_type, target)))
+			index += 1
+		end
+	end
+end
+
+local function query_current_networked(server: Server)
+	for entity, filter in server.world:query(server.components.networked):iter() do
+		server.set_networked(server, entity, filter)
+	end
+
+	query_tracking_type(server, server.components.reliable)
+	query_tracking_type(server, server.components.unreliable)
+	query_tracking_type(server, server.components.pair)
+end
+
 function server_replicator.init(server: Server, wrd: World?)
 	if not check_created(server) then
 		return
@@ -1490,6 +1525,8 @@ function server_replicator.init(server: Server, wrd: World?)
 		end))
 	end
 
+	query_current_networked(server)
+
 	if game and game:GetService("RunService"):IsServer() then
 		local Players = game:GetService "Players"
 
@@ -1527,6 +1564,16 @@ end
 function server_replicator.register_custom_id(server: Server, custom_id: CustomId)
 	server.registered_custom_ids[custom_id] = true
 	server.is_shared_dirty = true
+end
+
+function server_replicator.generate_handshake(server: Server): common.ReplicationHandshake
+	server_replicator.resolve_dirty(server)
+	return utils.generate_handshake(server.world, server.shared)
+end
+
+function server_replicator.verify_handshake(server: Server, handshake: common.ReplicationHandshake): (boolean, string?)
+	server_replicator.resolve_dirty(server)
+	return utils.verify_handshake(server.world, server.shared, handshake, "client", "server")
 end
 
 function server_replicator.destroy(server: Server)
@@ -1570,7 +1617,6 @@ local function create(world: World?, components: common.Components): Server
 	self.requires_shared_lookup = {
 		self.components.shared,
 		self.components.serdes,
-		self.components.bytespan,
 		jecs.Name,
 	}
 

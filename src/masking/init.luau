@@ -743,8 +743,6 @@ function masking_controller.move_component_storage(
 		end
 	end
 
-	--todo: move changes
-
 	return target_storage
 end
 
@@ -1585,7 +1583,6 @@ function masking_controller.unregister_client(masking: MaskingInternal, member: 
 	end
 	masking.client_indexes[member] = nil
 	masking.member_indexes[member] = nil
-	masking.member_count -= 1
 	masking.all_members_generator.bitmask:clear(index)
 	masking.active_members_generator:compute()
 end

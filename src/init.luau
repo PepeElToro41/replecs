@@ -10,6 +10,7 @@ export type Client = client.Client
 
 export type HandleContext = customid.HandleContext
 export type CustomId = customid.CustomId
+export type Handshake = common.ReplicationHandshake
 
 type Entity = jecs.Entity
 
@@ -41,7 +42,6 @@ local replecs = {
 	pair = jecs.component(),
 
 	serdes = jecs.component(),
-	bytespan = jecs.component(),
 	custom = jecs.tag(),
 	custom_handler = jecs.component(),
 	global = jecs.component(),
@@ -50,7 +50,6 @@ local replecs = {
 
 replecs.__index = replecs
 replecs.Serdes = replecs.serdes
-replecs.Bytespan = replecs.bytespan
 replecs.Custom = replecs.custom
 replecs.CustomHandler = replecs.custom_handler
 replecs.Networked = replecs.networked
@@ -61,7 +60,6 @@ replecs.Shared = replecs.shared
 replecs.Global = replecs.global
 
 jecs.meta(replecs.serdes, jecs.Name, "replecs.serdes")
-jecs.meta(replecs.bytespan, jecs.Name, "replecs.bytespan")
 jecs.meta(replecs.custom, jecs.Name, "replecs.custom")
 jecs.meta(replecs.custom_handler, jecs.Name, "replecs.custom_handler")
 jecs.meta(replecs.networked, jecs.Name, "replecs.networked")

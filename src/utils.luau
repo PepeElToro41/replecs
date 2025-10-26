@@ -135,6 +135,20 @@ function cursor.writei32(c: Cursor, value: number)
 	c.offset += 4
 end
 
+function cursor.write_span(c: Cursor, value: number, span: number)
+	if span <= 0xFF then
+		cursor.writeu8(c, value)
+	elseif span <= 0xFFFF then
+		cursor.writeu16(c, value)
+	elseif span <= 0xFFFFFF then
+		cursor.writeu24(c, value)
+	elseif span <= 0xFFFFFFFF then
+		cursor.writeu32(c, value)
+	else
+		error "span too large"
+	end
+end
+
 function cursor.read_buffer(c: Cursor, len: number)
 	local retrieved = buffer.create(len)
 	buffer.copy(retrieved, 0, c.buffer, c.offset - len, len)
@@ -169,6 +183,20 @@ function cursor.readu40(c: Cursor): number
 	local one = buffer.readu8(c.buffer, c.offset)
 	local two = buffer.readu32(c.buffer, c.offset + 1)
 	return one + two * 256
+end
+
+function cursor.read_span(c: Cursor, span: number): number
+	if span <= 0xFF then
+		return cursor.readu8(c)
+	elseif span <= 0xFFFF then
+		return cursor.readu16(c)
+	elseif span <= 0xFFFFFF then
+		return cursor.readu24(c)
+	elseif span <= 0xFFFFFFFF then
+		return cursor.readu32(c)
+	else
+		error "span too large"
+	end
 end
 
 function cursor.readi8(c: Cursor): number
@@ -579,6 +607,7 @@ function utils.create_shared_lookup<T>(lookup: { [string]: T }): common.SharedIn
 
 	return {
 		lookup = lookup,
+		keys = keys,
 		indexes = indexes,
 		members = members,
 	}
@@ -611,14 +640,111 @@ function utils.resolved_shared(
 		shared.serdes[component] = serdes
 	end
 
-	for component, bytespan in world:query(components.bytespan):with(components.shared, ECS_NAME):iter() do
-		shared.bytespan[component] = bytespan
-	end
-
 	shared.components = utils.create_shared_lookup(components_lookup)
 	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
 
 	return shared
+end
+
+function utils.generate_handshake(world: World, shared: common.Shared): common.ReplicationHandshake
+	local component_to_name: { [Entity]: string } = {}
+	local handshake: common.ReplicationHandshake = {
+		components = {},
+		custom_ids = {},
+		serdes = {},
+	}
+
+	for component_name, component in shared.components.lookup do
+		handshake.components[component_name] = true
+		component_to_name[component] = component_name
+	end
+
+	for custom_id in shared.custom_ids.lookup do
+		handshake.custom_ids[custom_id] = true
+	end
+
+	for component, serdes in shared.serdes do
+		local name = component_to_name[component]
+		if not name then
+			utils.logwarn(`found serdes for component {utils.logcomponent(world, component)} was not shared`)
+			continue
+		end
+
+		handshake.serdes[name] = {
+			includes_variants = serdes.includes_variants,
+			bytespan = serdes.bytespan,
+		}
+	end
+
+	return handshake
+end
+
+function utils.verify_handshake(
+	world: World,
+	shared: common.Shared,
+	handshake: common.ReplicationHandshake,
+	handshake_side: string,
+	verify_side: string
+): (boolean, string?)
+	local component_to_name: { [Entity]: string } = {}
+
+	for component_name in handshake.components do
+		if not shared.components.lookup[component_name] then
+			return false, `missing shared component "{component_name}" in {verify_side}`
+		end
+	end
+	for component_name, component in shared.components.lookup do
+		if not handshake.components[component_name] then
+			return false, `missing shared component "{component_name}" in {handshake_side}`
+		end
+		component_to_name[component] = component_name
+	end
+
+	for custom_id in handshake.custom_ids do
+		if not shared.custom_ids.lookup[custom_id] then
+			return false, `missing custom id "{custom_id}" in {verify_side}`
+		end
+	end
+	for custom_id in shared.custom_ids.lookup do
+		if not handshake.custom_ids[custom_id] then
+			return false, `missing custom id "{custom_id}" in {handshake_side}`
+		end
+	end
+
+	for component_name, serdes_info in handshake.serdes do
+		local component = shared.components.lookup[component_name]
+		if not component then
+			warn(`{handshake_side} registered a serdes for "{component_name}" that {verify_side} doesn't have`)
+			continue
+		end
+
+		local serdes = shared.serdes[component]
+		if not serdes then
+			return false, `missing serdes for component "{component_name}" in {verify_side}`
+		end
+
+		if (serdes_info.includes_variants or false) ~= (serdes.includes_variants or false) then
+			return false,
+				`mismatched includes_variants for component "{component_name}": ({serdes_info.includes_variants} ~= {serdes.includes_variants})`
+		end
+		if serdes_info.bytespan ~= serdes.bytespan then
+			return false,
+				`mismatched bytespan for component "{component_name}": ({serdes_info.bytespan} ~= {serdes.bytespan})`
+		end
+	end
+	for component in shared.serdes do
+		local component_name = component_to_name[component]
+		if not component_name then
+			utils.logwarn(`found serdes for component {utils.logcomponent(world, component)} was not shared`)
+			continue
+		end
+
+		if not handshake.serdes[component_name] then
+			warn(`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`)
+		end
+	end
+
+	return true, nil
 end
 
 function utils.is_client_valid(player: any): boolean

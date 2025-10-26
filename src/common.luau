@@ -11,12 +11,22 @@ export type PlayerFilter = {
 
 export type SharedInfo<T> = {
 	lookup: { [string]: T },
+	keys: { string },
 	indexes: { [number]: T },
 	members: { [T]: number },
+}
+export type ReplicationHandshake = {
+	components: { [string]: boolean },
+	custom_ids: { [string]: boolean },
+	serdes: { [string]: {
+		includes_variants: boolean?,
+		bytespan: number?,
+	} },
 }
 
 export type Serdes = {
 	includes_variants: boolean?,
+	bytespan: number?,
 	serialize: (value: any) -> (buffer, { any }?),
 	deserialize: (buffer, { any }?) -> any,
 }
@@ -29,7 +39,6 @@ export type Components = {
 	pair: Entity<AnyFilter?>,
 
 	serdes: Entity<Serdes>,
-	bytespan: Entity<number>,
 	custom: Entity,
 	custom_handler: Entity<(val: any) -> Entity?>,
 	global: Entity<number>,
@@ -40,7 +49,6 @@ export type Shared = {
 	components: SharedInfo<Entity>,
 	custom_ids: SharedInfo<customid.CustomId>,
 
-	bytespan: { [Entity]: number },
 	serdes: { [Entity]: Serdes },
 }
 
