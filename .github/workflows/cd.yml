@@ -32,7 +32,7 @@ jobs:
               with:
                   name: Replecs ${{ github.ref_name }}
                   files: |
-                      replecs.rbxm
+                      build/replecs.rbxm
 
     # publish:
     #name: Publish
