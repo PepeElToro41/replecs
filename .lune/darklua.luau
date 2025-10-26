@@ -16,6 +16,9 @@ local function process_darklua()
 	fs.copy("src", OUTPUT .. "/src")
 	fs.copy("luau_packages", OUTPUT .. "/luau_packages")
 	fs.copy("jecs.luau", OUTPUT .. "/jecs.luau")
+	fs.copy("wally.toml", OUTPUT .. "/wally.toml")
+	fs.copy("LICENSE", OUTPUT .. "/LICENSE")
+	fs.copy("README.md", OUTPUT .. "/README.md")
 
 	process.exec("rojo", {
 		"sourcemap",

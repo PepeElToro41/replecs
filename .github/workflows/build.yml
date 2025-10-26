@@ -2,6 +2,11 @@ name: Build
 
 on:
     workflow_call:
+        inputs:
+            version:
+                required: false
+                type: string
+                default: ""
 
 jobs:
     build:
@@ -25,7 +30,7 @@ jobs:
               run: pesde install
 
             - name: Darklua Process
-              run: lune run .lune/process.luau
+              run: lune run .lune/process.luau ${{ inputs.version }}
 
             - name: Build
               run: rojo build serve/default.project.json -o replecs.rbxm
