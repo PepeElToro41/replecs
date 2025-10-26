@@ -28,7 +28,7 @@ jobs:
                   path: build
 
             - name: Rename Build
-              run: mv build/build.rbxm replecs.rbxm
+              run: mv build/replecs.rbxm replecs.rbxm
 
             - name: Create Release
               uses: softprops/action-gh-release@v1
