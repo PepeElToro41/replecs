@@ -4,6 +4,7 @@ local common = require "@self/common"
 local client = require "@self/client"
 local server = require "@self/server"
 local customid = require "@self/customid"
+local VERSION = require "@self/VERSION"
 
 export type Server = server.Server
 export type Client = client.Client
@@ -35,6 +36,7 @@ type MemberFilter = {
 }
 
 local replecs = {
+	VERSION = VERSION,
 	shared = jecs.tag(),
 	networked = jecs.component(),
 	reliable = jecs.component(),
