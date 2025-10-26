@@ -25,14 +25,17 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: build
-                  path: output/replecs.rbxm
+                  path: build
+
+            - name: Rename Build
+              run: mv build/build.rbxm replecs.rbxm
 
             - name: Create Release
               uses: softprops/action-gh-release@v1
               with:
                   name: Replecs ${{ github.ref_name }}
                   files: |
-                      output/replecs.rbxm
+                      replecs.rbxm
 
     # publish:
     #name: Publish
