@@ -1,4 +1,4 @@
-name: cd
+name: Continuous Deployment
 
 on:
     push:
@@ -25,14 +25,14 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: build
-                  path: replecs.rbxm
+                  path: output/replecs.rbxm
 
             - name: Create Release
               uses: softprops/action-gh-release@v1
               with:
                   name: Replecs ${{ github.ref_name }}
                   files: |
-                      build/replecs.rbxm
+                      output/replecs.rbxm
 
     # publish:
     #name: Publish
