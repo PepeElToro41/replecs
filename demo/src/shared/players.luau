@@ -4,7 +4,6 @@ local RunService = game:GetService "RunService"
 local c = require(script.Parent.components)
 local replicator = require(script.Parent.replicator)
 local ref = require(ReplicatedStorage.code.utils.ecs.ref)
-local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
 local world = require(script.Parent.world)
 

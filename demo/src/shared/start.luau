@@ -22,7 +22,7 @@ function start_jabby()
 		},
 	}
 
-	jabby.set_check_function(function(player)
+	jabby.set_check_function(function()
 		return true
 	end)
 
