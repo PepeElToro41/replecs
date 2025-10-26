@@ -36,7 +36,7 @@ local function process_darklua()
 	}, { stdio = "forward" })
 
 	if process.args[1] and type(process.args[1]) == "string" then
-		fs.writeFile(OUTPUT .. "/src/version.luau", `return "{process.args[1]}"`)
+		fs.writeFile(OUTPUT .. "/src/ver.luau", `return "{process.args[1]}"`)
 	end
 end
 

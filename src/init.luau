@@ -4,7 +4,7 @@ local common = require "@self/common"
 local client = require "@self/client"
 local server = require "@self/server"
 local customid = require "@self/customid"
-local VERSION = require "@self/VERSION"
+local VERSION = require "@self/ver"
 
 export type Server = server.Server
 export type Client = client.Client
