@@ -646,9 +646,9 @@ function utils.resolved_shared(
 	return shared
 end
 
-function utils.generate_handshake(world: World, shared: common.Shared): common.ReplicationHandshake
+function utils.generate_handshake(world: World, shared: common.Shared): common.HandshakeInfo
 	local component_to_name: { [Entity]: string } = {}
-	local handshake: common.ReplicationHandshake = {
+	local handshake: common.HandshakeInfo = {
 		components = {},
 		custom_ids = {},
 		serdes = {},
@@ -682,7 +682,7 @@ end
 function utils.verify_handshake(
 	world: World,
 	shared: common.Shared,
-	handshake: common.ReplicationHandshake,
+	handshake: common.HandshakeInfo,
 	handshake_side: string,
 	verify_side: string
 ): (boolean, string?)

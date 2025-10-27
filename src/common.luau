@@ -15,7 +15,7 @@ export type SharedInfo<T> = {
 	indexes: { [number]: T },
 	members: { [T]: number },
 }
-export type ReplicationHandshake = {
+export type HandshakeInfo = {
 	components: { [string]: boolean },
 	custom_ids: { [string]: boolean },
 	serdes: { [string]: {

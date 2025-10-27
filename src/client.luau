@@ -54,7 +54,7 @@ type DeletedHookEntry = {
 	callbacks: Array<(entity: Entity) -> ()>,
 }
 
-type CustomIdMap = { [CustomId]: CustomId | Entity }
+type CustomIdMap = { [Entity]: CustomId | Entity }
 
 export type Client = {
 	world: World,
@@ -81,6 +81,9 @@ export type Client = {
 	get_server_entity: (self: Client, client_entity: Entity) -> number?,
 	get_client_entity: (self: Client, server_entity: number) -> Entity?,
 
+	register_entity: (self: Client, entity: Entity, server_entity: number) -> (),
+	unregister_entity: (self: Client, entity: Entity) -> (),
+
 	hooks: common.WorldHooks,
 	hooked: Array<() -> ()>,
 
@@ -103,8 +106,8 @@ export type Client = {
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 
-	generate_handshake: (self: Client) -> common.ReplicationHandshake,
-	verify_handshake: (self: Client, handshake: common.ReplicationHandshake) -> (boolean, string?),
+	generate_handshake: (self: Client) -> common.HandshakeInfo,
+	verify_handshake: (self: Client, handshake: common.HandshakeInfo) -> (boolean, string?),
 }
 
 local client_replicator = {}
@@ -683,22 +686,29 @@ end
 function client_replicator.find_pair_in_buffer(
 	command_buffer: CommandBuffer,
 	relation: Entity,
-	target: Entity
+	target: Entity,
+	find: (unprocessed_entity: Entity) -> (Entity?, Entity)
 ): (boolean, any)
 	local value_relations = command_buffer.pairs_values[relation]
-	local value = value_relations and value_relations[target]
 
-	if value then
-		return true, value.value
+	if value_relations then
+		for unprocessed_target, value in value_relations do
+			local found = find(unprocessed_target)
+			if found == target then
+				return true, value.value
+			end
+		end
 	end
 
 	local relations = command_buffer.pairs[relation]
-	local pair = relations and relations[target]
-
-	if pair then
-		return true, nil
+	if relations then
+		for unprocessed_target in relations do
+			local found = find(unprocessed_target)
+			if found == target then
+				return true, nil
+			end
+		end
 	end
-
 	return false, nil
 end
 
@@ -707,9 +717,10 @@ function client_replicator.find_target_in_buffer(
 	relation: Entity,
 	index: number?
 ): Entity?
+	local i = 0
+
 	local pairs = command_buffer.pairs[relation]
 	if pairs then
-		local i = 0
 		for target in pairs do
 			if i == (index or 0) then
 				return target
@@ -719,7 +730,6 @@ function client_replicator.find_target_in_buffer(
 	end
 	local pairs_values = command_buffer.pairs_values[relation]
 	if pairs_values then
-		local i = 0
 		for target in pairs_values do
 			if i == (index or 0) then
 				return target
@@ -738,13 +748,21 @@ function client_replicator.finish_custom_ids(
 	local funcs = {} -- this is so process can use create_context even if its defined after
 	local processed: { [Entity]: boolean } = {}
 
-	local function process(entity: Entity, custom_handler: (CustomId | Entity)?): Entity?
+	local function find(unprocessed_entity: Entity): (Entity?, Entity)
 		-- negative entities means they are still server ids that haven't been processed yet
-		if (entity :: any) > 0 then
-			return entity
+		if (unprocessed_entity :: any) > 0 then
+			return unprocessed_entity, unprocessed_entity
 		end
-		local server_entity = -(entity :: any)
+		local server_entity = -(unprocessed_entity :: any)
 		local client_entity = client.server_ids[server_entity]
+		if client_entity then
+			return client_entity, server_entity
+		end
+		return nil, server_entity
+	end
+
+	local function process(unprocessed_entity: Entity, custom_handler: (CustomId | Entity)?): Entity?
+		local client_entity, server_entity = find(unprocessed_entity)
 		if client_entity then
 			return client_entity
 		end
@@ -754,7 +772,7 @@ function client_replicator.finish_custom_ids(
 		end
 
 		local new_entity: Entity? = nil
-		local command_buffer = command_buffers[entity :: any]
+		local command_buffer = command_buffers[unprocessed_entity :: any]
 		custom_handler = custom_handler or custom_ids[server_entity]
 
 		if type(custom_handler) == "number" then
@@ -763,7 +781,7 @@ function client_replicator.finish_custom_ids(
 			local handler = client.world:get(component, client.components.custom_handler)
 			if not handler then
 				return utils.logerror(
-					`received a custom id for a non custom component, consider adding custom_id to component: {utils.logcomponent(
+					`received a custom id for a non custom component, consider adding custom_handler to component: {utils.logcomponent(
 						client.world,
 						component
 					)}`
@@ -782,19 +800,23 @@ function client_replicator.finish_custom_ids(
 			else
 				utils.logwarn(`No component found for custom id handler: {utils.logcomponent(client.world, component)}`)
 				new_entity = handler(nil)
-				warn "No "
 			end
 		else
-			custom_handler = custom_handler or custom_ids[server_entity :: any]
 			local handle_callback = (custom_handler :: CustomId).handle_callback
-			new_entity = handle_callback(funcs.create_context(entity))
+			if not handle_callback then
+				return utils.logerror(
+					"no handler callback was set for custom id:",
+					(custom_handler :: CustomId).identifier
+				)
+			end
+			new_entity = handle_callback(funcs.create_context(unprocessed_entity))
 		end
 
 		if new_entity then
-			client.server_ids[server_entity] = new_entity
+			client.server_ids[server_entity :: any] = new_entity
 			if command_buffer then
 				client_replicator.apply_command_buffer(client, new_entity, command_buffer, process)
-				command_buffers[entity] = nil
+				command_buffers[unprocessed_entity] = nil
 			end
 		end
 
@@ -802,8 +824,8 @@ function client_replicator.finish_custom_ids(
 		return new_entity
 	end
 
-	local function create_context(entity_id: Entity)
-		local command_buffer = command_buffers[entity_id]
+	local function create_context(unprocessed_entity: Entity)
+		local command_buffer = command_buffers[unprocessed_entity]
 
 		local function component(component: Entity): any
 			if not command_buffer then
@@ -826,14 +848,14 @@ function client_replicator.finish_custom_ids(
 			if not command_buffer then
 				return nil :: any
 			end
-			local _, value = client_replicator.find_pair_in_buffer(command_buffer, relation, target)
+			local _, value = client_replicator.find_pair_in_buffer(command_buffer, relation, target, find)
 			return value
 		end
 		local function has_pair(relation: Entity, target: Entity): boolean
 			if not command_buffer then
 				return nil :: any
 			end
-			local has = client_replicator.find_pair_in_buffer(command_buffer, relation, target)
+			local has = client_replicator.find_pair_in_buffer(command_buffer, relation, target, find)
 			return has
 		end
 		local function has(tag: Entity): boolean
@@ -847,7 +869,7 @@ function client_replicator.finish_custom_ids(
 		end
 
 		local context: customid.HandleContext = {
-			entity_id = math.abs(entity_id :: any),
+			entity_id = math.abs(unprocessed_entity :: any),
 			has = has,
 			component = component,
 			target = target,
@@ -1267,17 +1289,31 @@ function client_replicator.get_client_entity(client: Client, client_entity: numb
 	return client.server_ids[client_entity]
 end
 
+function client_replicator.register_entity(client: Client, entity: Entity, server_entity: number)
+	client.server_ids[server_entity] = entity
+	client.client_ids[entity] = server_entity
+	client.world:add(entity, client.components.__alive_tracking__)
+end
+
+function client_replicator.unregister_entity(client: Client, entity: Entity)
+	local server_id = client.client_ids[entity]
+	if server_id then
+		client.server_ids[server_id] = nil
+		client.client_ids[entity] = nil
+	end
+end
+
 function client_replicator.register_custom_id(client: Client, custom_id: CustomId)
 	client.registered_custom_ids[custom_id] = true
 	client.is_shared_dirty = true
 end
 
-function client_replicator.generate_handshake(client: Client): common.ReplicationHandshake
+function client_replicator.generate_handshake(client: Client): common.HandshakeInfo
 	client_replicator.resolve_dirty(client)
 	return utils.generate_handshake(client.world, client.shared)
 end
 
-function client_replicator.verify_handshake(client: Client, handshake: common.ReplicationHandshake): (boolean, string?)
+function client_replicator.verify_handshake(client: Client, handshake: common.HandshakeInfo): (boolean, string?)
 	client_replicator.resolve_dirty(client)
 	return utils.verify_handshake(client.world, client.shared, handshake, "server", "client")
 end

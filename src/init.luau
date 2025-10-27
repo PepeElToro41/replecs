@@ -11,7 +11,7 @@ export type Client = client.Client
 
 export type HandleContext = customid.HandleContext
 export type CustomId = customid.CustomId
-export type Handshake = common.ReplicationHandshake
+export type HandshakeInfo = common.HandshakeInfo
 
 type Entity = jecs.Entity
 

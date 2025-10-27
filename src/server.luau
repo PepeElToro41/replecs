@@ -43,7 +43,7 @@ type EntityStorage = {
 
 type Storage = { [Entity]: EntityStorage }
 
-export type ServerImpl = {
+export type ServerImp = {
 	set_networked: (server: Server, entity: Entity, filter: AnyFilter?) -> (),
 	stop_networked: (server: Server, entity: Entity) -> (),
 
@@ -58,7 +58,7 @@ export type ServerImpl = {
 	remove_custom: (server: Server, entity: Entity) -> (),
 }
 
-export type Server = ServerImpl & {
+export type Server = ServerImp & {
 	world: World,
 	inited: boolean?,
 
@@ -101,8 +101,8 @@ export type Server = ServerImpl & {
 	add_player_alias: (self: Server, client: Player, alias: any) -> (),
 	remove_player_alias: (self: Server, alias: any) -> (),
 
-	generate_handshake: (self: Server) -> common.ReplicationHandshake,
-	verify_handshake: (self: Server, handshake: common.ReplicationHandshake) -> (boolean, string?),
+	generate_handshake: (self: Server) -> common.HandshakeInfo,
+	verify_handshake: (self: Server, handshake: common.HandshakeInfo) -> (boolean, string?),
 }
 
 local server_replicator = {}
@@ -1576,12 +1576,12 @@ function server_replicator.register_custom_id(server: Server, custom_id: CustomI
 	server.is_shared_dirty = true
 end
 
-function server_replicator.generate_handshake(server: Server): common.ReplicationHandshake
+function server_replicator.generate_handshake(server: Server): common.HandshakeInfo
 	server_replicator.resolve_dirty(server)
 	return utils.generate_handshake(server.world, server.shared)
 end
 
-function server_replicator.verify_handshake(server: Server, handshake: common.ReplicationHandshake): (boolean, string?)
+function server_replicator.verify_handshake(server: Server, handshake: common.HandshakeInfo): (boolean, string?)
 	server_replicator.resolve_dirty(server)
 	return utils.verify_handshake(server.world, server.shared, handshake, "client", "server")
 end

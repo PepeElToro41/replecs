@@ -17,15 +17,23 @@ export type HandleContext = {
 
 export type CustomId = {
 	identifier: string,
-	handle_callback: (ctx: HandleContext) -> Entity?,
+	handle_callback: ((ctx: HandleContext) -> Entity?)?,
+
+	handle: (self: CustomId, handler: (ctx: HandleContext) -> Entity?) -> (),
 }
 
-function create(identifier: string, callback: (ctx: HandleContext) -> Entity?): CustomId
+local custom_id = {}
+
+function custom_id.handle(custom: CustomId, callback: (ctx: HandleContext) -> Entity?)
+	custom.handle_callback = callback
+end
+
+function create(identifier: string, callback: ((ctx: HandleContext) -> Entity?)?): CustomId
 	local handler = {} :: CustomId
 	handler.identifier = identifier
 	handler.handle_callback = callback
 
-	return handler
+	return setmetatable(handler, custom_id) :: any
 end
 
 return { create = create }
