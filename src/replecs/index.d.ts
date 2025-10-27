@@ -150,41 +150,26 @@ declare namespace Replecs {
    }
 
    export interface ServerImp {
-      set_networked(
-         server: Server,
-         entity: Entity,
-         filter?: MemberFilter
-      ): void;
-      stop_networked(server: Server, entity: Entity): void;
+      set_networked(entity: Entity, filter?: MemberFilter): void;
+      stop_networked(entity: Entity): void;
 
       set_reliable(
-         server: Server,
          entity: Entity,
          component: Entity,
          filter?: MemberFilter
       ): void;
       set_unreliable(
-         server: Server,
          entity: Entity,
          component: Entity,
          filter?: MemberFilter
       ): void;
-      set_pair(
-         server: Server,
-         entity: Entity,
-         relation: Entity,
-         filter?: MemberFilter
-      ): void;
-      set_custom(
-         server: Server,
-         entity: Entity,
-         handler: Entity | CustomId
-      ): void;
+      set_pair(entity: Entity, relation: Entity, filter?: MemberFilter): void;
+      set_custom(entity: Entity, handler: Entity | CustomId): void;
 
-      stop_reliable(server: Server, entity: Entity, component: Entity): void;
-      stop_unreliable(server: Server, entity: Entity, component: Entity): void;
-      stop_pair(server: Server, entity: Entity, relation: Entity): void;
-      remove_custom(server: Server, entity: Entity): void;
+      stop_reliable(entity: Entity, component: Entity): void;
+      stop_unreliable(entity: Entity, component: Entity): void;
+      stop_pair(entity: Entity, relation: Entity): void;
+      remove_custom(entity: Entity): void;
    }
 
    export interface Server extends ServerImp {
