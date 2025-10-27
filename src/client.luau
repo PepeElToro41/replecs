@@ -230,7 +230,7 @@ function client_replicator.entity_set_pair(
 		if pair_relation then
 			pair_relation[target] = { value = value }
 		else
-			command_buffer.pairs_values[relation] = { [target] = value }
+			command_buffer.pairs_values[relation] = { [target] = { value = value } }
 		end
 	else
 		client_replicator.entity_set(client, entity, PAIR(relation, target), value, changed_hooks)
