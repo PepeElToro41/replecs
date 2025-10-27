@@ -41,6 +41,6 @@
       "prettier": "^3.2.5"
    },
    "peerDependencies": {
-      "@rbxts/jecs": "^0.9.0-rc.9"
+      "@rbxts/jecs": "^0.9.0"
    }
 }
