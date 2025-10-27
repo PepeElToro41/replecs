@@ -1,6 +1,6 @@
 {
    "name": "@rbxts/replecs",
-   "version": "0.2.0-cdtest.1",
+   "version": "0.2.0",
    "description": "Replication library for Jecs",
    "main": "out/init.lua",
    "types": "out/index.d.ts",
@@ -21,8 +21,7 @@
    "scripts": {
       "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json",
       "build": "rbxtsc",
-      "watch": "rbxtsc -w",
-      "prepublishOnly": "npm run build"
+      "watch": "rbxtsc -w"
    },
    "repository": {
       "type": "git",
