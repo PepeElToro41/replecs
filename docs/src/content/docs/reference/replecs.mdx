@@ -1,0 +1,116 @@
+---
+title: Replecs
+description: Replecs API Reference
+sidebar:
+    order: 1
+---
+
+## Replecs
+
+---
+
+<div class="inner">
+
+### `Replecs.create`
+
+Creates a new `ReplecsLib`. This contains both the server and client replicators
+in one object and provides methods to interact with both of them at the same time.
+
+```ts
+function Replecs.create(world: jecs.World?): ReplecsLib
+```
+
+<div class="padded">
+
+#### Arguments
+- **world**: The world to use for the replicators. Can also be provided when initing the replicator.
+
+</div>
+
+### `Replecs.create_server`
+
+Creates a new server replicator.
+
+```ts
+function Replecs.create_server(world: jecs.World?): Replecs.Server
+```
+
+<div class="padded">
+#### Arguments
+- **world**: The world to use for the replicators. Can also be provided when initing the replicator.
+</div>
+
+### `Replecs.create_client`
+
+Creates a new client replicator.
+
+```ts
+function Replecs.create_client(world: jecs.World?): Replecs.Client
+```
+<div class="padded">
+#### Arguments
+- **world**: The world to use for the replicators. Can also be provided when initing the replicator.
+</div>
+
+### `Replecs.create_custom_id`
+
+Creates a new handler for parsing custom entity ids.
+
+```ts
+function Replecs.create_custom_id(
+    identifier: string,
+    handler: ((ctx: HandleContext) -> Entity?)?
+): CustomId
+```
+
+<div class="padded">
+#### Arguments
+- **identifier**: A string that will be used to identify the custom id when gets through the network.
+Must be the same in both the server and client.
+- **handler**: A function handler that will pass use the `HandleContext` to create or return the entity. Optionally, 
+the handler can be ommited and set later with `customid:handler(handler)`
+</div>
+
+</div>
+
+## Types
+
+--- 
+
+<div class="inner">
+
+### `Replecs.ReplecsLib`
+
+Container for both the server and client replicators.
+
+```ts
+type ReplecsLib = {
+    server: Replecs.Server?,
+    client: Replecs.Client?,
+
+    after_replication: (self: ReplecsLib, callback: () -> ()) -> (),
+    register_custom_id: (self: ReplecsLib, custom_id: CustomId) -> (),
+}
+```
+
+<div class="padded">
+
+#### Fields
+- **server**: The server replicator, nil in the client.
+- **client**: The client replicator, nil in the server.
+
+#### Methods
+
+- **after_replication()**: Registers a callback to be called after the replication has finished. 
+<br/>If not replication is in progress, the callback will be called immediately. If this is called in the server, 
+the callback will always be called immediately.
+    - **Arguments**
+        - **callback**: The callback to be called.
+
+<br/>
+- **register_custom_id()**: Calls `register_custom_id` on the server and/or client replicators.
+    - **Arguments**
+        - **custom_id**: The custom id to register.
+</div>
+
+</div>

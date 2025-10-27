@@ -5,37 +5,46 @@ sidebar:
 ---
 import { Card, Aside } from '@astrojs/starlight/components';
 
-Replecs will automatically create a lookup table to translate server entities to client entities.
+Replecs will automatically create entities from the server when they dont exist
+and have a lookup table to translate server entities to client entities.
 
-But there will be cases where you want to remap entities to a different id.
-For example, if you already created the equivalent entity in the client separately.
-
-Let's see how we can do this:
+But there will be cases where you already created the equivalent entity in the client separately, 
+and you want to tell replecs to use that entity for the server entity. Let's see how we can do this:
 
 ## Custom Ids
 
-Customs Ids can be used if the value of a component can be used to know which entity this translates to in the client.
+<div class="inner">
+Customs Ids will let you get information about the entity the server is trying to create. And determine which entity to use.
 
-For example, if we create the player entities in the client and server separately,
-we can use the `Player` object to get the respective entity in the client.
+There are two ways you can use custom ids:
 
-To do this, we need to tell replecs what component value it should send using `replecs.custom` with a pair.
-setting the component as the target:
+### Using a component value.
+
+If you can use a component value to determine which entity to use, you can set a custom id with the component.
+
+- You can use `server_replicator:set_custom(entity, component)` to set a custom id for an entity.
+
+- You can also add a pair `replecs.custom` with the component as the target.
 
 ```luau
 local Players = game:GetService("Players")
+local replicator = require("@server/replicator")
 local components = require("@shared/components")
 
 local player_entity = world:entity()
 world:add(player_entity, replecs.networked)
 world:set(player_entity, components.player, Players.Player1)
 
--- this will send the value of player_component to the client
+-- this will use the value of player_component in the client
+replicator:set_custom(player_entity, components.player)
+
+-- or you can alternatively use a pair
 world:add(player_entity, jecs.pair(replecs.custom, components.player))
 ```
 
 <Aside type="caution">
-The component used in the custom id must be [marked](/replecs/started/setting-up#marking-shared-components) as `shared`.
+The component used in the custom id must be [marked](/replecs/started/setting-up#marking-shared-components) as `shared`
+and [replicated](/replecs/guides/networking-entity#replicating-components) with `replecs.reliable`.
 </Aside>
 
 ---
@@ -80,6 +89,181 @@ world:set(components.player, replecs.custom_handler, function(player: Player)
 end)
 ```
 </Aside>
+
+### Complex Custom Ids
+
+If you need more complex logic or more information about the entity, you can use a custom parser. 
+This will allow you to get any information about the entity its trying to create, 
+as well as information about other entities.
+
+
+To start you can create a custom handler by caling `replecs.create_custom_id(identifier, handler)`. 
+
+- The first argument is the identifier. This is a string that will be used so the client and server can agree on what to use.
+- The second argument is the handler callback. This will be called in the client when the entity is trying to be created.
+
+The handler callback will receive a `HandleContext` object. This can be used to get entity information. 
+You can find all the functions in the [API Reference](/replecs/reference/custom-ids#replecshandlecontext).
+
+After that, you need to register the custom id in both the client and server by calling `replicator:register_custom_id(custom_id)`.
+The shared replicator has a method that will call `replicator:register_custom_id` for both the server and client.
+
+```luau
+local new_custom = replecs.create_custom_id("identifier")
+
+new_custom:handler(function(ctx)
+    -- do something (called in server)
+    print(ctx.component(c.foo))
+    print(ctx.target(c.bar))
+    print(ctx.entity(some_server_entity))
+end)
+
+-- register for both the server and client
+replicator:register_custom_id(new_custom)
+
+--- server
+local entity = world:entity()
+server_replicator:set_custom(entity, new_custom)
+```
+
+<Aside>
+There are also other things worth noting about custom ids:
+- Entities you get from `ctx.target()` and `ctx.entity()` are ensured to be fully replicated when it gets returned. 
+This has an exception when the entity was not replicated with custom ids, but it contained a custom id as a target.
+
+- You can cause a stack overflow custom ids have circular dependencies. 
+For example, entity A requesting the target B which also has a custom id, and B requesting back the target of A.
+
+</Aside>
+
+---
+
+#### Cancelling Custom Ids
+
+Replecs supports cancelling the creation of a custom id. You can do this by returning `nil` from the handler.
+This is not recommended, and if you use it, its worth nothing:
+
+- This will cause ctx.target() and ctx.entity() from other custom id to return nil 
+if the requested entity aborted the handler. This is not reflected in the types for simplicity. You can return `nil` 
+again to abort the current one too. 
+
+- The custom handler will be called again if replecs needs the entity again for applying server updates.
+
+Here's an example of how to use custom ids to create a building prediction system. 
+This will create a building entity instantly in the client without waiting for the server.
+This makes the game feel more responsive.
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+<Tabs>
+        <TabItem label="shared/custom/building.luau">
+            ```luau
+            local replecs = require("@pkg/replecs")
+            local world = require("@shared/world")
+            local replicator = require("@shared/replicator")
+            local c = require("@shared/components")
+
+            local building_custom = replecs.create_custom_id("building-prediction")
+            replicator:register_custom_id(building_custom)
+
+            building_custom:handler(function(ctx)
+                for building, building_uuid in world:query(c.building_uuid):with(c.predicted) do
+                    if building_uuid == ctx.component(c.building_uuid) then
+                        -- building is no longer predicted
+                        world:remove(building, c.predicted)
+                        return building
+                    end
+                end
+
+                -- default to normal behaviour
+                return world:entity()
+            end)
+
+            return building_custom
+            ```
+        </TabItem>
+        <TabItem label="server/building-server.luau">
+            ```luau
+            local HttpService = game:GetService("HttpService")
+
+            local building_custom = require("@shared/custom/building")
+
+            local c = require("@shared/components")
+            local world = require("@shared/world")
+            local replicator = require("@server/replicator")
+            local remotes = require("@shared/remotes")
+
+            function create_building(player: Player, transform: CFrame)
+                local building_uuid = HttpService:GenerateGUID(false)
+
+                local building = world:entity()
+                world:set(building, c.building_uuid, building_uuid)
+                world:set(building, c.transform, transform)
+
+                replicator:set_networked(building)
+                replicator:set_reliable(building, c.transform, transform)
+                replicator:set_reliable(building, c.building_uuid)
+
+                -- setting custom id
+                replicator:set_custom(building, building_custom)
+
+                -- return the building uuid so the client can know which server entity to use
+                return building_uuid
+            end
+
+            remotes.create_building:set_callback(create_building)
+            ```
+        </TabItem>
+        <TabItem label="client/building-client.luau">
+            ```luau
+            local world = require("@shared/world")
+            local c = require("@shared/components")
+            local remotes = require("@shared/remotes")
+            local replicator = require("@client/replicator")
+
+            -- called when trying to add a building
+            function build(building: Model, transform: CFrame)
+                local predicted_building = world:entity()
+                world:set(predicted_building, c.transform, transform)
+                world:set(predicted_building, c.model, building:Clone())
+                world:add(predicted_building, c.predicted)
+
+                -- this is to hold the predicted building until the server confirms it
+                world:add(predicted_building, c.prediction_active)
+
+                task.spawn(function()
+                    local building_uuid = remotes.create_building:invoke_server(transform)
+                    if building_uuid then
+                        world:set(predicted_building, c.building_uuid, building_uuid)
+                    end
+
+                    world:remove(predicted_building, c.prediction_active)
+                end)
+            end
+
+            function delete_predicted()
+                for building in world:query(c.predicted):without(c.prediction_active) do
+                    world:delete(building)
+                end
+            end
+
+            local updates = collect(remotes.send_updates)
+
+            function replecs_client()
+                for buf, variants in updates do
+                    replicator:apply_updates(buf, variants)
+                    -- if there was a predicted building, the custom id should've claimed it
+                    -- delete what wasn't claimed
+                    delete_predicted()
+                end
+            end
+
+            system(replecs_client)
+            ```
+        </TabItem>
+    </Tabs>
+
+</div>
 
 ## Global Ids
 

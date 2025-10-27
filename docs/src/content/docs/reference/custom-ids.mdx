@@ -1,0 +1,92 @@
+---
+title: Custom Ids
+description: Custom Ids API Reference
+sidebar:
+    order: 4
+---
+
+## Types
+
+---
+
+<div class="inner">
+
+### `Replecs.CustomId`
+
+Custom id handler, created with `Replecs.create_custom_id`.
+
+```ts
+type CustomId = {
+    identifier: string,
+    handle_callback: (ctx: HandleContext) -> Entity?
+
+    handler: (self: CustomId, handler: (ctx: HandleContext) -> Entity?) -> ()
+}
+```
+
+<div class="padded">
+
+#### Fields
+- **identifier**: The identifier of the custom id.
+- **handle_callback**: The callback set to handle the custom id.
+
+#### Methods
+- **handler()**: Sets the handler for the custom id.
+    - **Arguments**
+        - **handler**: The handler to set.
+
+</div>
+
+### `Replecs.HandleContext`
+
+Context passed when an entity is handled by a custom id. Used to gather information about the entity.
+
+```ts
+type HandleContext = {
+	entity_id: number,
+
+	component: <T>(component: Entity<T>) -> T,
+	target: (relation: jecs.Id, index: number?) -> Entity?,
+	pair_value: <T>(relation: jecs.Id<T>, target: Entity) -> T?,
+	has_pair: (relation: jecs.Id, target: Entity) -> boolean,
+
+	entity: (server_entity: number) -> Entity,
+	has: (tag: Entity) -> boolean,
+}
+```
+<div class="padded">
+
+#### Fields
+- **entity_id**: The server id of the entity being handled.
+
+#### Functions <span class="sub-heading" style="white-space: pre;"> (Not Methods)</span>
+- **component()**: Returns a component value from the entity.
+    - **Arguments**
+        - **component**: The component to get.
+
+- **target()**: Returns the target of a relation, will recursively resolve other custom ids.
+    - **Arguments**
+        - **relation**: The relation to get the target of.
+        - **index**: The index of the target to get. defaults to 0.
+
+- **pair_value()**: Returns the value of a pair.
+    - **Arguments**
+        - **relation**: The relation to get the value of.
+        - **target**: The target of the pair, must be a client id.
+
+- **has_pair()**: Returns whether the entity has a pair.
+    - **Arguments**
+        - **relation**: The relation to check.
+        - **target**: The target of the pair, must be a client id.
+
+
+- **has()**: Returns whether the entity has a component or tag.
+    - **Arguments**
+        - **tag**: The tag to check.
+
+- **entity()**: Returns an entity from a server entity id, will recursively resolve other custom ids.
+    - **Arguments**
+        - **server_entity**: The server entity to get.
+
+</div>
+</div>

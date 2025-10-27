@@ -1,0 +1,277 @@
+---
+title: Server Replicator
+description: Server Replicator API Reference
+sidebar:
+    order: 2
+---
+
+
+## Types
+
+--- 
+
+<div class="inner">
+
+### `Iterator`
+
+```ts
+type Iterator<T...> = () -> (T...)
+```
+
+</div>
+
+## Members
+
+--- 
+
+<div class="inner">
+
+### `Server.masking`
+
+The masking controller. This handles player filtering, as well as excluding non-ready players.
+
+```ts
+type Server = {
+    masking: MaskingController
+}
+```
+
+</div>
+
+## Methods
+
+---
+
+<div class="inner">
+
+### `server:init()`
+
+Initializes the server replicator. World can be provided here 
+if it wasn't provided when creating the replicator.
+
+```ts
+type Server = {
+    init: (self: Server, world: jecs.World?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **world**: The world to use for the replicators. Can also be provided when initing the replicator.
+</div>
+
+### `server:destroy()`
+
+Destroys the server replicator. This will disconnect jecs hooks and connections.
+
+```ts
+type Server = {
+    destroy: (self: Server) -> ()
+}
+```
+
+
+### `server:collect_updates()`
+
+Returns an iterator that will send batched updates.
+
+```ts
+type Server = {
+    collect_updates: (self: Server) -> Iterator<player: Player, buf: buffer, variants: {{any}}>
+}
+```
+
+<div class="padded">
+#### Iterator Returns
+- **player**: The player to send the updates to.
+- **buf**: The buffer containing the updates.
+- **variants**: The variants table containing non-serialized values.
+</div>
+
+### `server:collect_unreliable()`
+
+Returns an iterator that will send the values of unrealible components.
+
+```ts
+type Server = {
+    collect_unreliable: (self: Server) -> Iterator<player: Player, buf: buffer, variants: {{any}}>
+}
+```
+
+<div class="padded">
+#### Iterator Returns
+    - **player**: The player to send the updates to.
+    - **buf**: The buffer containing the updates.
+    - **variants**: The variants table containing non-serialized values.
+</div>
+
+### `server:get_full()`
+
+Gets the full state of the world for the provided player.
+
+```ts
+type Server = {
+    get_full: (self: Server, player: Player) -> (buffer, {{any}})
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **player**: The player to get the full state of the world for.
+#### Returns
+    - **buf**: The buffer containing the full state of the world.
+    - **variants**: The variants table containing non-serialized values.
+</div>
+
+
+### `server:enconde_component()`
+
+Encodes a component for sending through the network. This returns a number between 1 to 255.
+
+```ts
+type Server = {
+    encode_component: (self: Server, component: Entity) -> number
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **component**: The component to encode.
+#### Returns
+    - **number**: The encoded component.
+</div>
+
+
+### `server:decode_component()`
+
+Decodes a component from a number.
+
+```ts
+type Server = {
+    decode_component: (self: Server, encoded: number) -> Entity
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **number**: The number to decode, This is number from `encode_component`.
+#### Returns
+    - **component**: The decoded component.
+</div>
+
+### `server:mark_player_ready()`
+
+Marks a player as ready to receive updates. Non ready players will not receive updates until this is called.
+
+```ts
+type Server = {
+    mark_player_ready: (self: Server, player: Player) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **player**: The player to mark as ready.
+</div>
+
+### `server:is_player_ready()`
+
+Checks if a player has been marked as ready to receive updates.
+
+```ts
+type Server = {
+    is_player_ready: (self: Server, player: Player) -> boolean
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **player**: The player to check.
+#### Returns
+    - **boolean**: Whether the player is ready.
+</div>
+
+### `server:add_player_alias()`
+
+Adds an alias for a player. This can be used to use different values like entities in player filters.
+
+```ts
+type Server = {
+    add_player_alias: (self: Server, player: Player, alias: any) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **player**: The player to add the alias for.
+    - **alias**: The alias to add.
+</div>
+
+### `server:remove_player_alias()`
+
+Removes an alias for a player. This is important to do when a player leaves the server.
+
+```ts
+type Server = {
+    remove_player_alias: (self: Server, alias: any) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **alias**: The alias to remove.
+</div>
+
+### `server:generate_handshake()`
+
+Generates a handshake info. This can be used to verify that the server and client are setup correctly.
+
+```ts
+type Server = {
+    generate_handshake: (self: Server) -> HandshakeInfo
+}
+```
+
+<div class="padded">
+#### Returns
+    - **handshake**: The handshake info. This can be passed to `client:verify_handshake()`
+</div>
+
+
+### `server:verify_handshake()`
+
+Verifies a handshake info from `client:generate_handshake()`.
+
+```ts
+type Server = {
+    verify_handshake: (self: Server, handshake: HandshakeInfo) -> (success: boolean, err: string?)
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **handshake**: The handshake info to verify.
+#### Returns
+    - **success**: Whether the handshake info is valid.
+    - **err**: The error message if the handshake was not successful.
+</div>
+
+
+### `server:register_custom_id()`
+
+Registers a custom id handler. Custom ids can only be used if they are registered.
+
+
+```ts
+type Server = {
+    register_custom_id: (self: Server, custom_id: CustomId) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **custom_id**: The custom id to register.
+</div>
+
+
+</div>

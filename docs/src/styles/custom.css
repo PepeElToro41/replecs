@@ -9,11 +9,16 @@
    }
 }
 
-.padded {
-   padding: 1.5rem;
-   border-radius: 0.5rem;
+.inner {
+   padding: 1.2rem;
+}
 
-   background-color: var(--sl-color-gray-6);
+.padded {
+   padding: 1rem;
+   margin-left: 1rem;
+   border-left: solid;
+   border-left-color: var(--sl-color-gray-4);
+   border-left-width: 1px;
 }
 
 .starlight-aside code {
