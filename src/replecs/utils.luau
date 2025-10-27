@@ -2,6 +2,7 @@
 --!optimize 2
 
 local jecs = require "../jecs"
+local customid = require "./customid"
 local common = require "./common"
 
 type World = jecs.World
@@ -14,11 +15,6 @@ export type Cursor = {
 
 local ECS_NAME = jecs.Name
 local CHILD_OF = jecs.ChildOf
-local WILDCARD = jecs.Wildcard
-
-function PAIR(first: Entity, second: Entity): Entity
-	return jecs.pair(first, second)
-end
 
 local utils = {}
 
@@ -139,6 +135,20 @@ function cursor.writei32(c: Cursor, value: number)
 	c.offset += 4
 end
 
+function cursor.write_span(c: Cursor, value: number, span: number)
+	if span <= 0xFF then
+		cursor.writeu8(c, value)
+	elseif span <= 0xFFFF then
+		cursor.writeu16(c, value)
+	elseif span <= 0xFFFFFF then
+		cursor.writeu24(c, value)
+	elseif span <= 0xFFFFFFFF then
+		cursor.writeu32(c, value)
+	else
+		error "span too large"
+	end
+end
+
 function cursor.read_buffer(c: Cursor, len: number)
 	local retrieved = buffer.create(len)
 	buffer.copy(retrieved, 0, c.buffer, c.offset - len, len)
@@ -173,6 +183,20 @@ function cursor.readu40(c: Cursor): number
 	local one = buffer.readu8(c.buffer, c.offset)
 	local two = buffer.readu32(c.buffer, c.offset + 1)
 	return one + two * 256
+end
+
+function cursor.read_span(c: Cursor, span: number): number
+	if span <= 0xFF then
+		return cursor.readu8(c)
+	elseif span <= 0xFFFF then
+		return cursor.readu16(c)
+	elseif span <= 0xFFFFFF then
+		return cursor.readu24(c)
+	elseif span <= 0xFFFFFFFF then
+		return cursor.readu32(c)
+	else
+		error "span too large"
+	end
 end
 
 function cursor.readi8(c: Cursor): number
@@ -550,11 +574,14 @@ function bitmask.tostring(self: Bitmask): string
 	end
 
 	table.clear(BYTES)
+	local str = ""
 	for i = 0, highest_entry do
-		table.insert(BYTES, buffer.readu32(buf, i * BYTES_PER_ENTRY))
+		str = str .. tobinary(buffer.readu32(buf, i * BYTES_PER_ENTRY))
+		--table.insert(BYTES, buffer.readu32(buf, i * BYTES_PER_ENTRY))
 	end
 
-	return table.concat(BYTES, "-")
+	--return table.concat(BYTES, "-")
+	return str
 end
 
 utils.bitmask = {
@@ -562,47 +589,173 @@ utils.bitmask = {
 	from_set = bitmask.from_set,
 }
 
-function utils.create_shared_lookup(world: World, components: common.Components)
-	local shared: common.Shared = {
-		lookup = {
-			["jecs.ChildOf"] = CHILD_OF,
-		},
+function utils.create_shared_lookup<T>(lookup: { [string]: T }): common.SharedInfo<T>
+	local keys = {}
+	local indexes = {}
+	local members = {}
+
+	for name in lookup do
+		table.insert(keys, name)
+	end
+	table.sort(keys)
+
+	for index, name in keys do
+		local member = lookup[name]
+		members[member] = index
+		indexes[index] = member
+	end
+
+	return {
+		lookup = lookup,
+		keys = keys,
+		indexes = indexes,
+		members = members,
+	}
+end
+
+function utils.resolved_shared(
+	world: World,
+	components: common.Components,
+	registered_custom_ids: { [customid.CustomId]: boolean }
+): common.Shared
+	local shared = {
 		serdes = {},
 		bytespan = {},
-		ids = {},
-		components = {},
+	} :: common.Shared
+
+	local components_lookup: { [string]: jecs.Entity } = {
+		["jecs.ChildOf"] = CHILD_OF,
 	}
+	local custom_ids_lookup = {}
 
 	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
-		shared.lookup[name] = component
+		components_lookup[name] = component
+	end
+
+	for custom in registered_custom_ids do
+		custom_ids_lookup[custom.identifier] = custom
 	end
 
 	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
 		shared.serdes[component] = serdes
 	end
 
-	for component, bytespan in world:query(components.bytespan):with(components.shared, ECS_NAME):iter() do
-		shared.bytespan[component] = bytespan
-	end
+	shared.components = utils.create_shared_lookup(components_lookup)
+	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
 
-	local keys = {}
-	local component_ids = {}
-	local id_components = {}
-
-	for name in shared.lookup do
-		table.insert(keys, name)
-	end
-	table.sort(keys)
-
-	for id, name in keys do
-		local component = shared.lookup[name]
-		component_ids[shared.lookup[name]] = id
-		id_components[id] = component
-	end
-
-	shared.ids = component_ids
-	shared.components = id_components
 	return shared
+end
+
+function utils.generate_handshake(world: World, shared: common.Shared): common.HandshakeInfo
+	local component_to_name: { [Entity]: string } = {}
+	local handshake: common.HandshakeInfo = {
+		components = {},
+		custom_ids = {},
+		serdes = {},
+	}
+
+	for component_name, component in shared.components.lookup do
+		handshake.components[component_name] = true
+		component_to_name[component] = component_name
+	end
+
+	for custom_id in shared.custom_ids.lookup do
+		handshake.custom_ids[custom_id] = true
+	end
+
+	for component, serdes in shared.serdes do
+		local name = component_to_name[component]
+		if not name then
+			utils.logwarn(`found serdes for component {utils.logcomponent(world, component)} was not shared`)
+			continue
+		end
+
+		handshake.serdes[name] = {
+			includes_variants = serdes.includes_variants,
+			bytespan = serdes.bytespan,
+		}
+	end
+
+	return handshake
+end
+
+function utils.verify_handshake(
+	world: World,
+	shared: common.Shared,
+	handshake: common.HandshakeInfo,
+	handshake_side: string,
+	verify_side: string
+): (boolean, string?)
+	local component_to_name: { [Entity]: string } = {}
+
+	for component_name in handshake.components do
+		if not shared.components.lookup[component_name] then
+			return false, `missing shared component "{component_name}" in {verify_side}`
+		end
+	end
+	for component_name, component in shared.components.lookup do
+		if not handshake.components[component_name] then
+			return false, `missing shared component "{component_name}" in {handshake_side}`
+		end
+		component_to_name[component] = component_name
+	end
+
+	for custom_id in handshake.custom_ids do
+		if not shared.custom_ids.lookup[custom_id] then
+			return false, `missing custom id "{custom_id}" in {verify_side}`
+		end
+	end
+	for custom_id in shared.custom_ids.lookup do
+		if not handshake.custom_ids[custom_id] then
+			return false, `missing custom id "{custom_id}" in {handshake_side}`
+		end
+	end
+
+	for component_name, serdes_info in handshake.serdes do
+		local component = shared.components.lookup[component_name]
+		if not component then
+			warn(`{handshake_side} registered a serdes for "{component_name}" that {verify_side} doesn't have`)
+			continue
+		end
+
+		local serdes = shared.serdes[component]
+		if not serdes then
+			return false, `missing serdes for component "{component_name}" in {verify_side}`
+		end
+
+		if (serdes_info.includes_variants or false) ~= (serdes.includes_variants or false) then
+			return false,
+				`mismatched includes_variants for component "{component_name}": ({serdes_info.includes_variants} ~= {serdes.includes_variants})`
+		end
+		if serdes_info.bytespan ~= serdes.bytespan then
+			return false,
+				`mismatched bytespan for component "{component_name}": ({serdes_info.bytespan} ~= {serdes.bytespan})`
+		end
+	end
+	for component in shared.serdes do
+		local component_name = component_to_name[component]
+		if not component_name then
+			utils.logwarn(`found serdes for component {utils.logcomponent(world, component)} was not shared`)
+			continue
+		end
+
+		if not handshake.serdes[component_name] then
+			warn(`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`)
+		end
+	end
+
+	return true, nil
+end
+
+function utils.is_client_valid(player: any): boolean
+	if game then
+		if typeof(player) == "Instance" then
+			return player.ClassName == "Player" and player:IsDescendantOf(game:GetService "Players")
+		else
+			return false
+		end
+	end
+	return true
 end
 
 function utils.vlq_span(length: number): number

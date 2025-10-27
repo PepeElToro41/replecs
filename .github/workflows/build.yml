@@ -1,0 +1,42 @@
+name: Build
+
+on:
+    workflow_call:
+        inputs:
+            version:
+                required: false
+                type: string
+                default: ""
+
+jobs:
+    build:
+        name: Build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@v4
+
+            - name: Install Rokit
+              uses: CompeyDev/setup-rokit@v0.1.2
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Setup Pesde
+              uses: lumin-org/setup-pesde@v0.4.1
+              with:
+                  version: v0.7.0-rc.7+registry.0.2.3-rc.3
+
+            - name: Install Packages
+              run: pesde install
+
+            - name: Darklua Process
+              run: lune run .lune/process.luau ${{ inputs.version }}
+
+            - name: Build
+              run: rojo build serve/default.project.json -o replecs.rbxm
+
+            - name: Upload Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: build
+                  path: replecs.rbxm

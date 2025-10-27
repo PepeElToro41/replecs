@@ -25,7 +25,9 @@ zap.WaitForServer.SetCallback(function(player)
 		return nil, nil
 	end
 	replicator:mark_player_ready(player)
-	return replicator:get_full(player)
+	local buf, variants = replicator:get_full(player)
+
+	return buf, variants, replicator:generate_handshake()
 end)
 
 game:BindToClose(function()

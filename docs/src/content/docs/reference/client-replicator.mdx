@@ -1,0 +1,310 @@
+---
+title: Client Replicator
+description: Client Replicator API Reference
+sidebar:
+    order: 3
+---
+
+## Types
+
+--- 
+
+<div class="inner">
+
+### `Disconnect`
+
+```ts
+type Disconnect = () -> ()
+```
+
+</div>
+
+## Methods
+
+---
+
+<div class="inner">
+
+### `client:init()`
+
+Initializes the client replicator. World can be provided here 
+if it wasn't provided when creating the replicator.
+
+```ts
+type Client = {
+    init: (self: Client, world: jecs.World?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **world**: The world to use for the replicators. Can also be provided when initing the replicator.
+</div>
+
+### `client:destroy()`
+
+Destroys the client replicator. This will disconnect jecs hooks and connections.
+
+```ts
+type Client = {
+    destroy: (self: Client) -> ()
+}
+```
+
+### `client:apply_updates()`
+
+Applies the updates from the server.
+
+```ts
+type Client = {
+    apply_updates: (self: Client, buf: buffer, variants: {{any}}) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **buf**: The buffer containing the updates.
+    - **variants**: The variants table containing non-serialized values.
+</div>
+
+### `client:apply_unreliable()`
+
+Applies the unreliable values from the server.
+
+```ts
+type Client = {
+    apply_unreliable: (self: Client, buf: buffer, variants: {{any}}) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **buf**: The buffer containing the updates.
+    - **variants**: The variants table containing non-serialized values.
+</div>
+
+### `client:apply_full()`
+
+Applies the full state of the world from the server.
+
+```ts
+type Client = {
+    apply_full: (self: Client, buf: buffer, variants: {{any}}) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **buf**: The buffer containing the updates.
+    - **variants**: The variants table containing non-serialized values.
+</div>
+
+
+### `client:hook()`
+
+Hooks to a networking process. The arguments depend on the action type
+
+```ts
+type Client = {
+    hook: (self: Client, action: "changed", pair: Pair, callback: (entity: Entity, id: Id, value: any) -> ()) -> Disconnect,
+    hook: (self: Client, action: "removed", pair: Pair, callback: (entity: Entity, id: Id) -> ()) -> Disconnect,
+    hook: (self: Client, action: "deleted", entity: Entity, callback: (entity: Entity) -> ()) -> Disconnect,
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **action**: The action to hook to.
+    - **...**: Hook arguments.
+#### Returns
+    - **disconnect**: A function that disconnects the hook when called.
+</div>
+
+
+### `client:override()`
+
+Special hook that overrides the networking process entirely, allowing you to customize or abort actions. 
+The usage is identical to `client:hook()`.
+
+```ts
+type Client = {
+    override: (self: Client, action: "changed", pair: Pair, callback: (entity: Entity, id: Id, value: any) -> ()) -> Disconnect,
+    override: (self: Client, action: "removed", pair: Pair, callback: (entity: Entity, id: Id) -> ()) -> Disconnect,
+    override: (self: Client, action: "deleted", entity: Entity, callback: (entity: Entity) -> ()) -> Disconnect,
+}
+```
+
+### `client:added()`
+
+Hook that gets called when replecs creates a new entity, 
+this is called right after the entity is created so it will be empty. 
+Use `client:after_replication()` to wait for any useful info from it.
+
+This hook is not called if the entity was created with a custom id.
+
+```ts
+type Client = {
+    added: (self: Client, callback: (entity: Entity) -> ()) -> Disconnect,
+}
+```
+
+<div class="padded"> 
+#### Arguments
+    - **callback**: Function that gets called when the entity is created.
+#### Returns
+    - **disconnect**: A function that disconnects the hook when called.
+</div>
+
+
+### `client:get_server_entity()`
+
+Gets the equivalent server entity for a client entity.
+
+```ts
+type Client = {
+    get_server_entity: (self: Client, client_entity: Entity) -> number?
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The client entity.
+#### Returns
+    - **server_entity**: The server entity, This is typed a number to avoid using this in the client.
+</div>
+
+### `client:get_client_entity()`
+
+Gets the equivalent client entity from a server entity.
+
+```ts
+type Client = {
+    get_client_entity: (self: Client, server_entity: number) -> Entity?
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **server_entity**: The server entity.
+#### Returns
+    - **entity**: The client entity.
+</div>
+
+
+### `client:register_entity()`
+
+Binds a client entity to a server id. This would modify what `get_server_entity` and `get_client_entity` return.
+
+```ts
+type Client = {
+    register_entity: (self: Client, entity: Entity, server_entity: number) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The client entity to bind.
+    - **server_entity**: The server entity to bind.
+</div>
+
+### `client:unregister_entity()`
+
+Unbinds a client entity from a server id. This would also cause replecs to recreate a client entity for the server entity,
+and can possibly be used for force replecs to re-run custom ids.
+
+```ts
+type Client = {
+    unregister_entity: (self: Client, entity: Entity) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The client entity to unbind.
+</div>
+
+### `client:enconde_component()`
+
+Encodes a component for sending through the network. This returns a number between 1 to 255.
+
+```ts
+type Client = {
+    encode_component: (self: Client, component: Entity) -> number
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **component**: The component to encode.
+#### Returns
+    - **number**: The encoded component.
+</div>
+
+
+### `client:decode_component()`
+
+Decodes a component from a number.
+
+```ts
+type Client = {
+    decode_component: (self: Client, encoded: number) -> Entity
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **number**: The number to decode, This is number from `encode_component`.
+#### Returns
+    - **component**: The decoded component.
+</div>
+
+
+### `client:register_custom_id()`
+
+Registers a custom id handler. Custom ids can only be used if they are registered.
+
+
+```ts
+type Client = {
+    register_custom_id: (self: Client, custom_id: CustomId) -> ()
+}
+```
+
+### `client:generate_handshake()`
+
+Generates a handshake info. This can be used to verify that the server and client are setup correctly.
+Relevant for components with `shared`,`serdes` and `custom_ids`, 
+as a mistmatch in these between server and client would cause hard to debug issues. 
+
+```ts
+type Client = {
+    generate_handshake: (self: Client) -> HandshakeInfo
+}
+```
+
+<div class="padded">
+#### Returns
+    - **handshake**: The handshake info. This can be passed to `server:verify_handshake()`
+</div>
+
+
+### `client:verify_handshake()`
+
+Verifies a handshake info from `server:generate_handshake()`.
+
+```ts
+type Client = {
+    verify_handshake: (self: Client, handshake: HandshakeInfo) -> (success: boolean, err: string?)
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **handshake**: The handshake info to verify.
+#### Returns
+    - **success**: Whether the handshake info is valid.
+    - **err**: The error message if the handshake was not successful.
+</div>
+
+
+</div>

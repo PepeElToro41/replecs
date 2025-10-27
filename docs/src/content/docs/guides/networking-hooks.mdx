@@ -53,20 +53,19 @@ end)
 disconnect() -- disconnect the signal
 ```
 
-## Per-Entity Hooks
+## Network Hooks
 
-You can set hooks to each entity individually when an action is performed. To do this, you need to call 
-`replicator:hook(entity, action, ...)`. The arguments of this method will change depending on the action.
+You can set hooks to when an action is performed. To do this, you need to call 
+`replicator:hook(action, ...)`. The arguments of this method will change depending on the action.
 
 This method returns a disconnect function that you can call to remove the hook.
 
 <div class="padded">
 ### Component Changes
-Setting the action to "changed" will make the callback run right after the component has been changed.
+Setting the action to "changed" will make the callback run right after a component has been changed.
 This does not distinguish component additions and changes. 
 
 The arguments for the hook method will be:
-- entity: `Entity` <span class="sub-heading" style="white-space: pre;"> - entity to hook</span>
 - action: `"changed"` <span class="sub-heading" style="white-space: pre;"> - "changed" action</span>
 - replication_pair: `Pair` <span class="sub-heading" style="white-space: pre;"> - what component to hook to. This pair should mimic how you track components [in the server](/replecs/guides/networking-entity/#replication-types)</span> 
 - callback: `(entity: Entity, id: Id, component: Component)` <span class="sub-heading" style="white-space: pre;"> - callback to run when the component is changed</span>
@@ -74,20 +73,19 @@ The arguments for the hook method will be:
 ```luau
 local replicator = require("@client/replicator")
 
-replicator:hook(car, "changed", jecs.pair(replecs.reliable, components.speed), function(entity, id, speed)
-    print("car", entity, "changed speed to", speed)
+replicator:hook("changed", jecs.pair(replecs.reliable, components.speed), function(entity, id, speed)
+    print(entity, "changed speed to", speed)
 end)
-replicator:hook(enemy, "changed", jecs.pair(replecs.pair, components.attacking), function(entity, id)
-    print("enemy", entity, "is now attacking", jecs.pair_second(world, id)) 
+replicator:hook("changed", jecs.pair(replecs.pair, components.attacking), function(entity, id)
+    print(entity, "is now attacking", jecs.pair_second(world, id)) 
 end)
 ```
 
 ### Component Removals
-Setting the action to "removed" will make the callback run right before the component or pair gets removed.
+Setting the action to "removed" will make the callback run right before a component or pair gets removed.
 You can still access the component or pair right at this point.
 
 The arguments for the hook method will be:
-- entity: `Entity` <span class="sub-heading" style="white-space: pre;">  -  entity to hook</span>
 - action: `"removed"` <span class="sub-heading" style="white-space: pre;">  -  "removed" action</span>
 - replication_pair: `Pair` <span class="sub-heading" style="white-space: pre;">  -  what component to hook to. This pair should mimic how you track components [in the server](/replecs/guides/networking-entity/#replication-types)</span> 
 - callback: `(entity: Entity, id: Id)` <span class="sub-heading" style="white-space: pre;">  -  callback to run when the component is removed </span>
@@ -95,28 +93,29 @@ The arguments for the hook method will be:
 ```luau
 local replicator = require("@client/replicator")
 
-replicator:hook(car, "removed", jecs.pair(replecs.reliable, components.speed), function(entity, id)
-    print("car", entity, "removed speed", world:get(entity, components.speed))
+replicator:hook("removed", jecs.pair(replecs.reliable, components.speed), function(entity, id)
+    print("removed speed for:", entity, world:get(entity, components.speed))
 end)
-replicator:hook(enemy, "removed", jecs.pair(replecs.pair, components.attacking), function(entity, id)
-    print("enemy", entity, "is no longer attacking", jecs.pair_second(world, id)) 
+replicator:hook("removed", jecs.pair(replecs.pair, components.attacking), function(entity, id)
+    print(entity, "is no longer attacking", jecs.pair_second(world, id)) 
 end)
 ```
 
 
 ### Entity Deletions
-Setting the action to "deleted" will make the callback run right before the entity gets deleted.
+Setting the action to "deleted" will make the callback run right before an entity gets deleted. You need to connect this once per-entity.
+All hooks get disconnected automatically after the entity is deleted.
 
 The arguments for the hook method will be:
-- entity: `Entity` <span class="sub-heading" style="white-space: pre;">  -  entity to hook</span>
 - action: `"deleted"` <span class="sub-heading" style="white-space: pre;">  -  "deleted" action</span>
+- entity: `Entity` <span class="sub-heading" style="white-space: pre;">  -  entity to hook</span>
 - callback: `(entity: Entity)` <span class="sub-heading" style="white-space: pre;">  -  callback to run when the entity is deleted </span>
 
 ```luau
 local replicator = require("@client/replicator")
 
-replicator:hook(car, "deleted", function(entity)
-    print("car", entity, "was deleted")
+replicator:hook("deleted", entity, function(entity)
+    print(entity, "was deleted")
 end)
 ```
 </div>
@@ -127,25 +126,25 @@ You can override actions. When this happens, replecs will not perform the action
 This allows you add your own logic for changing/removing/deleting entities and components. 
 
 You override actions the same way you would hook to them,
-but calling `replicator:override(entity, action, ...)` instead, you cant override and hook at the same time for the same replication pair and action.
+but calling `replicator:override(entity, action, ...)` instead, you cant override and hook at the same time for the same component and action.
 
-All action types behave the same way with the exception of "changed" since the component will not change at all.
+All actions behave the same way with the exception of "changed" since the component will never change.
 
 ```luau
 local replicator = require("@client/replicator")
 
-replicator:override(car, "changed", jecs.pair(replecs.reliable, components.speed), function(_, _, speed)
+replicator:override("changed", jecs.pair(replecs.reliable, components.speed), function(entity, _, speed)
     -- double the speed in the client (for some reason?)
-    world:set(car, components.speed, speed * 2)
+    world:set(entity, components.speed, speed * 2)
 end)
-replicator:override(car, "removed", jecs.pair(replecs.reliable, components.speed), function()
+replicator:override("removed", jecs.pair(replecs.reliable, components.speed), function(entity)
     -- set speed to 0 instead of removing it
     world:set(car, components.speed, 0)
 end)
-replicator:override(enemy, "deleted", function(entity)
+replicator:override("deleted", enemy, function(_)
     -- fade out the enemy and add lifetime to be deleted after 4 seconds
     world:add(enemy, components.fade_out)
-    world:set(entity, components.lifetime, 4)
+    world:set(enemy, components.lifetime, 4)
 end)
 ```
 

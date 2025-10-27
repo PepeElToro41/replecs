@@ -1,1 +1,7 @@
 std = "selene_definitions"
+exclude = ["*.spec.luau"]
+
+[lints]
+undefined_variable = "allow"
+shadowing = "allow"
+if_same_then_else = "allow"

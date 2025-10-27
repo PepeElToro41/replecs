@@ -1,7 +1,7 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local RunService = game:GetService "RunService"
 local UserInputService = game:GetService "UserInputService"
-local scheduler = require(ReplicatedStorage.code.ecs.scheduler)
+local scheduler = require(ReplicatedStorage.code.utils.ecs.scheduler)
 local world = require(ReplicatedStorage.code.world)
 local jabby = require(ReplicatedStorage.packages.jabby)
 
@@ -22,7 +22,7 @@ function start_jabby()
 		},
 	}
 
-	jabby.set_check_function(function(player)
+	jabby.set_check_function(function()
 		return true
 	end)
 

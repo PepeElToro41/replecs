@@ -63,7 +63,7 @@ end
 
 function mask_generator.compute(generator: GeneratorInternal)
 	if generator.compute_callback then
-		local result = generator.compute_callback(generator :: GeneratorInternal)
+		local result: utils.Bitmask = generator.compute_callback(generator :: any)
 		generator.result = result
 	end
 	if generator.subscribed then

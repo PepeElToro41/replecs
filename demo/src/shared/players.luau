@@ -2,8 +2,8 @@ local Players = game:GetService "Players"
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local RunService = game:GetService "RunService"
 local c = require(script.Parent.components)
-local ref = require(ReplicatedStorage.code.ecs.ref)
-local jecs = require(ReplicatedStorage.packages.jecs)
+local replicator = require(script.Parent.replicator)
+local ref = require(ReplicatedStorage.code.utils.ecs.ref)
 local replecs = require(ReplicatedStorage.packages.replecs)
 local world = require(script.Parent.world)
 
@@ -23,8 +23,9 @@ function setup(player: Player)
 
 	if RunService:IsServer() then
 		world:add(entity, replecs.networked)
-		world:add(entity, jecs.pair(replecs.custom, c.player))
-		world:add(entity, jecs.pair(replecs.reliable, c.unix))
+		replicator.server:set_custom(entity, c.player)
+		replicator.server:set_reliable(entity, c.player)
+		replicator.server:set_reliable(entity, c.unix)
 		world:set(entity, c.unix, 0)
 
 		world:set(entity, c.timer, {

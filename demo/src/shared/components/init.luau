@@ -1,8 +1,9 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
+local RunService = game:GetService "RunService"
 local world = require(script.Parent.world)
-local add_names = require(ReplicatedStorage.code.ecs.add_names)
-local add_shared = require(ReplicatedStorage.code.ecs.add_shared)
-local ref = require(ReplicatedStorage.code.ecs.ref)
+local add_names = require(ReplicatedStorage.code.utils.ecs.add_names)
+local add_shared = require(ReplicatedStorage.code.utils.ecs.add_shared)
+local ref = require(ReplicatedStorage.code.utils.ecs.ref)
 local jecs = require(ReplicatedStorage.packages.jecs)
 local replecs = require(ReplicatedStorage.packages.replecs)
 
@@ -33,10 +34,12 @@ local components = {
 }
 
 world:set(components.player, replecs.custom_handler, function(player: Player)
-	return ref(player) :: any
+	local entity = ref(player)
+	return entity
 end)
 
 world:set(components.transform, replecs.serdes, {
+	bytespan = 12,
 	serialize = function(transform: CFrame)
 		local buf = buffer.create(12)
 		buffer.writef32(buf, 0, transform.X)
@@ -56,8 +59,6 @@ world:removed(components.cleanup, function(entity: jecs.Entity)
 		callback(entity)
 	end
 end)
-
-world:set(components.transform, replecs.bytespan, 12)
 
 add_names(components)
 add_shared(components)

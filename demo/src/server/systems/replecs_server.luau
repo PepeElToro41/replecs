@@ -2,8 +2,8 @@ local ReplicatedStorage = game:GetService "ReplicatedStorage"
 local ServerScriptService = game:GetService "ServerScriptService"
 local replicator = require(ServerScriptService.code.replicator)
 local zap = require(ServerScriptService.code.zap)
-local interval = require(ReplicatedStorage.code.ecs.interval)
-local scheduler = require(ReplicatedStorage.code.ecs.scheduler)
+local interval = require(ReplicatedStorage.code.utils.interval)
+local scheduler = require(ReplicatedStorage.code.utils.ecs.scheduler)
 
 local updates_interval = interval(1 / 20)
 local unreliable_interval = interval(1 / 30)

@@ -1,0 +1,7 @@
+{
+   "files.eol": "\n",
+   "luau-lsp.completion.autocompleteEnd": true,
+   "[luau]": {
+      "editor.defaultFormatter": "JohnnyMorganz.stylua"
+   }
+}

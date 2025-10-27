@@ -1,40 +1,78 @@
 diff --git a/src/client/spawn_app.luau b/src/client/spawn_app.luau
-index 192dcdf..bbf761d 100644
+index 192dcdf..55f0661 100644
 --- a/src/client/spawn_app.luau
 +++ b/src/client/spawn_app.luau
-@@ -6,28 +6,29 @@ local types = require(script.Parent.Parent.modules.types)
- local destroy_fn = {}
- 
- local function unmount_all()
+@@ -1,36 +1,36 @@
+-local Players = game:GetService("Players")
+-
+-local vide = require(script.Parent.Parent.Parent.vide)
+-local types = require(script.Parent.Parent.modules.types)
+-
+-local destroy_fn = {}
+-
+-local function unmount_all()
 -	for destroy in destroy_fn do
-+	for _, destroy in destroy_fn do
- 		destroy()
- 	end
- end
- 
- local function spawn_app<T>(app: types.Application<T>, props: T): () -> ()
+-		destroy()
+-	end
+-end
+-
+-local function spawn_app<T>(app: types.Application<T>, props: T): () -> ()
 -	return vide.root(function(destroy)
-+	local _, unmount = vide.root(function(destroy)
- 
+-
 -		local destroy = function()
-+		local cleanup = function()
- 			destroy_fn[destroy] = nil
- 			destroy()
- 		end
- 
+-			destroy_fn[destroy] = nil
+-			destroy()
+-		end
+-
 -		local application = app.mount(props, destroy)
-+		local application = app.mount(props, cleanup)
- 		application.Parent = Players.LocalPlayer.PlayerGui
- 
- 		vide.cleanup(application)
- 		
+-		application.Parent = Players.LocalPlayer.PlayerGui
+-
+-		vide.cleanup(application)
+-		
 -		destroy_fn[destroy] = true
-+		destroy_fn[destroy] = cleanup
- 		
+-		
 -		return destroy
+-	end)
+-end
+-
+-return {
+-	unmount_all = unmount_all,
+-	spawn_app = spawn_app
+-}
+\ No newline at end of file
++local Players = game:GetService("Players")
++
++local vide = require(script.Parent.Parent.Parent.vide)
++local types = require(script.Parent.Parent.modules.types)
++
++local destroy_fn = {}
++
++local function unmount_all()
++	for _, destroy in destroy_fn do
++		destroy()
++	end
++end
++
++local function spawn_app<T>(app: types.Application<T>, props: T): () -> ()
++	local _, unmount = vide.root(function(destroy)
++		local cleanup = function()
++			destroy_fn[destroy] = nil
++			destroy()
++		end
++
++		local application = app.mount(props, cleanup)
++		application.Parent = Players.LocalPlayer.PlayerGui
++
++		vide.cleanup(application)
++
++		destroy_fn[destroy] = cleanup
++
 +		return cleanup
- 	end)
-+    return unmount
- end
- 
- return {
++	end)
++	return unmount
++end
++
++return {
++	unmount_all = unmount_all,
++	spawn_app = spawn_app,
++}

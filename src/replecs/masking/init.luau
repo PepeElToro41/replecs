@@ -163,8 +163,8 @@ export type MaskingController = {
 
 	propagate_entity_addition: (self: MaskingController, entity: Entity) -> (),
 
-	start_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
-	set_entity: (self: MaskingController, entity: Entity, filter: MemberFilter?) -> (),
+	start_entity: (self: MaskingController, entity: Entity, filter: GivenFilter?) -> (),
+	set_entity: (self: MaskingController, entity: Entity, filter: GivenFilter?) -> (),
 	stop_entity: (self: MaskingController, entity: Entity) -> (),
 	cleanup_entity: (self: MaskingController, entity: Entity) -> (),
 
@@ -173,14 +173,14 @@ export type MaskingController = {
 		entity: Entity,
 		component: Entity,
 		component_type: number,
-		filter: MemberFilter?
+		filter: GivenFilter?
 	) -> (),
 	set_component: (
 		self: MaskingController,
 		entity: Entity,
 		component: Entity,
 		component_type: number,
-		filter: MemberFilter?
+		filter: GivenFilter?
 	) -> (),
 	stop_component: (self: MaskingController, entity: Entity, component: Entity, component_type: number) -> (),
 
@@ -235,7 +235,7 @@ end
 local function get_usable_filter(filter: (MemberFilter | any)?): MemberFilter?
 	if filter then
 		if type(filter) == "table" then
-			return filter
+			return filter :: MemberFilter
 		else
 			return { [filter] = true }
 		end
@@ -709,23 +709,24 @@ function masking_controller.move_component_storage(
 	local component_added =
 		get_component_index_entry(storage.changes.added_components, entity, component, component_type)
 	if component_added then
+		remove_component_index_entry(target_storage.changes.added_components, entity, component, component_type)
 		set_component_index_entry(target_storage.changes.added_components, entity, component, component_type, true)
 	end
 
 	local changes = storage.changes.changed[entity]
 	if changes then
 		local target_changes = get_or_set_changed(target_storage, entity)
-		if component_type == COMPONENT_TYPES.component then
-			target_changes.component[component] = changes.component[component]
-			target_changes.removed[component] = changes.removed[component]
-
-			changes.component[component] = nil
-			changes.removed[component] = nil
-		elseif component_type == COMPONENT_TYPES.tag then
+		if component_type == COMPONENT_TYPES.tag then
 			target_changes.tagged[component] = changes.tagged[component]
 			target_changes.removed[component] = changes.removed[component]
 
 			changes.tagged[component] = nil
+			changes.removed[component] = nil
+		elseif component_type == COMPONENT_TYPES.component then
+			target_changes.component[component] = changes.component[component]
+			target_changes.removed[component] = changes.removed[component]
+
+			changes.component[component] = nil
 			changes.removed[component] = nil
 		elseif component_type == COMPONENT_TYPES.pair then
 			target_changes.pairs[component] = changes.pairs[component]
@@ -741,8 +742,6 @@ function masking_controller.move_component_storage(
 			pairs.removed[component] = nil
 		end
 	end
-
-	--todo: move changes
 
 	return target_storage
 end
@@ -826,7 +825,6 @@ function masking_controller.register_stop_entity(masking: MaskingInternal, entit
 		return
 	end
 	storage.deletions.entities[entity] = true
-	storage.deletions_count += 1
 end
 
 function masking_controller.register_stop_component(
@@ -845,13 +843,11 @@ function masking_controller.register_stop_component(
 		deletions = create_component_indexes() :: ComponentIndex<boolean>
 		deletions[component_type][component] = true
 		storage.deletions.components[entity] = deletions
-		storage.deletions_count += 1
 	else
 		if deletions[component_type][component] then
 			return
 		end
 		deletions[component_type][component] = true
-		storage.deletions_count += 1
 	end
 end
 
@@ -896,7 +892,6 @@ function masking_controller.unregister_stop_component(
 	if deletions then
 		if deletions[component_type][component] then
 			deletions[component_type][component] = nil
-			storage.deletions_count -= 1
 		end
 	end
 end
@@ -1017,6 +1012,7 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 			component_storage.shared_with[entity] = nil
 			component_storage.changes.added[entity] = nil
 			component_storage.changes.changed[entity] = nil
+			component_storage.changes.added_components[entity] = nil
 
 			if postponed == nil then
 				postponed = create_component_indexes() :: PostponedList
@@ -1039,6 +1035,7 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 	remove_active(lookup.storage_group, entity)
 	lookup.storage_group.changes.added[entity] = nil
 	lookup.storage_group.changes.changed[entity] = nil
+	lookup.storage_group.changes.added_components[entity] = nil
 
 	masking.lookups.entities[entity] = nil
 end
@@ -1344,7 +1341,18 @@ end
 local function bitmask_from_set(masking: MaskingInternal, member_set: { [Member]: boolean }): utils.Bitmask
 	local new_bitmask = utils.bitmask.create(masking.member_count)
 	for member: Member in member_set do
-		local index = masking.member_indexes[member] or masking.member_indexes[masking.client_aliases[member]]
+		local index = masking.member_indexes[member]
+		if not index then
+			local alias = masking.member_indexes[masking.client_aliases[member]]
+			if alias then
+				if utils.is_client_valid(alias) then
+					index = alias
+				end
+			elseif utils.is_client_valid(member) then
+				masking_controller.register_client(masking, member)
+				index = masking.member_indexes[member]
+			end
+		end
 		if index then
 			new_bitmask:set(index)
 		end
@@ -1496,13 +1504,13 @@ function masking_controller.create_exclude_generator(masking: MaskingInternal, e
 	local bitmask = bitmask_from_set(masking, exclude)
 	local active_members = masking.active_members_generator
 
-	local generator = mask_generator.create(bitmask, function(generator)
-		local bitmask = generator.bitmask :: utils.Bitmask
-		return active_members.result:band(bitmask:bnot())
+	local new_generator = mask_generator.create(bitmask, function(generator)
+		local current = generator.bitmask :: utils.Bitmask
+		return active_members.result:band(current:bnot())
 	end)
-	generator:track(active_members)
+	new_generator:track(active_members)
 
-	return generator
+	return new_generator
 end
 
 -- TODO: check for players existing and register them if they don't
@@ -1510,13 +1518,13 @@ function masking_controller.create_include_generator(masking: MaskingInternal, i
 	local bitmask = bitmask_from_set(masking, include)
 	local active_members = masking.active_members_generator
 
-	local generator = mask_generator.create(bitmask, function(generator)
-		local bitmask = generator.bitmask :: utils.Bitmask
-		return bitmask:band(active_members.result)
+	local new_generator = mask_generator.create(bitmask, function(generator)
+		local current = generator.bitmask :: utils.Bitmask
+		return current:band(active_members.result)
 	end)
-	generator:track(active_members)
+	new_generator:track(active_members)
 
-	return generator
+	return new_generator
 end
 
 function masking_controller.create_all_members_generator(masking: MaskingInternal)
@@ -1544,9 +1552,9 @@ function masking_controller.create_active_generator(masking: MaskingController):
 	return new_generator
 end
 
-function masking_controller.register_mask_group(masking: MaskingInternal, group: Member) end
+--function masking_controller.register_mask_group(masking: MaskingInternal, group: Member) end
 
-function masking_controller.unregister_mask_group(masking: MaskingInternal, group: Member) end
+--function masking_controller.unregister_mask_group(masking: MaskingInternal, group: Member) end
 
 function masking_controller.register_client(masking: MaskingInternal, member: Member)
 	if masking.member_indexes[member] then
@@ -1575,16 +1583,12 @@ function masking_controller.unregister_client(masking: MaskingInternal, member: 
 	end
 	masking.client_indexes[member] = nil
 	masking.member_indexes[member] = nil
-	masking.member_count -= 1
 	masking.all_members_generator.bitmask:clear(index)
 	masking.active_members_generator:compute()
 end
 
 function masking_controller.activate_client(masking: MaskingInternal, member: Member)
 	local index = masking.client_indexes[member]
-	if index == nil then
-		index = masking.client_indexes[member]
-	end
 
 	masking.unreplicated[member] = nil
 	masking.unactive_members_generator.bitmask:clear(index)
