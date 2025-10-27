@@ -203,15 +203,15 @@ end
 function client_replicator.entity_set_unreliable(
 	client: Client,
 	entity: Entity,
-	component: Entity,
+	id: Entity,
 	value: any,
 	changed_hooks: ChangedHooksEntry?
 )
 	if client.command_buffers_active then
 		local command_buffer = get_command_buffer(client, entity)
-		command_buffer.unreliable_components[component] = value
+		command_buffer.unreliable_components[id] = { value = value }
 	else
-		client_replicator.entity_set(client, entity, component, value, changed_hooks)
+		client_replicator.entity_set(client, entity, id, value, changed_hooks)
 	end
 end
 
@@ -631,11 +631,11 @@ function client_replicator.apply_command_buffer(
 	end
 	for component, value in command_buffer.components do
 		local component_hooks = client.network_hooks.changed[PAIR(components.reliable, component)]
-		client_replicator.entity_set(client, entity, component, value, component_hooks)
+		client_replicator.entity_set(client, entity, component, value.value, component_hooks)
 	end
 	for component, value in command_buffer.unreliable_components do
 		local component_hooks = client.network_hooks.changed[PAIR(components.unreliable, component)]
-		client_replicator.entity_set(client, entity, component, value, component_hooks)
+		client_replicator.entity_set(client, entity, component, value.value, component_hooks)
 	end
 	for component in command_buffer.remove do
 		local component_hooks = client.network_hooks.removed[PAIR(components.reliable, component)]
