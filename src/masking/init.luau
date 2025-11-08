@@ -1173,8 +1173,10 @@ function masking_controller.stop_component(
 	else
 		if entity_lookup then
 			remove_component_active(entity_lookup.storage_group, entity, component, component_type)
+			entity_lookup.components[component_type][component] = nil
+		else
+			remove_component_index_entry(masking.lookups.postponed, entity, component, component_type)
 		end
-		entity_lookup.components[component_type][component] = nil
 	end
 end
 

@@ -1426,12 +1426,15 @@ function server_replicator.init(server: Server, wrd: World?)
 		error "Providing a world is required to start replecs"
 	end
 
-	local hooks = {
-		added = (world :: any).added,
-		changed = (world :: any).changed,
-		removed = (world :: any).removed,
-	}
-	server.hooks = hooks
+	local hooks = server.hooks
+	if not hooks then
+		hooks = {
+			added = (world :: any).added,
+			changed = (world :: any).changed,
+			removed = (world :: any).removed,
+		}
+		server.hooks = hooks
+	end
 
 	local components = server.components
 	server.shared = utils.resolved_shared(world, components, server.registered_custom_ids)
@@ -1629,6 +1632,15 @@ local function create(world: World?, components: common.Components): Server
 		self.components.serdes,
 		jecs.Name,
 	}
+
+	if world then
+		local hooks = {
+			added = (world :: any).added,
+			changed = (world :: any).changed,
+			removed = (world :: any).removed,
+		}
+		self.hooks = hooks
+	end
 
 	return setmetatable(self, server_replicator) :: any
 end
