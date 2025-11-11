@@ -11,7 +11,10 @@
       "ReplicatedStorage": {
          "$className": "ReplicatedStorage",
          "packages": {
-            "$path": "roblox_packages"
+            "$path": "roblox_packages",
+            "replecs": {
+               "$path": "../serve/src"
+            }
          },
          "code": {
             "$path": "src/shared"

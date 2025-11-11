@@ -1,6 +1,6 @@
 local Players = game:GetService "Players"
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local replecs = require(ReplicatedStorage.packages.replecs)
+local zap = require(ReplicatedStorage.code.zap)
 
 local c = require(ReplicatedStorage.code.components)
 
@@ -10,28 +10,23 @@ local start = require(ReplicatedStorage.code.start)
 local ref = require(ReplicatedStorage.code.utils.ecs.ref)
 local import_paths = require(ReplicatedStorage.code.utils.import_paths)
 local world = require(ReplicatedStorage.code.world)
-local zap = require(ReplicatedStorage.code.zap)
+
+import_paths(ReplicatedStorage.code.components)
 
 local replicator = require(script.replicator)
 replicator:init()
 
-local buf, variants, handshake = zap.WaitForServer.Call()
-
-local success, err = replicator:verify_handshake(handshake :: replecs.Handshake)
-if not success then
-	error("error setting up replicator: " .. err :: string)
-end
+local buf, variants = zap.WaitForServer.Call()
 
 import_paths(script.systems)
 import_paths(ReplicatedStorage.code.systems)
+import_paths(script.controllers)
 
 replicator:handle_global(function(id)
 	return ref(`global-{id}`) :: any
 end)
 
 start(systems_order)
-
-import_paths(script.controllers)
 
 players.start_current_players()
 players.listen_for_players()

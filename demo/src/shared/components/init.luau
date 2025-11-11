@@ -1,5 +1,4 @@
 local ReplicatedStorage = game:GetService "ReplicatedStorage"
-local RunService = game:GetService "RunService"
 local world = require(script.Parent.world)
 local add_names = require(ReplicatedStorage.code.utils.ecs.add_names)
 local add_shared = require(ReplicatedStorage.code.utils.ecs.add_shared)
