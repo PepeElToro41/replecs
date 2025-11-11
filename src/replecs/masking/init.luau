@@ -114,7 +114,6 @@ export type MaskingController = {
 
 	client_indexes: { [Member]: number },
 	group_indexes: { [number]: number },
-	member_indexes: { [Member]: number },
 	client_aliases: { [any]: Member },
 
 	compact_count: number,
@@ -1173,8 +1172,10 @@ function masking_controller.stop_component(
 	else
 		if entity_lookup then
 			remove_component_active(entity_lookup.storage_group, entity, component, component_type)
+			entity_lookup.components[component_type][component] = nil
+		else
+			remove_component_index_entry(masking.lookups.postponed, entity, component, component_type)
 		end
-		entity_lookup.components[component_type][component] = nil
 	end
 end
 
@@ -1341,16 +1342,16 @@ end
 local function bitmask_from_set(masking: MaskingInternal, member_set: { [Member]: boolean }): utils.Bitmask
 	local new_bitmask = utils.bitmask.create(masking.member_count)
 	for member: Member in member_set do
-		local index = masking.member_indexes[member]
+		local index = masking.client_indexes[member]
 		if not index then
-			local alias = masking.member_indexes[masking.client_aliases[member]]
+			local alias = masking.client_indexes[masking.client_aliases[member]]
 			if alias then
 				if utils.is_client_valid(alias) then
 					index = alias
 				end
 			elseif utils.is_client_valid(member) then
 				masking_controller.register_client(masking, member)
-				index = masking.member_indexes[member]
+				index = masking.client_indexes[member]
 			end
 		end
 		if index then
@@ -1416,23 +1417,15 @@ end
 function masking_controller.compact_members(masking: MaskingInternal)
 	-- we dont recompute as nothing should've changed
 	-- so this should be hopefully quite cheap
-	local old_indexes = masking.member_indexes
+	local old_indexes = masking.client_indexes
 	local new_indexes: { [Member]: number } = {}
 
 	local new_count = 0
 	for member in old_indexes do
 		new_indexes[member] = new_count
-
-		if masking.client_indexes[member] then
-			masking.client_indexes[member] = new_count
-		end
-		if masking.group_indexes[new_count] then
-			masking.group_indexes[new_count] = member
-		end
-
 		new_count += 1
 	end
-	masking.member_indexes = new_indexes
+	masking.client_indexes = new_indexes
 	masking.member_count = new_count
 
 	for _, entity_lookup in masking.lookups.entities do
@@ -1469,7 +1462,9 @@ function masking_controller.compact_members(masking: MaskingInternal)
 	local active = masking.active_members_generator
 
 	all.bitmask = remap_bitmask(all.bitmask, old_indexes, new_indexes, new_count)
+	all.result = all.bitmask
 	unactive.bitmask = remap_bitmask(unactive.bitmask, old_indexes, new_indexes, new_count)
+	unactive.result = unactive.bitmask
 	active.result = remap_bitmask(active.result, old_indexes, new_indexes, new_count)
 
 	local new_storages: Storages = {}
@@ -1529,14 +1524,14 @@ end
 
 function masking_controller.create_all_members_generator(masking: MaskingInternal)
 	local filter: MemberFilter = {}
-	for member in masking.member_indexes do
+	for member in masking.client_indexes do
 		filter[member] = true
 	end
-	local bitmask = utils.bitmask.from_set(masking.member_indexes, filter, masking.member_count)
+	local bitmask = utils.bitmask.from_set(masking.client_indexes, filter, masking.member_count)
 	return mask_generator.create(bitmask) :: MaskGeneratorWithBitmask
 end
 function masking_controller.create_unactive_generator(masking: MaskingController)
-	local bitmask = utils.bitmask.from_set(masking.member_indexes, masking.unreplicated, masking.member_count)
+	local bitmask = utils.bitmask.from_set(masking.client_indexes, masking.unreplicated, masking.member_count)
 	return mask_generator.create(bitmask) :: MaskGeneratorWithBitmask
 end
 function masking_controller.create_active_generator(masking: MaskingController): MaskGenerator
@@ -1557,13 +1552,12 @@ end
 --function masking_controller.unregister_mask_group(masking: MaskingInternal, group: Member) end
 
 function masking_controller.register_client(masking: MaskingInternal, member: Member)
-	if masking.member_indexes[member] then
+	if masking.client_indexes[member] then
 		return
 	end
 
 	local current = masking.member_count
 	masking.client_indexes[member] = current
-	masking.member_indexes[member] = current
 	masking.member_count += 1
 
 	masking.unreplicated[member] = true
@@ -1577,12 +1571,11 @@ function masking_controller.register_client(masking: MaskingInternal, member: Me
 end
 
 function masking_controller.unregister_client(masking: MaskingInternal, member: Member)
-	local index = masking.member_indexes[member]
+	local index = masking.client_indexes[member]
 	if index == nil then
 		return
 	end
 	masking.client_indexes[member] = nil
-	masking.member_indexes[member] = nil
 	masking.all_members_generator.bitmask:clear(index)
 	masking.active_members_generator:compute()
 end
@@ -1607,7 +1600,6 @@ end
 local function create(): MaskingController
 	local self = {} :: MaskingInternal
 
-	self.member_indexes = {}
 	self.client_indexes = {}
 	self.group_indexes = {}
 	self.client_aliases = {}

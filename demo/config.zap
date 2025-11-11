@@ -6,14 +6,13 @@ funct WaitForServer = {
 	rets: (
 		buffer?,
 		unknown,
-		unknown,
 	),
 }
 
 event OnUnreliableUpdates = {
 	from: Server,
 	type: OrderedUnreliable,
-	call: Polling,
+	call: SingleAsync,
 	data: (
 		buf: buffer,
 		variants: unknown,
@@ -23,7 +22,7 @@ event OnUnreliableUpdates = {
 event OnReliableUpdates = {
 	from: Server,
 	type: Reliable,
-	call: Polling,
+	call: SingleAsync,
 	data: (
 		buf: buffer,
 		variants: unknown,

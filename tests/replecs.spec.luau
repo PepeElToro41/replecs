@@ -159,7 +159,7 @@ local function mask_hash(members: { number })
 end
 
 local function active_all_members(masking: player_masking.MaskingInternal)
-	for member in masking.member_indexes do
+	for member in masking.client_indexes do
 		masking:activate_client(member)
 	end
 end
@@ -964,14 +964,14 @@ TEST("member bitmasking", function()
 		masking:unregister_client(member1)
 		masking:compact_members()
 
-		local compacted_hash = mask_hash { masking.member_indexes[member0], masking.member_indexes[member2] }
+		local compacted_hash = mask_hash { masking.client_indexes[member0], masking.client_indexes[member2] }
 		check_entity_mask(entity1, compacted_hash)
 		check_entity_mask(entity2, compacted_hash)
 
 		masking:unregister_client(member2)
 		masking:compact_members()
 
-		local compacted_hash2 = mask_hash { masking.member_indexes[member0] }
+		local compacted_hash2 = mask_hash { masking.client_indexes[member0] }
 		check_entity_mask(entity1, compacted_hash2)
 		check_entity_mask(entity2, compacted_hash2)
 

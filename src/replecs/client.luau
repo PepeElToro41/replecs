@@ -200,6 +200,24 @@ function client_replicator.entity_set(
 	end
 end
 
+function client_replicator.entity_add(client: Client, entity: Entity, tag: Entity, changed_hooks: ChangedHooksEntry?)
+	if client.command_buffers_active then
+		local command_buffer = get_command_buffer(client, entity)
+		command_buffer.tags[tag] = true
+	else
+		if changed_hooks then
+			if not changed_hooks.overrides then
+				client.world:add(entity, tag)
+			end
+			for _, callback in changed_hooks.callbacks do
+				callback(entity, tag)
+			end
+		else
+			client.world:add(entity, tag)
+		end
+	end
+end
+
 function client_replicator.entity_set_unreliable(
 	client: Client,
 	entity: Entity,
@@ -234,24 +252,6 @@ function client_replicator.entity_set_pair(
 		end
 	else
 		client_replicator.entity_set(client, entity, PAIR(relation, target), value, changed_hooks)
-	end
-end
-
-function client_replicator.entity_add(
-	client: Client,
-	entity: Entity,
-	component: Entity,
-	changed_hooks: ChangedHooksEntry?
-)
-	if changed_hooks then
-		if not changed_hooks.overrides then
-			client.world:add(entity, component)
-		end
-		for _, callback in changed_hooks.callbacks do
-			callback(entity, component)
-		end
-	else
-		client.world:add(entity, component)
 	end
 end
 
