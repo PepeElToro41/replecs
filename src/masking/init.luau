@@ -1604,7 +1604,7 @@ local function create(): MaskingController
 	self.group_indexes = {}
 	self.client_aliases = {}
 	self.member_count = 0
-	self.compact_count = 5
+	self.compact_count = 100
 	self.storages = {}
 	self.lookups = {
 		entities = {},
