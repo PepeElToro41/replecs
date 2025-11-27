@@ -708,7 +708,7 @@ function masking_controller.move_component_storage(
 	local component_added =
 		get_component_index_entry(storage.changes.added_components, entity, component, component_type)
 	if component_added then
-		remove_component_index_entry(target_storage.changes.added_components, entity, component, component_type)
+		remove_component_index_entry(storage.changes.added_components, entity, component, component_type)
 		set_component_index_entry(target_storage.changes.added_components, entity, component, component_type, true)
 	end
 
@@ -1087,7 +1087,7 @@ function masking_controller.start_component(
 	local component_lookup: ComponentLookup = {
 		generator = generator,
 		band_generator = band_generator,
-		filter = filter :: MemberFilter?, -- what
+		filter = filter,
 		storage_group = storage_group,
 	}
 	lookup.filtered_components[component_type][component] = component_lookup
