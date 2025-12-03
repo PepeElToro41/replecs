@@ -1,15 +1,15 @@
-local jecs = require "../jecs"
+local common = require "./common"
 
-type Entity<T = any> = jecs.Entity<T>
-type Id<T = any> = jecs.Id<T>
-type World = jecs.World
+type Entity = common.Entity
+type Component<T = any> = common.Component<T>
+type World = common.World
 
 export type HandleContext = {
 	entity_id: number,
-	component: <T>(component: Entity<T>) -> T,
-	target: (relation: jecs.Id, index: number?) -> Entity?,
-	pair_value: <T>(relation: jecs.Id<T>, target: Entity) -> T?,
-	has_pair: (relation: jecs.Id, target: Entity) -> boolean,
+	component: <T>(component: Component<T>) -> T,
+	target: (relation: Component, index: number?) -> Entity?,
+	pair_value: <T>(relation: Component<T>, target: Entity) -> T?,
+	has_pair: (relation: Component, target: Entity) -> boolean,
 
 	entity: (server_entity: number) -> Entity,
 	has: (tag: Entity) -> boolean,
@@ -23,6 +23,7 @@ export type CustomId = {
 }
 
 local custom_id = {}
+custom_id.__index = custom_id
 
 function custom_id.handle(custom: CustomId, callback: (ctx: HandleContext) -> Entity?)
 	custom.handle_callback = callback

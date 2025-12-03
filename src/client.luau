@@ -1,8 +1,8 @@
 --!native
 --!optimize 2
 
-local jecs = require "../jecs"
 local common = require "./common"
+local types = require "./types"
 local customid = require "./customid"
 local utils = require "./utils"
 
@@ -11,9 +11,9 @@ local cursor = utils.cursor
 type Cursor = utils.Cursor
 type CustomId = customid.CustomId
 
-type Entity<T = any> = jecs.Entity<T>
-type Id<T = any> = jecs.Id<T>
-type World = jecs.World
+type Entity = common.Entity
+type Component<T = any> = common.Component<T>
+type World = common.World
 
 type Array<T> = { T }
 type Map<K, V> = { [K]: V }
@@ -35,19 +35,24 @@ type HookMethod =
 	& ((
 		self: Client,
 		action: "changed",
-		relation: Id,
-		callback: (entity: Entity, id: Id, value: any) -> ()
+		relation: Component,
+		callback: (entity: Entity, id: Component, value: any) -> ()
 	) -> Disconnect)
-	& ((self: Client, action: "removed", relation: Id, callback: (entity: Entity, id: Id) -> ()) -> Disconnect)
+	& ((
+		self: Client,
+		action: "removed",
+		relation: Component,
+		callback: (entity: Entity, id: Component) -> ()
+	) -> Disconnect)
 	& (self: Client, action: "deleted", entity: Entity, callback: (entity: Entity) -> ()) -> Disconnect
 
 type ChangedHooksEntry = {
 	overrides: boolean,
-	callbacks: Array<(entity: Entity, id: Id, value: any) -> ()>,
+	callbacks: Array<(entity: Entity, id: Component, value: any) -> ()>,
 }
 type RemovedHooksEntry = {
 	overrides: boolean,
-	callbacks: Array<(entity: Entity, id: Id) -> ()>,
+	callbacks: Array<(entity: Entity, id: Component) -> ()>,
 }
 type DeletedHookEntry = {
 	overrides: boolean,
@@ -65,8 +70,8 @@ export type Client = {
 
 	is_shared_dirty: boolean,
 	requires_shared_lookup: { Entity },
-	components: common.Components,
-	shared: common.Shared,
+	components: types.Components,
+	shared: types.Shared,
 	global_handler: ((id: number) -> Entity)?,
 	server_ids: { [number]: Entity },
 	client_ids: { [Entity]: number },
@@ -84,7 +89,6 @@ export type Client = {
 	register_entity: (self: Client, entity: Entity, server_entity: number) -> (),
 	unregister_entity: (self: Client, entity: Entity) -> (),
 
-	hooks: common.WorldHooks,
 	hooked: Array<() -> ()>,
 
 	after_replication: (self: Client, callback: () -> ()) -> (),
@@ -94,8 +98,8 @@ export type Client = {
 	addition_hooks: Array<(entity: Entity) -> ()>,
 	network_hooks: {
 		deleted: { [Entity]: DeletedHookEntry },
-		changed: { [Id]: ChangedHooksEntry },
-		removed: { [Id]: RemovedHooksEntry },
+		changed: { [Component]: ChangedHooksEntry },
+		removed: { [Component]: RemovedHooksEntry },
 	},
 
 	encode_component: (self: Client, component: Entity) -> number,
@@ -106,8 +110,8 @@ export type Client = {
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 
-	generate_handshake: (self: Client) -> common.HandshakeInfo,
-	verify_handshake: (self: Client, handshake: common.HandshakeInfo) -> (boolean, string?),
+	generate_handshake: (self: Client) -> types.HandshakeInfo,
+	verify_handshake: (self: Client, handshake: types.HandshakeInfo) -> (boolean, string?),
 }
 
 local client_replicator = {}
@@ -127,19 +131,28 @@ local PACKET_TYPES = {
 	reliable = 3,
 }
 
-local WILDCARD = jecs.Wildcard
+local ECS_NAME = common.ecs_name
+local PAIR = common.pair
+local ITERATE_ALL_RELATIONS = common.iterate_all_relations
+local WORLD_ENTITY = common.world_entity
+local WORLD_ADD = common.world_add
+local WORLD_SET = common.world_set
+local WORLD_REMOVE = common.world_remove
+local WORLD_GET = common.world_get
+local WORLD_DELETE = common.world_delete
 
-local function PAIR(first: Entity, second: Entity): Entity
-	return jecs.pair(first, second)
-end
+local HOOK_ADDED = common.hook_added
+local HOOK_REMOVED = common.hook_removed
 
 local function get_or_create_entity(client: Client, server_id: number): Entity
+	local world = client.world
+
 	local server_entity = client.server_ids[server_id]
 	if server_entity then
 		return server_entity
 	else
-		local entity = client.world:entity()
-		client.world:add(entity, client.components.__alive_tracking__)
+		local entity = WORLD_ENTITY(world)
+		WORLD_ADD(world, entity, client.components.__alive_tracking__)
 
 		client.server_ids[server_id] = entity
 		client.client_ids[entity] = server_id
@@ -179,7 +192,7 @@ end
 function client_replicator.entity_set(
 	client: Client,
 	entity: Entity,
-	id: Id,
+	id: Component,
 	value: any,
 	changed_hooks: ChangedHooksEntry?
 )
@@ -189,13 +202,13 @@ function client_replicator.entity_set(
 	else
 		if changed_hooks then
 			if not changed_hooks.overrides then
-				client.world:set(entity, id, value)
+				WORLD_SET(client.world, entity, id, value)
 			end
 			for _, callback in changed_hooks.callbacks do
 				callback(entity, id, value)
 			end
 		else
-			client.world:set(entity, id, value)
+			WORLD_SET(client.world, entity, id, value)
 		end
 	end
 end
@@ -207,13 +220,13 @@ function client_replicator.entity_add(client: Client, entity: Entity, tag: Entit
 	else
 		if changed_hooks then
 			if not changed_hooks.overrides then
-				client.world:add(entity, tag)
+				WORLD_ADD(client.world, entity, tag)
 			end
 			for _, callback in changed_hooks.callbacks do
 				callback(entity, tag)
 			end
 		else
-			client.world:add(entity, tag)
+			WORLD_ADD(client.world, entity, tag)
 		end
 	end
 end
@@ -286,10 +299,10 @@ function client_replicator.entity_remove(client: Client, entity: Entity, id: Ent
 				callback(entity, id)
 			end
 			if not removed_hooks.overrides then
-				client.world:remove(entity, id)
+				WORLD_REMOVE(client.world, entity, id)
 			end
 		else
-			client.world:remove(entity, id)
+			WORLD_REMOVE(client.world, entity, id)
 		end
 	end
 end
@@ -326,44 +339,19 @@ function client_replicator.entity_remove_relations(
 		command_buffer.pairs_clear[relation] = true
 	else
 		local world = client.world
-		local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
-		if not entity_index then
-			return
-		end
-		local archetype = entity_index.archetype
-
-		local wildcard = PAIR(relation, WILDCARD) :: any
-		local idr = world.component_index[wildcard]
-		if not idr then
-			return
-		end
-
-		local archetype_id = archetype.id
-		local count = idr.counts[archetype_id]
-		if not count then
-			return
-		end
-
-		local start = idr.records[archetype_id]
-		if not start then
-			return
-		end
-
 		if removed_hooks then
-			for i = start, start + count - 1 do
-				local pair = archetype.types[i]
+			ITERATE_ALL_RELATIONS(world, entity, relation, function(pair)
 				for _, callback in removed_hooks.callbacks do
 					callback(entity, pair)
 				end
 				if not removed_hooks.overrides then
-					world:remove(entity, pair :: any)
+					WORLD_REMOVE(world, entity, pair)
 				end
-			end
+			end)
 		else
-			for i = start, start + count - 1 do
-				local pair = archetype.types[i]
-				world:remove(entity, pair :: any)
-			end
+			ITERATE_ALL_RELATIONS(world, entity, relation, function(pair)
+				WORLD_REMOVE(world, entity, pair)
+			end)
 		end
 	end
 end
@@ -371,7 +359,7 @@ end
 function client_replicator.encode_component(client: Client, component: Entity): number
 	local encoded = client.shared.components.members[component]
 	if not encoded then
-		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(client.world, component))
+		common.log_error(`attempted to encode a non-shared component `, common.log_component(client.world, component))
 		return 0
 	end
 	return encoded
@@ -488,7 +476,7 @@ function client_replicator.process_entity_id(
 				local handler = client.shared.custom_ids.indexes[shared_custom_id]
 
 				if not handler then
-					utils.logerror "attempted to use a custom id that wasn't registered"
+					common.log_error "attempted to use a custom id that wasn't registered"
 				end
 				custom_ids[server_id :: any] = handler
 			end
@@ -509,12 +497,7 @@ function client_replicator.process_entity_id(
 	end
 end
 
-function client_replicator.process_entity_relations(
-	client: Client,
-	entity: jecs.Entity,
-	c: Cursor,
-	custom_ids: CustomIdMap
-)
+function client_replicator.process_entity_relations(client: Client, entity: Entity, c: Cursor, custom_ids: CustomIdMap)
 	local components = client.components
 	local relation = client_replicator.read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
@@ -529,7 +512,7 @@ end
 
 function client_replicator.process_entity_relation_values(
 	client: Client,
-	entity: jecs.Entity,
+	entity: Entity,
 	c: Cursor,
 	custom_ids: CustomIdMap,
 	variants: { any }?
@@ -778,10 +761,10 @@ function client_replicator.finish_custom_ids(
 		if type(custom_handler) == "number" then
 			local component: Entity = custom_handler :: any
 
-			local handler = client.world:get(component, client.components.custom_handler)
+			local handler = WORLD_GET(client.world, component, client.components.custom_handler)
 			if not handler then
-				return utils.logerror(
-					`received a custom id for a non custom component, consider adding custom_handler to component: {utils.logcomponent(
+				return common.log_error(
+					`received a custom id for a non custom component, consider adding custom_handler to component: {common.log_component(
 						client.world,
 						component
 					)}`
@@ -792,19 +775,21 @@ function client_replicator.finish_custom_ids(
 				if value then
 					new_entity = handler(value.value)
 				else
-					utils.logwarn(
-						`No component found for custom id handler: {utils.logcomponent(client.world, component)}`
+					common.log_warn(
+						`No component found for custom id handler: {common.log_component(client.world, component)}`
 					)
 					new_entity = handler(nil)
 				end
 			else
-				utils.logwarn(`No component found for custom id handler: {utils.logcomponent(client.world, component)}`)
+				common.log_warn(
+					`No component found for custom id handler: {common.log_component(client.world, component)}`
+				)
 				new_entity = handler(nil)
 			end
 		else
 			local handle_callback = (custom_handler :: CustomId).handle_callback
 			if not handle_callback then
-				return utils.logerror(
+				return common.log_error(
 					"no handler callback was set for custom id:",
 					(custom_handler :: CustomId).identifier
 				)
@@ -900,6 +885,7 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 	client_replicator.resolve_dirty(client)
 	client.is_replicating = true
 
+	local world = client.world
 	local components = client.components
 	local total_packets = cursor.read_vlq(c)
 	local variant_start = (all_variants and #all_variants + 1) :: number
@@ -1064,10 +1050,10 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 						callback(entity)
 					end
 					if not deleted_hook.overrides then
-						client.world:delete(entity)
+						WORLD_DELETE(world, entity)
 					end
 				else
-					client.world:delete(entity)
+					WORLD_DELETE(world, entity)
 				end
 			end
 			if server_id then
@@ -1145,7 +1131,7 @@ function client_replicator.apply_full(client: Client, buf: buffer, all_variants:
 	client_replicator.finish_replication(client)
 end
 
-function client_replicator.init(client: Client, _world: World?)
+function client_replicator.init(client: Client, wrd: World?)
 	if client.inited == true then
 		return warn "attempted to init a client twice"
 	end
@@ -1154,25 +1140,24 @@ function client_replicator.init(client: Client, _world: World?)
 	end
 	client.inited = true :: any
 
-	local world = _world or client.world
+	local world = wrd or client.world
 	client.world = world
 
 	if not world then
 		error "Providing a world is required to start replecs"
 	end
 
-	local hooks = {
-		added = (world :: any).added,
-		changed = (world :: any).changed,
-		removed = (world :: any).removed,
-	}
-	client.hooks = hooks
+	if not client.components then
+		client.components = utils.create_components(utils.tag_factory(world), utils.component_factory(world))
+		utils.add_component_names(client.components, function(component, name)
+			common.add_name(world, component, name)
+		end)
+	end
 
 	local components = client.components
-
 	client.shared = utils.resolved_shared(world, components, client.registered_custom_ids)
 
-	local alive_unhook = hooks.removed(world, components.__alive_tracking__, function(entity)
+	local alive_unhook = HOOK_REMOVED(world, components.__alive_tracking__, function(entity)
 		local server_id = client.client_ids[entity]
 		if server_id then
 			client.server_ids[server_id] = nil
@@ -1183,10 +1168,10 @@ function client_replicator.init(client: Client, _world: World?)
 	table.insert(client.hooked, alive_unhook)
 
 	for _, component in client.requires_shared_lookup do
-		local added_hook = hooks.added(world, component, function()
+		local added_hook = HOOK_ADDED(world, component, function()
 			client.is_shared_dirty = true
 		end)
-		local removed_hook = hooks.removed(world, component, function()
+		local removed_hook = HOOK_REMOVED(world, component, function()
 			client.is_shared_dirty = true
 		end)
 		table.insert(client.hooked, added_hook)
@@ -1215,7 +1200,7 @@ end
 local function add_hook_entry(client: Client, action: string, ...): ({ overrides: boolean }, () -> ())
 	if action == "changed" or action == "removed" then
 		local relation = select(1, ...) :: Entity
-		local callback = select(2, ...) :: (entity: Entity, id: number, value: any) -> ()
+		local callback = select(2, ...) :: (entity: Entity, id: Component, value: any) -> ()
 		local hooks = action == "changed" and client.network_hooks.changed or client.network_hooks.removed
 		local entries = hooks[relation] :: ChangedHooksEntry
 
@@ -1292,7 +1277,7 @@ end
 function client_replicator.register_entity(client: Client, entity: Entity, server_entity: number)
 	client.server_ids[server_entity] = entity
 	client.client_ids[entity] = server_entity
-	client.world:add(entity, client.components.__alive_tracking__)
+	WORLD_ADD(client.world, entity, client.components.__alive_tracking__)
 end
 
 function client_replicator.unregister_entity(client: Client, entity: Entity)
@@ -1308,12 +1293,12 @@ function client_replicator.register_custom_id(client: Client, custom_id: CustomI
 	client.is_shared_dirty = true
 end
 
-function client_replicator.generate_handshake(client: Client): common.HandshakeInfo
+function client_replicator.generate_handshake(client: Client): types.HandshakeInfo
 	client_replicator.resolve_dirty(client)
 	return utils.generate_handshake(client.world, client.shared)
 end
 
-function client_replicator.verify_handshake(client: Client, handshake: common.HandshakeInfo): (boolean, string?)
+function client_replicator.verify_handshake(client: Client, handshake: types.HandshakeInfo): (boolean, string?)
 	client_replicator.resolve_dirty(client)
 	return utils.verify_handshake(client.world, client.shared, handshake, "server", "client")
 end
@@ -1332,10 +1317,18 @@ function client_replicator.handle_global(client: Client, handler: (id: number) -
 	client.global_handler = handler
 end
 
-local function create(world: World?, components: common.Components): Client
+local function create(world: World?, components: types.Components?): Client
 	local self = {} :: Client
 
-	self.components = components
+	if components then
+		self.components = components
+	elseif world then
+		self.components = utils.create_components(utils.tag_factory(world), utils.component_factory(world))
+		utils.add_component_names(self.components, function(component, name)
+			common.add_name(world, component, name)
+		end)
+	end
+
 	self.ordered_creation = true
 	self.server_ids = {}
 	self.client_ids = {}
@@ -1343,7 +1336,7 @@ local function create(world: World?, components: common.Components): Client
 	self.requires_shared_lookup = {
 		self.components.shared,
 		self.components.serdes,
-		jecs.Name,
+		ECS_NAME,
 	}
 	self.global_handler = nil
 	self.world = world :: any

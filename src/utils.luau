@@ -1,22 +1,119 @@
 --!native
 --!optimize 2
 
-local jecs = require "../jecs"
 local customid = require "./customid"
 local common = require "./common"
+local types = require "./types"
 
-type World = jecs.World
-type Entity<T = any> = jecs.Entity<T>
+type World = common.World
+type Entity = common.Entity
+type Component = common.Component
 
 export type Cursor = {
 	offset: number,
 	buffer: buffer,
 }
 
-local ECS_NAME = jecs.Name
-local CHILD_OF = jecs.ChildOf
+local ECS_NAME = common.ecs_name
+local RELATIONSHPIS = common.relationships
 
 local utils = {}
+
+function utils.resolved_shared(
+	world: World,
+	components: types.Components,
+	registered_custom_ids: { [customid.CustomId]: boolean }
+): types.Shared
+	local shared = {
+		serdes = {},
+		bytespan = {},
+	} :: types.Shared
+
+	local components_lookup: { [string]: Entity } = {}
+	local custom_ids_lookup = {}
+
+	for name, shared in common.implicitly_shared do
+		components_lookup[name] = shared
+	end
+
+	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
+		components_lookup[name] = component
+	end
+
+	for custom in registered_custom_ids do
+		custom_ids_lookup[custom.identifier] = custom
+	end
+
+	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
+		shared.serdes[component] = serdes
+	end
+
+	shared.components = utils.create_shared_lookup(components_lookup)
+	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
+
+	return shared
+end
+
+function utils.create_components(tag: () -> Component, component: () -> Component, push: types.Components?)
+	local components = push or {} :: types.Components
+	components.shared = tag()
+	components.networked = component()
+
+	if RELATIONSHPIS then
+		components.reliable = component()
+		components.unreliable = component()
+		components.pair = component()
+
+		components.custom = tag()
+	end
+	components.custom_handler = component()
+	components.serdes = component()
+	components.global = component()
+	components.__alive_tracking__ = tag()
+
+	components.Shared = components.shared
+	components.Networked = components.networked
+	if RELATIONSHPIS then
+		components.Reliable = components.reliable
+		components.Unreliable = components.unreliable
+		components.Pair = components.pair
+
+		components.Custom = components.custom
+	end
+	components.CustomHandler = components.custom_handler
+	components.Serdes = components.serdes
+	components.Global = components.global
+	return components
+end
+
+function utils.add_component_names(components: types.Components, set: (component: Component, name: string) -> ())
+	set(components.shared, "replecs.shared")
+	if RELATIONSHPIS then
+		set(components.networked, "replecs.networked")
+		set(components.reliable, "replecs.reliable")
+		set(components.unreliable, "replecs.unreliable")
+		set(components.pair, "replecs.pair")
+
+		set(components.custom, "replecs.custom")
+	end
+	set(components.custom_handler, "replecs.custom_handler")
+	set(components.serdes, "replecs.serdes")
+	set(components.global, "replecs.global")
+
+	set(components.__alive_tracking__, "replecs.__alive_tracking__")
+end
+
+function utils.component_factory(world: World)
+	return function()
+		return common.world_component(world)
+	end
+end
+
+function utils.tag_factory(world: World)
+	return function()
+		return common.world_tag(world)
+	end
+end
 
 local cursor = {}
 
@@ -64,7 +161,7 @@ function cursor.write_buffer(c: Cursor, buf: buffer, start: number?, count: numb
 end
 
 function cursor.print(c: Cursor)
-	local bytes = { string.byte(buffer.tostring(c.buffer), 1, -1) }
+	local bytes: { any } = { string.byte(buffer.tostring(c.buffer), 1, -1) }
 	local offset = 7
 	for i = 1, c.offset do
 		local byte = bytes[i]
@@ -80,7 +177,7 @@ function cursor.print(c: Cursor)
 	bytes[c.offset + 1] = `[{bytes[c.offset + 1] :: number}]` :: any
 
 	if #bytes == 0 or c.offset == buffer.len(c.buffer) then
-		table.insert(bytes, " " :: any)
+		table.insert(bytes, " ")
 	end
 
 	return `Pos: {c.offset} / {buffer.len(c.buffer)}\nBuf: \{ {table.concat(bytes, " ")} \}`
@@ -589,7 +686,7 @@ utils.bitmask = {
 	from_set = bitmask.from_set,
 }
 
-function utils.create_shared_lookup<T>(lookup: { [string]: T }): common.SharedInfo<T>
+function utils.create_shared_lookup<T>(lookup: { [string]: T }): types.SharedInfo<T>
 	local keys = {}
 	local indexes = {}
 	local members = {}
@@ -613,42 +710,9 @@ function utils.create_shared_lookup<T>(lookup: { [string]: T }): common.SharedIn
 	}
 end
 
-function utils.resolved_shared(
-	world: World,
-	components: common.Components,
-	registered_custom_ids: { [customid.CustomId]: boolean }
-): common.Shared
-	local shared = {
-		serdes = {},
-		bytespan = {},
-	} :: common.Shared
-
-	local components_lookup: { [string]: jecs.Entity } = {
-		["jecs.ChildOf"] = CHILD_OF,
-	}
-	local custom_ids_lookup = {}
-
-	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
-		components_lookup[name] = component
-	end
-
-	for custom in registered_custom_ids do
-		custom_ids_lookup[custom.identifier] = custom
-	end
-
-	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
-		shared.serdes[component] = serdes
-	end
-
-	shared.components = utils.create_shared_lookup(components_lookup)
-	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
-
-	return shared
-end
-
-function utils.generate_handshake(world: World, shared: common.Shared): common.HandshakeInfo
+function utils.generate_handshake(world: World, shared: types.Shared): types.HandshakeInfo
 	local component_to_name: { [Entity]: string } = {}
-	local handshake: common.HandshakeInfo = {
+	local handshake: types.HandshakeInfo = {
 		components = {},
 		custom_ids = {},
 		serdes = {},
@@ -666,7 +730,7 @@ function utils.generate_handshake(world: World, shared: common.Shared): common.H
 	for component, serdes in shared.serdes do
 		local name = component_to_name[component]
 		if not name then
-			utils.logwarn(`found serdes for component {utils.logcomponent(world, component)} was not shared`)
+			common.log_warn(`found serdes for component {common.log_component(world, component)} was not shared`)
 			continue
 		end
 
@@ -681,8 +745,8 @@ end
 
 function utils.verify_handshake(
 	world: World,
-	shared: common.Shared,
-	handshake: common.HandshakeInfo,
+	shared: types.Shared,
+	handshake: types.HandshakeInfo,
 	handshake_side: string,
 	verify_side: string
 ): (boolean, string?)
@@ -735,7 +799,7 @@ function utils.verify_handshake(
 	for component in shared.serdes do
 		local component_name = component_to_name[component]
 		if not component_name then
-			utils.logwarn(`found serdes for component {utils.logcomponent(world, component)} was not shared`)
+			common.log_warn(`found serdes for component {common.log_component(world, component)} was not shared`)
 			continue
 		end
 
@@ -795,17 +859,6 @@ function utils.setbit(mask: number, bit: number)
 end
 function utils.checkbit(mask: number, bit: number)
 	return bit32.band(mask, bit32.lshift(1, bit)) ~= 0
-end
-
-function utils.logerror(...: string): never
-	error("REPLECS ERROR - " .. table.concat({ ... }, " "))
-end
-function utils.logwarn(...: string)
-	warn("REPLECS WARN - " .. table.concat({ ... }, " "))
-end
-
-function utils.logcomponent(world: World, component: Entity)
-	return ` name: {world:get(component, ECS_NAME) or "(no name)"}, id: {component}`
 end
 
 return utils
