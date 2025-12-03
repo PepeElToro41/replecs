@@ -32,7 +32,7 @@ function utils.resolved_shared(
 	local components_lookup: { [string]: Entity } = table.clone(common.implicitly_shared)
 	local custom_ids_lookup = {}
 
-	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
+	for component, name in world.query(ECS_NAME):with(components.shared):entities() do
 		components_lookup[name] = component
 	end
 
@@ -40,7 +40,7 @@ function utils.resolved_shared(
 		custom_ids_lookup[custom.identifier] = custom
 	end
 
-	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
+	for component, serdes in world.query(components.serdes):with(components.shared, ECS_NAME):entities() do
 		shared.serdes[component] = serdes
 	end
 
