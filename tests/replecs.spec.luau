@@ -1514,7 +1514,7 @@ TEST("server -> client replication", function()
 			getmetatable(member).__index = member_mt
 
 			server.masking:register_client(member)
-			table.insert(members, member)
+			table.insert(members, member :: MemberData)
 			table.insert(worlds, new_world)
 			table.insert(c_components, components)
 			table.insert(c_tags, tags)

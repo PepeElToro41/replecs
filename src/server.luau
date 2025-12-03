@@ -1,9 +1,9 @@
 --!optimize 2
 --!native
 
-local jecs = require "../jecs"
 local utils = require "./utils"
 local common = require "./common"
+local types = require "./types"
 local customid = require "./customid"
 local masking_controller = require "./masking"
 
@@ -12,16 +12,16 @@ local cursor = utils.cursor
 type Cursor = utils.Cursor
 type CustomId = customid.CustomId
 
-type World = jecs.World
-type Entity<T = any> = jecs.Entity<T>
-type Component = Entity
+type World = common.World
+type Entity = common.Entity
+type Component<T = any> = common.Component<T>
 
 type Set<T> = { [T]: boolean }
 type Map<K, V> = { [K]: V }
 type Array<T> = { T }
 
-type FunctionFilter = common.FunctionFilter
-type AnyFilter = common.AnyFilter
+type FunctionFilter = types.FunctionFilter
+type AnyFilter = types.AnyFilter
 
 type CustomIdSerialization = {
 	required: Map<Entity, CustomId>,
@@ -62,10 +62,9 @@ export type Server = ServerImp & {
 	world: World,
 	inited: boolean?,
 
-	shared: common.Shared,
+	shared: types.Shared,
 
-	components: common.Components,
-	hooks: common.WorldHooks,
+	components: types.Components,
 	alive_tracked: Set<Entity>,
 
 	is_shared_dirty: boolean,
@@ -101,8 +100,8 @@ export type Server = ServerImp & {
 	add_player_alias: (self: Server, client: Player, alias: any) -> (),
 	remove_player_alias: (self: Server, alias: any) -> (),
 
-	generate_handshake: (self: Server) -> common.HandshakeInfo,
-	verify_handshake: (self: Server, handshake: common.HandshakeInfo) -> (boolean, string?),
+	generate_handshake: (self: Server) -> types.HandshakeInfo,
+	verify_handshake: (self: Server, handshake: types.HandshakeInfo) -> (boolean, string?),
 }
 
 local server_replicator = {}
@@ -133,22 +132,48 @@ local ENTITY_ID_TYPES = {
 	shared = 4,
 }
 
-local ECS_COMPONENT = jecs.Component
-local WILDCARD = jecs.Wildcard
+local RELATIONSHIPS = common.relationships
+local WILDCARD = common.wildcard
+local ECS_NAME = common.ecs_name
 
-local function IS_PAIR(id: Component): boolean
-	return jecs.IS_PAIR(id)
-end
+local IS_PAIR = common.is_pair
+local PAIR = common.pair
+local PAIR_SECOND = common.pair_second
+local WORLD_ADD = common.world_add
+local WORLD_HAS = common.world_has
+local WORLD_GET = common.world_get
+local WORLD_TARGET = common.world_target
+local IS_COMPONENT = common.is_component
 
-local function PAIR(relation: Entity, target: Entity): Entity
-	return jecs.pair(relation, target)
-end
+local HOOK_ADDED = common.hook_added
+local HOOK_CHANGED = common.hook_changed
+local HOOK_REMOVED = common.hook_removed
 
-local function PAIR_SECOND(world: World, id: Entity): Entity
-	if not IS_PAIR(id) then
-		error(`expected a pair, got: {utils.logcomponent(world, id)}`)
+local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
+	local world = server.world
+	for entity in world:query(PAIR(track_type, WILDCARD)):iter() do
+		local index = 0
+		while true do
+			local target = WORLD_TARGET(world, entity, track_type, index)
+			if not target then
+				break
+			end
+			server.set_reliable(server, entity, target, WORLD_GET(world, entity, PAIR(track_type, target)))
+			index += 1
+		end
 	end
-	return jecs.pair_second(world, id)
+end
+
+local function QUERY_CURRENT_NETWORKED(server: Server)
+	for entity, filter in server.world:query(server.components.networked):iter() do
+		server.set_networked(server, entity, filter)
+	end
+
+	if RELATIONSHIPS then
+		QUERY_TRACKING_TYPE(server, server.components.reliable)
+		QUERY_TRACKING_TYPE(server, server.components.unreliable)
+		QUERY_TRACKING_TYPE(server, server.components.pair)
+	end
 end
 
 local function track_entity_lifetime(server: Server, entity: Entity)
@@ -156,7 +181,7 @@ local function track_entity_lifetime(server: Server, entity: Entity)
 		return
 	end
 	server.alive_tracked[entity] = true
-	server.world:add(entity, server.components.__alive_tracking__)
+	WORLD_ADD(server.world, entity, server.components.__alive_tracking__)
 end
 
 local function get_or_set_entity_storage(server: Server, entity: Entity): EntityStorage
@@ -311,10 +336,9 @@ end
 
 local function track_component(server: Server, component: Component)
 	local world = server.world
-	local hooks = server.hooks
 
 	if server.track_info.components[component] then
-		error(`attemped to track a component twice: {utils.logcomponent(server.world, component)}`)
+		error(`attemped to track a component twice: {common.log_component(server.world, component)}`)
 	end
 
 	local info = {} :: Map<Entity, number>
@@ -324,7 +348,7 @@ local function track_component(server: Server, component: Component)
 		table.insert(server.hooked, unhook)
 	end
 
-	hook(hooks.added(world, component, function(entity, id, value)
+	hook(HOOK_ADDED(world, component, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -346,7 +370,7 @@ local function track_component(server: Server, component: Component)
 			allocate_pair_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
-	hook(hooks.changed(world, component, function(entity, id, value)
+	hook(HOOK_CHANGED(world, component, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -360,7 +384,7 @@ local function track_component(server: Server, component: Component)
 			allocate_pair_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
-	hook(hooks.removed(world, component, function(entity, id)
+	hook(HOOK_REMOVED(world, component, function(entity, id)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -386,7 +410,7 @@ local function track_component(server: Server, component: Component)
 	return info
 end
 
-local function track_entity_component(server: Server, entity: Entity, component: Entity<any>)
+local function track_entity_component(server: Server, entity: Entity, component: Component)
 	local world = server.world
 	local info = server.track_info.components[component]
 	if not info then
@@ -395,9 +419,9 @@ local function track_entity_component(server: Server, entity: Entity, component:
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
 
-	if world:has(component, ECS_COMPONENT) then
-		if world:has(entity, component) then
-			local value = world:get(entity, component)
+	if IS_COMPONENT(world, component) then
+		if WORLD_HAS(world, entity, component) then
+			local value = WORLD_GET(world, entity, component)
 
 			if value == nil then
 				entity_storage.values[component] = NIL_COMPONENT_VALUE
@@ -411,7 +435,7 @@ local function track_entity_component(server: Server, entity: Entity, component:
 
 		return COMPONENT_TYPES.component
 	else
-		if world:has(entity, component) then
+		if WORLD_HAS(world, entity, component) then
 			entity_storage.tags[component] = true
 		end
 
@@ -431,17 +455,17 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
 
-	if world:has(relation, ECS_COMPONENT) then
+	if IS_COMPONENT(world, relation) then
 		local targets = {} :: Map<Entity, any>
 
 		local index = 0
 		while true do
-			local target = world:target(entity, relation, index)
+			local target = WORLD_TARGET(world, entity, relation, index)
 			if not target then
 				break
 			end
 			index += 1
-			local value = world:get(entity, jecs.pair(relation, target))
+			local value = WORLD_GET(world, entity, PAIR(relation, target))
 			targets[target] = if value == nil then NIL_COMPONENT_VALUE else value :: any
 		end
 
@@ -455,7 +479,7 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 
 		local index = 0
 		while true do
-			local target = world:target(entity, relation, index)
+			local target = WORLD_TARGET(world, entity, relation, index)
 			if not target then
 				break
 			end
@@ -471,7 +495,7 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 	end
 end
 
-local function untrack_entity_component(server: Server, entity: Entity, component: Entity<any>): number?
+local function untrack_entity_component(server: Server, entity: Entity, component: Component): number?
 	local info = server.track_info.components[component]
 	if not info then
 		return nil
@@ -521,7 +545,7 @@ end
 function server_replicator.encode_component(server: Server, component: Entity): number
 	local encoded = server.shared.components.members[component]
 	if not encoded then
-		utils.logerror(`attempted to encode a non-shared component `, utils.logcomponent(server.world, component))
+		common.log_error(`attempted to encode a non-shared component `, common.log_component(server.world, component))
 		return 0
 	end
 	return encoded
@@ -540,7 +564,10 @@ function server_replicator.write_component_id(server: Server, c: Cursor, compone
 	local shared_componens = server.shared.components
 	local encoded = shared_componens.members[component]
 	if not encoded then
-		utils.logerror(`attempted to replicate a non-shared component `, utils.logcomponent(server.world, component))
+		common.log_error(
+			`attempted to replicate a non-shared component `,
+			common.log_component(server.world, component)
+		)
 		return
 	end
 	cursor.write_span(c, encoded, #shared_componens.keys)
@@ -570,9 +597,9 @@ function server_replicator.write_component_value(
 				cursor.write_vlq(c, start_variants + 1)
 			end
 		elseif serdes_variants ~= nil then
-			utils.logerror(
+			common.log_error(
 				"serdes: serializer provided variants yet includes_variants is not set to true for component",
-				utils.logcomponent(server.world, component)
+				common.log_component(server.world, component)
 			)
 		end
 
@@ -580,9 +607,9 @@ function server_replicator.write_component_value(
 		cursor.write_buffer(c, output)
 		if bytespan then
 			if bytespan ~= buffer.len(output) then
-				utils.logerror(
+				common.log_error(
 					`bytespan: {bytespan} mismatch for buffer lenght: {buffer.len(output)} in component`,
-					utils.logcomponent(server.world, component)
+					common.log_component(server.world, component)
 				)
 			end
 		else
@@ -720,7 +747,7 @@ end
 
 type Packet = {
 	buffer: buffer,
-	variants: { { any } },
+	variants: { any },
 }
 type MemberPackets = {
 	packets: Array<Packet>,
@@ -728,12 +755,7 @@ type MemberPackets = {
 	total_size: number,
 }
 
-local function append_packet(
-	packets: { [Player]: MemberPackets },
-	members: { any },
-	output: buffer,
-	variants: { { any } }
-)
+local function append_packet(packets: { [Player]: MemberPackets }, members: { any }, output: buffer, variants: { any })
 	local len = buffer.len(output)
 	for _, member in members do
 		if not utils.is_client_valid(member) then
@@ -790,7 +812,7 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: 
 			if not player and not data then
 				break
 			end
-			player, data = next(packets, iterated)
+			player, data = next(packets, player)
 		end
 		if not player then
 			return nil :: any
@@ -849,7 +871,7 @@ function server_replicator.get_full(server: Server, client: Player): (buffer, { 
 	server_replicator.resolve_dirty(server)
 	local index = server.masking.client_indexes[client]
 	if index == nil then
-		utils.logerror "attempted to replicate for a non registered client"
+		common.log_error "attempted to replicate for a non registered client"
 	end
 
 	local packets: Array<Packet> = {}
@@ -864,7 +886,7 @@ function server_replicator.get_full(server: Server, client: Player): (buffer, { 
 			continue
 		end
 		local c = cursor.new()
-		local variants = {}
+		local variants: { any } = {}
 
 		local total_entities = 0
 		for entity, active in storage.active do
@@ -1112,7 +1134,7 @@ function server_replicator.collect_unreliable(server: Server)
 		local active = mask_storage.active
 
 		local c = cursor.new()
-		local variants = {} :: { { any } }
+		local variants = {} :: Array<{ any }>
 		local custom_ids: Set<Entity> = {}
 		local total_entities = 0
 
@@ -1134,9 +1156,9 @@ function server_replicator.collect_unreliable(server: Server)
 			c.offset = checkpoint_offset
 			c = new_cursor
 
-			local new_variants = {} :: { { any } }
+			local new_variants = {} :: Array<{ any }>
 			for _ = #variants, checkpoint_variants_count + 1, -1 do
-				table.insert(new_variants, 1, table.remove(variants))
+				table.insert(new_variants, 1, table.remove(variants) :: { any })
 			end
 
 			local new_custom_ids = {} :: Set<Entity>
@@ -1165,7 +1187,7 @@ function server_replicator.collect_unreliable(server: Server)
 
 			local total_unreliable = 0
 			for component in actives.components[COMPONENT_TYPES.unreliable] do
-				local value = world:get(entity, component)
+				local value = WORLD_GET(world, entity, component)
 				if value == nil then
 					continue
 				end
@@ -1250,7 +1272,7 @@ function server_replicator.change_reliable(server: Server, entity: Entity, compo
 	local world = server.world
 	local masking = server.masking
 
-	if world:has(component, ECS_COMPONENT) then
+	if IS_COMPONENT(world, component) then
 		masking:set_component(entity, component, COMPONENT_TYPES.component, filter)
 	else
 		masking:set_component(entity, component, COMPONENT_TYPES.tag, filter)
@@ -1264,7 +1286,7 @@ function server_replicator.change_pair(server: Server, entity: Entity, relation:
 	local world = server.world
 	local masking = server.masking
 
-	if world:has(relation, ECS_COMPONENT) then
+	if IS_COMPONENT(world, relation) then
 		masking:set_component(entity, relation, COMPONENT_TYPES.pair_value, filter)
 	else
 		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
@@ -1367,7 +1389,7 @@ function server_replicator.set_pair(server: Server, entity: Entity, relation: Co
 end
 function server_replicator.set_custom(server: Server, entity: Entity, handler: Component | CustomId)
 	if server.custom_ids[entity] then
-		utils.logwarn("attempted to register a custom_id twice for the same entity", debug.traceback())
+		common.log_warn("attempted to register a custom_id twice for the same entity", debug.traceback())
 		return
 	end
 	server.custom_ids[entity] = handler
@@ -1389,30 +1411,6 @@ local function check_created(server: Server)
 	return true
 end
 
-local function query_tracking_type(server: Server, track_type: Component)
-	for entity in server.world:query(PAIR(track_type, WILDCARD)):iter() do
-		local index = 0
-		while true do
-			local target = server.world:target(entity, track_type, index)
-			if not target then
-				break
-			end
-			server.set_reliable(server, entity, target, server.world:get(entity, PAIR(track_type, target)))
-			index += 1
-		end
-	end
-end
-
-local function query_current_networked(server: Server)
-	for entity, filter in server.world:query(server.components.networked):iter() do
-		server.set_networked(server, entity, filter)
-	end
-
-	query_tracking_type(server, server.components.reliable)
-	query_tracking_type(server, server.components.unreliable)
-	query_tracking_type(server, server.components.pair)
-end
-
 function server_replicator.init(server: Server, wrd: World?)
 	if not check_created(server) then
 		return
@@ -1426,14 +1424,11 @@ function server_replicator.init(server: Server, wrd: World?)
 		error "Providing a world is required to start replecs"
 	end
 
-	local hooks = server.hooks
-	if not hooks then
-		hooks = {
-			added = (world :: any).added,
-			changed = (world :: any).changed,
-			removed = (world :: any).removed,
-		}
-		server.hooks = hooks
+	if not server.components then
+		server.components = utils.create_components(utils.tag_factory(world), utils.component_factory(world))
+		utils.add_component_names(server.components, function(component, name)
+			common.add_name(world, component, name)
+		end)
 	end
 
 	local components = server.components
@@ -1443,83 +1438,85 @@ function server_replicator.init(server: Server, wrd: World?)
 		table.insert(server.hooked, unhook)
 	end
 
-	hook(hooks.added(world, components.networked, function(entity, _, filter)
+	hook(HOOK_ADDED(world, components.networked, function(entity, _, filter)
 		server_replicator.start_networked(server, entity, filter)
 	end))
-	hook(hooks.changed(world, components.networked, function(entity, _, filter)
+	hook(HOOK_CHANGED(world, components.networked, function(entity, _, filter)
 		server_replicator.change_networked(server, entity, filter)
 	end))
-	hook(hooks.removed(world, components.networked, function(entity)
+	hook(HOOK_REMOVED(world, components.networked, function(entity)
 		server_replicator.stop_networked(server, entity)
 	end))
 
-	hook(hooks.added(world, components.reliable, function(entity, id, filter)
-		local component = PAIR_SECOND(world, id)
-		server_replicator.start_reliable(server, entity, component, filter)
-	end))
-	hook(hooks.changed(world, components.reliable, function(entity, id, filter)
-		local component = PAIR_SECOND(world, id)
-		server_replicator.change_reliable(server, entity, component, filter)
-	end))
-	hook(hooks.removed(world, components.reliable, function(entity, id)
-		local component = PAIR_SECOND(world, id)
-		server_replicator.stop_reliable(server, entity, component)
-	end))
+	if RELATIONSHIPS then
+		hook(HOOK_ADDED(world, components.reliable, function(entity, id, filter)
+			local component = PAIR_SECOND(world, id)
+			server_replicator.start_reliable(server, entity, component, filter)
+		end))
+		hook(HOOK_CHANGED(world, components.reliable, function(entity, id, filter)
+			local component = PAIR_SECOND(world, id)
+			server_replicator.change_reliable(server, entity, component, filter)
+		end))
+		hook(HOOK_REMOVED(world, components.reliable, function(entity, id)
+			local component = PAIR_SECOND(world, id)
+			server_replicator.stop_reliable(server, entity, component)
+		end))
 
-	hook(hooks.added(world, components.pair, function(entity, id, filter)
-		local relation = PAIR_SECOND(world, id)
-		server_replicator.start_pair(server, entity, relation, filter)
-	end))
-	hook(hooks.changed(world, components.pair, function(entity, id, filter)
-		local relation = PAIR_SECOND(world, id)
-		server_replicator.change_pair(server, entity, relation, filter)
-	end))
-	hook(hooks.removed(world, components.pair, function(entity, id)
-		local relation = PAIR_SECOND(world, id)
-		server_replicator.stop_pair(server, entity, relation)
-	end))
+		hook(HOOK_ADDED(world, components.pair, function(entity, id, filter)
+			local relation = PAIR_SECOND(world, id)
+			server_replicator.start_pair(server, entity, relation, filter)
+		end))
+		hook(HOOK_CHANGED(world, components.pair, function(entity, id, filter)
+			local relation = PAIR_SECOND(world, id)
+			server_replicator.change_pair(server, entity, relation, filter)
+		end))
+		hook(HOOK_REMOVED(world, components.pair, function(entity, id)
+			local relation = PAIR_SECOND(world, id)
+			server_replicator.stop_pair(server, entity, relation)
+		end))
 
-	hook(hooks.added(world, components.unreliable, function(entity, id, filter)
-		local component = PAIR_SECOND(world, id)
-		server_replicator.start_unreliable(server, entity, component, filter)
-	end))
-	hook(hooks.changed(world, components.unreliable, function(entity, id, filter)
-		local component = PAIR_SECOND(world, id)
-		server_replicator.change_unreliable(server, entity, component, filter)
-	end))
-	hook(hooks.removed(world, components.unreliable, function(entity, id)
-		local component = PAIR_SECOND(world, id)
-		server_replicator.stop_unreliable(server, entity, component)
-	end))
+		hook(HOOK_ADDED(world, components.unreliable, function(entity, id, filter)
+			local component = PAIR_SECOND(world, id)
+			server_replicator.start_unreliable(server, entity, component, filter)
+		end))
+		hook(HOOK_CHANGED(world, components.unreliable, function(entity, id, filter)
+			local component = PAIR_SECOND(world, id)
+			server_replicator.change_unreliable(server, entity, component, filter)
+		end))
+		hook(HOOK_REMOVED(world, components.unreliable, function(entity, id)
+			local component = PAIR_SECOND(world, id)
+			server_replicator.stop_unreliable(server, entity, component)
+		end))
 
-	hook(hooks.added(world, components.custom, function(entity, id)
-		if not IS_PAIR(id) then
-			utils.logerror "replecs.custom should be used with a relationship in the server"
-		end
-		local target = PAIR_SECOND(world, id)
-		server_replicator.set_custom(server, entity, target)
-	end))
-	hook(hooks.removed(world, components.custom, function(entity)
-		server_replicator.remove_custom(server, entity)
-	end))
-	hook(hooks.added(world, components.global, function(entity, _, value)
+		hook(HOOK_ADDED(world, components.custom, function(entity, id)
+			if not IS_PAIR(id) then
+				common.log_error "replecs.custom should be used with a relationship in the server"
+			end
+			local target = PAIR_SECOND(world, id)
+			server_replicator.set_custom(server, entity, target)
+		end))
+		hook(HOOK_REMOVED(world, components.custom, function(entity)
+			server_replicator.remove_custom(server, entity)
+		end))
+	end
+	hook(HOOK_ADDED(world, components.global, function(entity, _, value)
 		if value > 245 then
-			utils.logerror "global id size exceeded, max is 245"
+			common.log_error "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
 
-	hook(hooks.changed(world, components.global, function(entity, _, value)
+	hook(HOOK_CHANGED(world, components.global, function(entity, _, value)
 		if value > 245 then
-			utils.logerror "global id size exceeded, max is 245"
+			common.log_error "global id size exceeded, max is 245"
 		end
 		server.global_ids[entity] = value
 	end))
-	hook(hooks.removed(world, components.global, function(entity)
+	hook(HOOK_REMOVED(world, components.global, function(entity)
 		server.global_ids[entity] = nil
 	end))
 
-	hook(hooks.removed(world, components.__alive_tracking__, function(entity)
+	hook(HOOK_REMOVED(world, components.__alive_tracking__, function(entity)
 		if server.track_info.networked[entity] then
 			server_replicator.stop_networked(server, entity)
 		end
@@ -1527,18 +1524,18 @@ function server_replicator.init(server: Server, wrd: World?)
 	end))
 
 	for _, component in server.requires_shared_lookup do
-		hook(hooks.added(world, component, function()
+		hook(HOOK_ADDED(world, component, function()
 			server.is_shared_dirty = true
 		end))
-		hook(hooks.changed(world, component, function()
+		hook(HOOK_CHANGED(world, component, function()
 			server.is_shared_dirty = true
 		end))
-		hook(hooks.removed(world, component, function()
+		hook(HOOK_REMOVED(world, component, function()
 			server.is_shared_dirty = true
 		end))
 	end
 
-	query_current_networked(server)
+	QUERY_CURRENT_NETWORKED(server)
 
 	if game and game:GetService("RunService"):IsServer() then
 		local Players = game:GetService "Players"
@@ -1579,12 +1576,12 @@ function server_replicator.register_custom_id(server: Server, custom_id: CustomI
 	server.is_shared_dirty = true
 end
 
-function server_replicator.generate_handshake(server: Server): common.HandshakeInfo
+function server_replicator.generate_handshake(server: Server): types.HandshakeInfo
 	server_replicator.resolve_dirty(server)
 	return utils.generate_handshake(server.world, server.shared)
 end
 
-function server_replicator.verify_handshake(server: Server, handshake: common.HandshakeInfo): (boolean, string?)
+function server_replicator.verify_handshake(server: Server, handshake: types.HandshakeInfo): (boolean, string?)
 	server_replicator.resolve_dirty(server)
 	return utils.verify_handshake(server.world, server.shared, handshake, "client", "server")
 end
@@ -1603,12 +1600,19 @@ function server_replicator.destroy(server: Server)
 	end
 end
 
-local function create(world: World?, components: common.Components): Server
+local function create(world: World?, components: types.Components?): Server
 	local self = {} :: Server
 
-	self.components = components
+	if components then
+		self.components = components
+	elseif world then
+		self.components = utils.create_components(utils.tag_factory(world), utils.component_factory(world))
+		utils.add_component_names(self.components, function(component, name)
+			common.add_name(world, component, name)
+		end)
+	end
 
-	self.shared = {} :: common.Shared
+	self.shared = {} :: types.Shared
 	self.world = world :: any
 	self.additions = {}
 	self.storage = {}
@@ -1630,17 +1634,8 @@ local function create(world: World?, components: common.Components): Server
 	self.requires_shared_lookup = {
 		self.components.shared,
 		self.components.serdes,
-		jecs.Name,
+		ECS_NAME,
 	}
-
-	if world then
-		local hooks = {
-			added = (world :: any).added,
-			changed = (world :: any).changed,
-			removed = (world :: any).removed,
-		}
-		self.hooks = hooks
-	end
 
 	return setmetatable(self, server_replicator) :: any
 end
