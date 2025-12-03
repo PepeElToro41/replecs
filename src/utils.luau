@@ -29,12 +29,8 @@ function utils.resolved_shared(
 		bytespan = {},
 	} :: types.Shared
 
-	local components_lookup: { [string]: Entity } = {}
+	local components_lookup: { [string]: Entity } = table.clone(common.implicitly_shared)
 	local custom_ids_lookup = {}
-
-	for name, shared in common.implicitly_shared do
-		components_lookup[name] = shared
-	end
 
 	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
 		components_lookup[name] = component
