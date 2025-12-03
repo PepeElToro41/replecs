@@ -1,5 +1,5 @@
---!native
 --!optimize 2
+--!native
 
 local common = require "./common"
 local types = require "./types"

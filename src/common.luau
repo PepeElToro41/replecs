@@ -98,8 +98,8 @@ local function WORLD_GET<T>(world: World, entity: Entity, id: Component<T>): T
 	return world:get(entity, id)
 end
 
-local function WORLD_TARGET(world: World, entity: Entity, rel: Component): jecs.Entity?
-	return world:target(entity, rel)
+local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): jecs.Entity?
+	return world:target(entity, rel, index)
 end
 
 local function WORLD_HAS(world: World, entity: Entity, id: Component)
@@ -116,6 +116,7 @@ end
 local function WORLD_COMPONENT(world: World)
 	return world:component()
 end
+
 local PREREGISTER_COMPONENT = jecs.component
 local PREREGISTER_TAG = jecs.tag
 

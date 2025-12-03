@@ -1,5 +1,5 @@
---!native
 --!optimize 2
+--!native
 
 local customid = require "./customid"
 local common = require "./common"
@@ -164,7 +164,7 @@ function cursor.print(c: Cursor)
 	local bytes: { any } = { string.byte(buffer.tostring(c.buffer), 1, -1) }
 	local offset = 7
 	for i = 1, c.offset do
-		local byte = bytes[i]
+		local byte = bytes[i] :: number
 		local digits = if byte == 0 then 1 else math.ceil(math.log10(1 + byte))
 		offset += digits + 1
 	end

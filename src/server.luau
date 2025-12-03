@@ -812,7 +812,7 @@ local function create_packet_iterator(packets: { [Player]: MemberPackets }, id: 
 			if not player and not data then
 				break
 			end
-			player, data = next(packets, iterated)
+			player, data = next(packets, player)
 		end
 		if not player then
 			return nil :: any
