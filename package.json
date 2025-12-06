@@ -2,8 +2,14 @@
    "name": "@rbxts/replecs",
    "version": "0.2.3",
    "description": "Replication library for Jecs",
-   "main": "out/init.lua",
+   "main": "out/init.luau",
    "types": "out/index.d.ts",
+   "exports": {
+      ".": {
+         "types": "./out/index.d.ts",
+         "default": "./out/init.luau"
+      }
+   },
    "directories": {
       "doc": "docs",
       "test": "tests"
@@ -13,15 +19,11 @@
    },
    "files": [
       "out",
-      "!docs/**/*",
-      "!**/*.tsbuildinfo",
       "!**/*.spec.lua",
       "!**/*.spec.d.ts"
    ],
    "scripts": {
-      "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json",
-      "build": "rbxtsc",
-      "watch": "rbxtsc -w"
+      "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json"
    },
    "repository": {
       "type": "git",
