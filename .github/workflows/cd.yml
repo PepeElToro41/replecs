@@ -40,8 +40,8 @@ jobs:
                   files: |
                       replecs.rbxm
 
-    publish:
-        name: Publish
+    wally:
+        name: Publish to Wally
         needs: [release]
         runs-on: ubuntu-latest
         steps:
@@ -67,3 +67,23 @@ jobs:
 
             - name: Publish
               run: wally publish --project-path serve
+
+    rbxts:
+        name: Publish to npm
+        needs: [release]
+        runs-on: ubuntu-latest
+        steps:
+          - name: Setup JS
+            uses: sxzz/workflows/setup-js@v1
+            with:
+              fetch-all: true
+
+          - name: Install Rokit
+            uses: CompeyDev/setup-rokit@v0.1.2
+
+          - name: Darklua Process
+            run: lune run .lune/ts-process.luau
+
+          - name: Publish to NPM
+            run: npm publish --access public --tag latest
+            working-directory: ./dist
