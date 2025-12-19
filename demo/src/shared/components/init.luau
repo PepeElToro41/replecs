@@ -26,6 +26,7 @@ local components = {
 	size = world:component() :: jecs.Entity<Vector3>,
 	timer = world:component() :: jecs.Entity<TimerInterface>,
 	lifetime = world:component() :: jecs.Entity<number>,
+	tagg = world:entity(),
 	transform = world:component() :: jecs.Entity<CFrame>,
 	color = world:component() :: jecs.Entity<Color3>,
 	basepart = world:component() :: jecs.Entity<BasePart>,

@@ -50,7 +50,7 @@ do
 	end
 
 	local function activate_members()
-		for member in masking.member_indexes do
+		for member in masking.client_indexes do
 			masking:activate_client(member)
 		end
 	end

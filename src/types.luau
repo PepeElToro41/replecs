@@ -2,7 +2,7 @@ local customid = require "./customid"
 local common = require "./common"
 
 export type FunctionFilter = (player: Player) -> boolean
-export type AnyFilter = PlayerFilter | Player
+export type AnyFilter = PlayerFilter | Player | FunctionFilter
 
 type Entity = common.Entity
 type World = common.World
