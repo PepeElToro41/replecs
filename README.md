@@ -1,7 +1,5 @@
 # Replecs ⚡
 
-Replecs is a fast, fine controlled JECS replication library
-
 Replecs is a feature rich, fast, flexible, powerful, and runtime/library agnostic replication library for ECS.
 
 - Per-entity replication

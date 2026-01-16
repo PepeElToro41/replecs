@@ -33,7 +33,11 @@ local function process_darklua()
 	fs.writeFile(OUTPUT .. "/src/jecs.ts", 'export * from "@rbxts/jecs"\n')
 	fs.writeFile(OUTPUT .. "/src/index.ts", barrel)
 
-	process.exec("npm", { "install" }, { shell = true, stdio = "forward", cwd = OUTPUT })
+	if process.args[1] and type(process.args[1]) == "string" then
+		fs.writeFile(OUTPUT .. "/src/replecs/ver.luau", `return "{process.args[1]}"`)
+	end
+
+	process.exec("pnpm", { "install" }, { shell = true, stdio = "forward", cwd = OUTPUT })
 	process.exec("npx", { "rbxtsc", "--verbose" }, { shell = true, stdio = "forward", cwd = OUTPUT })
 
 	process.exec("rojo", {
@@ -50,10 +54,6 @@ local function process_darklua()
 		`--config`,
 		DARKLUA_CONFIG,
 	}, { stdio = "forward", cwd = OUTPUT })
-
-	if process.args[1] and type(process.args[1]) == "string" then
-		fs.writeFile(OUTPUT .. "/src/ver.luau", `return "{process.args[1]}"`)
-	end
 end
 
 process_darklua()

@@ -1,89 +1,89 @@
 name: Continuous Deployment
 
 on:
-    push:
-        tags: ["v*", "workflow_dispatch"]
-    workflow_dispatch:
+  push:
+    tags: ["v*", "workflow_dispatch"]
+  workflow_dispatch:
 
 jobs:
-    unit-tests:
-        uses: ./.github/workflows/unit-tests.yml
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
 
-    build:
-        uses: ./.github/workflows/build.yml
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  release:
+    name: Release
+    needs: [build, unit-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Project
+        uses: actions/checkout@v4
+
+      - name: Download Replecs
+        uses: actions/download-artifact@v4
         with:
-            version: ${{ github.ref_name }}
+          name: build
+          path: build
 
-    release:
-        name: Release
-        needs: [build, unit-tests]
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
-        steps:
-            - name: Checkout Project
-              uses: actions/checkout@v4
+      - name: Rename Build
+        run: mv build/replecs.rbxm replecs.rbxm
 
-            - name: Download Replecs
-              uses: actions/download-artifact@v4
-              with:
-                  name: build
-                  path: build
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Replecs ${{ github.ref_name }}
+          files: |
+            replecs.rbxm
 
-            - name: Rename Build
-              run: mv build/replecs.rbxm replecs.rbxm
+  wally:
+    name: Publish to Wally
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Project
+        uses: actions/checkout@v4
 
-            - name: Create Release
-              uses: softprops/action-gh-release@v1
-              with:
-                  name: Replecs ${{ github.ref_name }}
-                  files: |
-                      replecs.rbxm
+      - name: Install Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
 
-    wally:
-        name: Publish to Wally
-        needs: [release]
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Project
-              uses: actions/checkout@v4
+      - name: Setup Pesde
+        uses: lumin-org/setup-pesde@v0.4.1
+        with:
+          version: v0.7.0-rc.7+registry.0.2.3-rc.3
 
-            - name: Install Rokit
-              uses: CompeyDev/setup-rokit@v0.1.2
+      - name: Install Packages
+        run: pesde install
 
-            - name: Setup Pesde
-              uses: lumin-org/setup-pesde@v0.4.1
-              with:
-                  version: v0.7.0-rc.7+registry.0.2.3-rc.3
+      - name: Darklua Process
+        run: lune run .lune/process.luau ${{ github.ref_name }}
 
-            - name: Install Packages
-              run: pesde install
+      - name: Wally Login
+        run: wally login --token ${{ secrets.WALLY_AUTH }}
 
-            - name: Darklua Process
-              run: lune run .lune/process.luau ${{ github.ref_name }}
+      - name: Publish
+        run: wally publish --project-path serve
 
-            - name: Wally Login
-              run: wally login --token ${{ secrets.WALLY_AUTH }}
+  rbxts:
+    name: Publish to npm
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: pnpm-setup
+        uses: pnpm/action-setup@v2
+        with:
+          version: latest
 
-            - name: Publish
-              run: wally publish --project-path serve
+      - name: Install Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
 
-    rbxts:
-        name: Publish to npm
-        needs: [release]
-        runs-on: ubuntu-latest
-        steps:
-          - name: Setup JS
-            uses: sxzz/workflows/setup-js@v1
-            with:
-              fetch-all: true
+      - name: Darklua Process
+        run: lune run .lune/ts-process.luau ${{ github.ref_name }}
 
-          - name: Install Rokit
-            uses: CompeyDev/setup-rokit@v0.1.2
-
-          - name: Darklua Process
-            run: lune run .lune/ts-process.luau
-
-          - name: Publish to NPM
-            run: npm publish --access public --tag latest
-            working-directory: ./dist
+      - name: Publish to NPM
+        run: pnpm publish --access public --no-git-checks --tag latest
+        working-directory: ./dist
