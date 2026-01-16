@@ -501,7 +501,7 @@ function client_replicator.process_entity_relations(client: Client, entity: Enti
 	local components = client.components
 	local relation = client_replicator.read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
-	local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
+	local pair_hooks = client.network_hooks.changed[PAIR(components.relation, relation)]
 
 	for _ = 1, total_targets do
 		client_replicator.process_entity_id(client, c, custom_ids, function(target)
@@ -520,12 +520,12 @@ function client_replicator.process_entity_relation_values(
 	local relation = client_replicator.read_component_id(client, c)
 	local total_targets = cursor.read_vlq(c)
 	local components = client.components
-	local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
+	local relation_hooks = client.network_hooks.changed[PAIR(components.relation, relation)]
 
 	for _ = 1, total_targets do
 		local value = client_replicator.read_component_value(client, relation, c, variants)
 		client_replicator.process_entity_id(client, c, custom_ids, function(target)
-			client_replicator.entity_set_pair(client, entity, relation, target, value, pair_hooks)
+			client_replicator.entity_set_pair(client, entity, relation, target, value, relation_hooks)
 		end)
 	end
 end
@@ -549,13 +549,13 @@ function client_replicator.process_entity(client: Client, c: Cursor, custom_ids:
 			client_replicator.entity_set(client, entity, component, value, component_hooks)
 		end
 
-		local total_pairs = cursor.read_vlq(c)
-		for _ = 1, total_pairs do
+		local total_relations = cursor.read_vlq(c)
+		for _ = 1, total_relations do
 			client_replicator.process_entity_relations(client, entity, c, custom_ids)
 		end
 
-		local total_pairs_values = cursor.read_vlq(c)
-		for _ = 1, total_pairs_values do
+		local total_relation_values = cursor.read_vlq(c)
+		for _ = 1, total_relation_values do
 			client_replicator.process_entity_relation_values(client, entity, c, custom_ids, variants)
 		end
 	end)
@@ -625,35 +625,35 @@ function client_replicator.apply_command_buffer(
 		client_replicator.entity_remove(client, entity, component, component_hooks)
 	end
 	for relation, targets in command_buffer.pairs do
-		local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
+		local relation_hooks = client.network_hooks.changed[PAIR(components.relation, relation)]
 		for target in targets do
 			local client_target = request(target)
 			if client_target then
-				client_replicator.entity_add_pair(client, entity, relation, client_target, pair_hooks)
+				client_replicator.entity_add_pair(client, entity, relation, client_target, relation_hooks)
 			end
 		end
 	end
 	for relation, targets in command_buffer.pairs_values do
-		local pair_hooks = client.network_hooks.changed[PAIR(components.pair, relation)]
+		local relation_hooks = client.network_hooks.changed[PAIR(components.relation, relation)]
 		for target, value in targets do
 			local client_target = request(target)
 			if client_target then
-				client_replicator.entity_set_pair(client, entity, relation, client_target, value.value, pair_hooks)
+				client_replicator.entity_set_pair(client, entity, relation, client_target, value.value, relation_hooks)
 			end
 		end
 	end
 	for relation, targets in command_buffer.pairs_remove do
-		local pair_hooks = client.network_hooks.removed[PAIR(components.pair, relation)]
+		local relation_hooks = client.network_hooks.removed[PAIR(components.relation, relation)]
 		for target in targets do
 			local client_target = request(target)
 			if client_target then
-				client_replicator.entity_remove_pair(client, entity, relation, client_target, pair_hooks)
+				client_replicator.entity_remove_pair(client, entity, relation, client_target, relation_hooks)
 			end
 		end
 	end
 	for relation in command_buffer.pairs_clear do
-		local pair_hooks = client.network_hooks.removed[PAIR(components.pair, relation)]
-		client_replicator.entity_remove_relations(client, entity, relation, pair_hooks)
+		local relation_hooks = client.network_hooks.removed[PAIR(components.relation, relation)]
+		client_replicator.entity_remove_relations(client, entity, relation, relation_hooks)
 	end
 end
 
@@ -926,13 +926,13 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					client_replicator.entity_set(client, entity, component, value, component_hooks)
 				end
 
-				local total_pairs = read_vlq_bitmask(c, added_mask, 2)
-				for _ = 1, total_pairs do
+				local total_relations = read_vlq_bitmask(c, added_mask, 2)
+				for _ = 1, total_relations do
 					client_replicator.process_entity_relations(client, entity, c, custom_ids)
 				end
 
-				local total_pairs_values = read_vlq_bitmask(c, added_mask, 3)
-				for _ = 1, total_pairs_values do
+				local total_relation_values = read_vlq_bitmask(c, added_mask, 3)
+				for _ = 1, total_relation_values do
 					client_replicator.process_entity_relation_values(client, entity, c, custom_ids, variants)
 				end
 			end)
@@ -964,11 +964,11 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					client_replicator.entity_remove(client, entity, component, component_hooks)
 				end
 
-				local total_pairs = read_vlq_bitmask(c, changed_mask, 3)
-				for _ = 1, total_pairs do
+				local total_relations = read_vlq_bitmask(c, changed_mask, 3)
+				for _ = 1, total_relations do
 					local relation = client_replicator.read_component_id(client, c)
-					local pair_changed_hooks = changed_hooks[PAIR(components.pair, relation)]
-					local pair_removed_hooks = removed_hooks[PAIR(components.pair, relation)]
+					local pair_changed_hooks = changed_hooks[PAIR(components.relation, relation)]
+					local pair_removed_hooks = removed_hooks[PAIR(components.relation, relation)]
 					local total_targets = cursor.read_vlq(c)
 
 					for _ = 1, total_targets do
@@ -992,10 +992,10 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					end
 				end
 
-				local total_pairs_values_removed = read_vlq_bitmask(c, changed_mask, 4)
-				for _ = 1, total_pairs_values_removed do
+				local total_relation_values_removed = read_vlq_bitmask(c, changed_mask, 4)
+				for _ = 1, total_relation_values_removed do
 					local relation = client_replicator.read_component_id(client, c)
-					local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
+					local pair_hooks = removed_hooks[PAIR(components.relation, relation)]
 					local total_targets = cursor.read_vlq(c)
 
 					for _ = 1, total_targets do
@@ -1005,10 +1005,10 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					end
 				end
 
-				local total_pairs_values = read_vlq_bitmask(c, changed_mask, 5)
-				for _ = 1, total_pairs_values do
+				local total_relation_values = read_vlq_bitmask(c, changed_mask, 5)
+				for _ = 1, total_relation_values do
 					local relation = client_replicator.read_component_id(client, c)
-					local pair_hooks = changed_hooks[PAIR(components.pair, relation)]
+					local pair_hooks = changed_hooks[PAIR(components.relation, relation)]
 					local total_targets = cursor.read_vlq(c)
 
 					for _ = 1, total_targets do
@@ -1031,10 +1031,10 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					client_replicator.entity_remove(client, entity, component, component_hooks)
 				end
 
-				local total_pairs = cursor.read_vlq(c)
-				for _ = 1, total_pairs do
+				local total_relations = cursor.read_vlq(c)
+				for _ = 1, total_relations do
 					local relation = client_replicator.read_component_id(client, c)
-					local pair_hooks = removed_hooks[PAIR(components.pair, relation)]
+					local pair_hooks = removed_hooks[PAIR(components.relation, relation)]
 					client_replicator.entity_remove_relations(client, entity, relation, pair_hooks)
 				end
 			end)

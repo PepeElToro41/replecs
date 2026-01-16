@@ -58,7 +58,7 @@ function utils.create_components(tag: () -> Component, component: () -> Componen
 	if RELATIONSHPIS then
 		components.reliable = component()
 		components.unreliable = component()
-		components.pair = component()
+		components.relation = component()
 
 		components.custom = tag()
 	end
@@ -72,7 +72,7 @@ function utils.create_components(tag: () -> Component, component: () -> Componen
 	if RELATIONSHPIS then
 		components.Reliable = components.reliable
 		components.Unreliable = components.unreliable
-		components.Pair = components.pair
+		components.Relation = components.relation
 
 		components.Custom = components.custom
 	end
@@ -88,7 +88,7 @@ function utils.add_component_names(components: types.Components, set: (component
 		set(components.networked, "replecs.networked")
 		set(components.reliable, "replecs.reliable")
 		set(components.unreliable, "replecs.unreliable")
-		set(components.pair, "replecs.pair")
+		set(components.relation, "replecs.relation")
 
 		set(components.custom, "replecs.custom")
 	end

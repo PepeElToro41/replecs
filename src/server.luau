@@ -28,33 +28,43 @@ type CustomIdSerialization = {
 	cursor_skip: number,
 }
 
+type EntityTrackInfo = {
+
+	components: Map<Component, number>,
+	pairs: Map<Component, number>,
+}
+
 type TrackInfo = {
 	networked: Set<Entity>,
-	entities: Map<Entity, Map<Component, number>>,
+	entities: Map<Entity, EntityTrackInfo>,
 	components: Map<Component, Map<Entity, number>>,
+	pairs: Map<Component, Map<Entity, number>>,
 }
 
 type EntityStorage = {
 	tags: { [Component]: boolean },
-	values: { [Component]: any },
-	pairs: { [Component]: Set<Entity> },
-	pairs_values: { [Component]: Map<Entity, any> },
+	components: { [Component]: any },
+	pair_tags: { [Component]: boolean },
+	pair_components: { [Component]: any },
+
+	relations: { [Component]: Set<Entity> },
+	relation_values: { [Component]: Map<Entity, any> },
 }
 
 type Storage = { [Entity]: EntityStorage }
 
 export type ServerImp = {
 	set_networked: (server: Server, entity: Entity, filter: AnyFilter?) -> (),
-	stop_networked: (server: Server, entity: Entity) -> (),
-
 	set_reliable: (server: Server, entity: Entity, component: Component, filter: AnyFilter?) -> (),
 	set_unreliable: (server: Server, entity: Entity, component: Component, filter: AnyFilter?) -> (),
-	set_pair: (server: Server, entity: Entity, relation: Component, filter: AnyFilter?) -> (),
-	set_custom: (server: Server, entity: Entity, component: Component | CustomId) -> (),
+	set_relation: (server: Server, entity: Entity, relation: Component, filter: AnyFilter?) -> (),
 
-	stop_reliable: (server: Server, entity: Entity, component: Component) -> (),
-	stop_unreliable: (server: Server, entity: Entity, component: Component) -> (),
-	stop_pair: (server: Server, entity: Entity, relation: Component) -> (),
+	stop_networked: (server: Server, entity: Entity, keep: boolean?) -> (),
+	stop_reliable: (server: Server, entity: Entity, component: Component, keep: boolean?) -> (),
+	stop_unreliable: (server: Server, entity: Entity, component: Component, keep: boolean?) -> (),
+	stop_relation: (server: Server, entity: Entity, relation: Component, keep: boolean?) -> (),
+
+	set_custom: (server: Server, entity: Entity, component: Component | CustomId) -> (),
 	remove_custom: (server: Server, entity: Entity) -> (),
 }
 
@@ -110,12 +120,23 @@ server_replicator.__index = server_replicator
 local NIL_COMPONENT_VALUE = newproxy()
 local GLOBAL_ID_OFFSET = 10
 
-local COMPONENT_TYPES = masking_controller.COMPONENT_TYPES
+local COMPONENT_TYPES = {
+	tag = 1,
+	component = 2,
+	pair_tag = 3,
+	pair_component = 4,
+	relation = 5,
+	relation_value = 6,
+	unreliable = 7,
+}
+
 local TRACK_TYPES = {
-	component = 1,
-	tag = 2,
-	pair = 3,
-	pair_value = 4,
+	tag = 1,
+	component = 2,
+	pair_tag = 3,
+	pair_component = 4,
+	relation = 5,
+	relation_value = 6,
 }
 
 local PACKET_TYPES = {
@@ -138,6 +159,7 @@ local ECS_NAME = common.ecs_name
 
 local IS_PAIR = common.is_pair
 local PAIR = common.pair
+local PAIR_FIRST = common.pair_first
 local PAIR_SECOND = common.pair_second
 local WORLD_ADD = common.world_add
 local WORLD_HAS = common.world_has
@@ -172,7 +194,7 @@ local function QUERY_CURRENT_NETWORKED(server: Server)
 	if RELATIONSHIPS then
 		QUERY_TRACKING_TYPE(server, server.components.reliable)
 		QUERY_TRACKING_TYPE(server, server.components.unreliable)
-		QUERY_TRACKING_TYPE(server, server.components.pair)
+		QUERY_TRACKING_TYPE(server, server.components.relation)
 	end
 end
 
@@ -185,14 +207,16 @@ local function track_entity_lifetime(server: Server, entity: Entity)
 end
 
 local function get_or_set_entity_storage(server: Server, entity: Entity): EntityStorage
-	local storage = server.storage[entity]
+	local storage: EntityStorage = server.storage[entity]
 
 	if not storage then
 		storage = {
 			tags = {},
-			values = {},
-			pairs = {},
-			pairs_values = {},
+			components = {},
+			pair_tags = {},
+			pair_components = {},
+			relations = {},
+			relation_values = {},
 		}
 		server.storage[entity] = storage
 	end
@@ -200,55 +224,14 @@ local function get_or_set_entity_storage(server: Server, entity: Entity): Entity
 	return storage
 end
 
-local function add_entity_tracked(server: Server, entity: Entity, component: Component, track_type: number)
-	local track = server.track_info.entities[entity]
-	if track == nil then
-		track = {
-			[component] = track_type,
-		}
-		server.track_info.entities[entity] = track
-	else
-		track[component] = track_type
-	end
-end
-
-local function remove_entity_tracked(server: Server, entity: Entity, component: Component)
-	local track = server.track_info.entities[entity]
-	if track then
-		track[component] = nil
-	end
-end
-
 local function allocate_component_change(server: Server, entity: Entity, component: Component, value: any)
 	local storage = get_or_set_entity_storage(server, entity)
 
 	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
+	storage.components[component] = non_nil
 
-	storage.values[component] = non_nil
 	if not server.additions[entity] and server.track_info.networked[entity] then
 		server.masking:allocate_component_change(entity, component, non_nil)
-	end
-end
-local function allocate_pair_value_change(
-	server: Server,
-	entity: Entity,
-	relation: Component,
-	target: Entity,
-	value: any
-)
-	local storage = get_or_set_entity_storage(server, entity)
-
-	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
-
-	local values = storage.pairs_values[relation]
-	if values == nil then
-		values = {}
-		storage.pairs_values[relation] = values
-	end
-	values[target] = non_nil
-
-	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_pair_value_change(entity, relation, target, non_nil)
 	end
 end
 
@@ -260,37 +243,70 @@ local function allocate_tag_addition(server: Server, entity: Entity, tag: Compon
 		server.masking:allocate_tag_addition(entity, tag)
 	end
 end
-local function allocate_pair_addition(server: Server, entity: Entity, relation: Component, target: Entity)
+
+local function allocate_pair_addition(server: Server, entity: Entity, id: Component)
 	local storage = get_or_set_entity_storage(server, entity)
-	local targets = storage.pairs[relation]
+	storage.pair_tags[id] = true
+
+	if not server.additions[entity] and server.track_info.networked[entity] then
+		server.masking:allocate_pair_addition(entity, id)
+	end
+end
+
+local function allocate_pair_change(server: Server, entity: Entity, id: Component, value: any)
+	local storage = get_or_set_entity_storage(server, entity)
+
+	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
+	storage.pair_components[id] = non_nil
+
+	if not server.additions[entity] and server.track_info.networked[entity] then
+		server.masking:allocate_pair_change(entity, id, non_nil)
+	end
+end
+
+local function allocate_relation_value_change(
+	server: Server,
+	entity: Entity,
+	relation: Component,
+	target: Entity,
+	value: any
+)
+	local storage = get_or_set_entity_storage(server, entity)
+
+	local values = storage.relation_values[relation]
+	if values == nil then
+		values = {}
+		storage.relation_values[relation] = values
+	end
+
+	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
+	values[target] = non_nil
+
+	if not server.additions[entity] and server.track_info.networked[entity] then
+		server.masking:allocate_relation_value_change(entity, relation, target, non_nil)
+	end
+end
+
+local function allocate_relation_addition(server: Server, entity: Entity, relation: Component, target: Entity)
+	local storage = get_or_set_entity_storage(server, entity)
+	local targets = storage.relations[relation]
 	if targets == nil then
 		targets = {}
-		storage.pairs[relation] = targets
+		storage.relations[relation] = targets
 	end
 	targets[target] = true
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_pair_addition(entity, relation, target)
+		server.masking:allocate_relation_addition(entity, relation, target)
 	end
 end
 
 local function allocate_component_removal(server: Server, entity: Entity, component: Component)
 	local storage = get_or_set_entity_storage(server, entity)
-	storage.values[component] = nil
+	storage.components[component] = nil
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
 		server.masking:allocate_component_removal(entity, component)
-	end
-end
-local function allocate_pair_value_removal(server: Server, entity: Entity, relation: Component, target: Entity)
-	local storage = get_or_set_entity_storage(server, entity)
-	local values = storage.pairs_values[relation]
-	if values then
-		values[target] = nil
-	end
-
-	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_pair_value_removal(entity, relation, target)
 	end
 end
 
@@ -302,15 +318,46 @@ local function allocate_tag_removal(server: Server, entity: Entity, tag: Compone
 		server.masking:allocate_tag_removal(entity, tag)
 	end
 end
-local function allocate_pair_removal(server: Server, entity: Entity, relation: Component, target: Entity)
+
+local function allocate_pair_tag_removal(server: Server, entity: Entity, id: Component)
 	local storage = get_or_set_entity_storage(server, entity)
-	local targets = storage.pairs[relation]
+	storage.pair_tags[id] = nil
+
+	if not server.additions[entity] and server.track_info.networked[entity] then
+		server.masking:allocate_pair_tag_removal(entity, id)
+	end
+end
+
+local function allocate_pair_component_removal(server: Server, entity: Entity, id: Component)
+	local storage = get_or_set_entity_storage(server, entity)
+	storage.pair_components[id] = nil
+
+	if not server.additions[entity] and server.track_info.networked[entity] then
+		server.masking:allocate_pair_component_removal(entity, id)
+	end
+end
+
+local function allocate_relation_value_removal(server: Server, entity: Entity, relation: Component, target: Entity)
+	local storage = get_or_set_entity_storage(server, entity)
+	local values = storage.relation_values[relation]
+	if values then
+		values[target] = nil
+	end
+
+	if not server.additions[entity] and server.track_info.networked[entity] then
+		server.masking:allocate_relation_value_removal(entity, relation, target)
+	end
+end
+
+local function allocate_relation_removal(server: Server, entity: Entity, relation: Component, target: Entity)
+	local storage = get_or_set_entity_storage(server, entity)
+	local targets = storage.relations[relation]
 	if targets then
 		targets[target] = nil
 	end
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_pair_removal(entity, relation, target)
+		server.masking:allocate_relation_removal(entity, relation, target)
 	end
 end
 
@@ -324,14 +371,81 @@ local function cleanup_entity(server: Server, entity: Entity)
 
 	local track_info = server.track_info.entities[entity]
 	if track_info then
-		for component in track_info do
+		for component in track_info.components do
 			local track_component = server.track_info.components[component]
 			if track_component then
 				track_component[entity] = nil
 			end
 		end
+		for id in track_info.pairs do
+			local track_pair = server.track_info.pairs[id]
+			if track_pair then
+				track_pair[entity] = nil
+			end
+		end
 		server.track_info.entities[entity] = nil
 	end
+end
+
+local function track_pair(server: Server, pair_id: Component)
+	local world = server.world
+
+	if server.track_info.pairs[pair_id] then
+		error(`attemped to track a pair twice: {common.log_component(server.world, PAIR_SECOND(world, pair_id))}`)
+	end
+
+	local info = {} :: Map<Entity, number>
+	server.track_info.pairs[pair_id] = info
+
+	local function hook(unhook: () -> ())
+		table.insert(server.hooked, unhook)
+	end
+
+	local relation = PAIR_FIRST(world, pair_id)
+
+	hook(HOOK_ADDED(world, relation, function(entity, id, value)
+		if id ~= pair_id then
+			return
+		end
+		local track_type = info[entity]
+		if not track_type then
+			return
+		end
+
+		if track_type == TRACK_TYPES.pair_component then
+			allocate_pair_change(server, entity, id, value)
+		else
+			allocate_pair_addition(server, entity, id, value)
+		end
+	end))
+	hook(HOOK_CHANGED(world, relation, function(entity, id, value)
+		if id ~= pair_id then
+			return
+		end
+		local track_type = info[entity]
+		if not track_type then
+			return
+		end
+
+		allocate_pair_change(server, entity, id, value)
+	end))
+	hook(HOOK_REMOVED(world, relation, function(entity, id)
+		if id ~= pair_id then
+			return
+		end
+		local track_type = info[entity]
+		if not track_type then
+			return
+		end
+
+		if track_type == TRACK_TYPES.pair_component then
+			allocate_pair_component_removal(server, entity, id)
+		else
+			allocate_pair_tag_removal(server, entity, id)
+		end
+	end))
+
+	return info
 end
 
 local function track_component(server: Server, component: Component)
@@ -358,16 +472,16 @@ local function track_component(server: Server, component: Component)
 			allocate_component_change(server, entity, component, value)
 		elseif track_type == TRACK_TYPES.tag then
 			allocate_tag_addition(server, entity, component)
-		elseif track_type == TRACK_TYPES.pair then
+		elseif track_type == TRACK_TYPES.relation then
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_pair_addition(server, entity, component, PAIR_SECOND(world, id))
-		elseif track_type == TRACK_TYPES.pair_value then
+			allocate_relation_addition(server, entity, component, PAIR_SECOND(world, id))
+		elseif track_type == TRACK_TYPES.relation_value then
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_pair_value_change(server, entity, component, PAIR_SECOND(world, id), value)
+			allocate_relation_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
 	hook(HOOK_CHANGED(world, component, function(entity, id, value)
@@ -377,11 +491,11 @@ local function track_component(server: Server, component: Component)
 		end
 		if track_type == TRACK_TYPES.component then
 			allocate_component_change(server, entity, component, value)
-		elseif track_type == TRACK_TYPES.pair_value then
+		elseif track_type == TRACK_TYPES.relation_value then
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_pair_value_change(server, entity, component, PAIR_SECOND(world, id), value)
+			allocate_relation_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
 	hook(HOOK_REMOVED(world, component, function(entity, id)
@@ -394,20 +508,60 @@ local function track_component(server: Server, component: Component)
 			allocate_component_removal(server, entity, component)
 		elseif track_type == TRACK_TYPES.tag then
 			allocate_tag_removal(server, entity, component)
-		elseif track_type == TRACK_TYPES.pair then
+		elseif track_type == TRACK_TYPES.relation then
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_pair_removal(server, entity, component, PAIR_SECOND(world, id))
-		elseif track_type == TRACK_TYPES.pair_value then
+			allocate_relation_removal(server, entity, component, PAIR_SECOND(world, id))
+		elseif track_type == TRACK_TYPES.relation_value then
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_pair_value_removal(server, entity, component, PAIR_SECOND(world, id))
+			allocate_relation_value_removal(server, entity, component, PAIR_SECOND(world, id))
 		end
 	end))
 
 	return info
+end
+
+local function add_entity_component_tracked(server: Server, entity: Entity, component: Component, track_type: number)
+	local track: EntityTrackInfo = server.track_info.entities[entity]
+	if track == nil then
+		track = {
+			components = { [component] = track_type },
+			pairs = {},
+		}
+		server.track_info.entities[entity] = track
+	else
+		track.components[component] = track_type
+	end
+end
+
+local function add_entity_pair_tracked(server: Server, entity: Entity, id: Component, track_type: number)
+	local track: EntityTrackInfo = server.track_info.entities[entity]
+	if track == nil then
+		track = {
+			components = {},
+			pairs = { [id] = track_type },
+		}
+		server.track_info.entities[entity] = track
+	else
+		track.pairs[id] = track_type
+	end
+end
+
+local function remove_entity_component_tracked(server: Server, entity: Entity, component: Component)
+	local track = server.track_info.entities[entity]
+	if track then
+		track.components[component] = nil
+	end
+end
+
+local function remove_entity_pair_tracked(server: Server, entity: Entity, id: Component)
+	local track = server.track_info.entities[entity]
+	if track then
+		track.pairs[id] = nil
+	end
 end
 
 local function track_entity_component(server: Server, entity: Entity, component: Component)
@@ -424,14 +578,14 @@ local function track_entity_component(server: Server, entity: Entity, component:
 			local value = WORLD_GET(world, entity, component)
 
 			if value == nil then
-				entity_storage.values[component] = NIL_COMPONENT_VALUE
+				entity_storage.components[component] = NIL_COMPONENT_VALUE
 			else
-				entity_storage.values[component] = value
+				entity_storage.components[component] = value
 			end
 		end
 
 		info[entity] = TRACK_TYPES.component
-		add_entity_tracked(server, entity, component, TRACK_TYPES.component)
+		add_entity_component_tracked(server, entity, component, TRACK_TYPES.component)
 
 		return COMPONENT_TYPES.component
 	else
@@ -440,13 +594,49 @@ local function track_entity_component(server: Server, entity: Entity, component:
 		end
 
 		info[entity] = TRACK_TYPES.tag
-		add_entity_tracked(server, entity, component, TRACK_TYPES.tag)
+		add_entity_component_tracked(server, entity, component, TRACK_TYPES.tag)
 
 		return COMPONENT_TYPES.tag
 	end
 end
 
-local function track_entity_pair(server: Server, entity: Entity, relation: Entity)
+local function track_entity_pair(server: Server, entity: Entity, id: Component)
+	local world = server.world
+	local info = server.track_info.pairs[id]
+	if not info then
+		info = track_pair(server, id)
+	end
+
+	local entity_storage = get_or_set_entity_storage(server, entity)
+
+	if IS_COMPONENT(world, id) then
+		if WORLD_HAS(world, entity, id) then
+			local value = WORLD_GET(world, entity, id)
+
+			if value == nil then
+				entity_storage.pair_components[id] = NIL_COMPONENT_VALUE
+			else
+				entity_storage.pair_components[id] = value
+			end
+		end
+
+		info[entity] = TRACK_TYPES.pair_component
+		add_entity_pair_tracked(server, entity, id, TRACK_TYPES.pair_component)
+
+		return COMPONENT_TYPES.pair_component
+	else
+		if WORLD_HAS(world, entity, id) then
+			entity_storage.pair_tags[id] = true
+		end
+
+		info[entity] = TRACK_TYPES.pair_tag
+		add_entity_pair_tracked(server, entity, id, TRACK_TYPES.pair_tag)
+
+		return COMPONENT_TYPES.pair_tag
+	end
+end
+
+local function track_entity_relation(server: Server, entity: Entity, relation: Component)
 	local world = server.world
 	local info = server.track_info.components[relation]
 	if not info then
@@ -469,11 +659,11 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 			targets[target] = if value == nil then NIL_COMPONENT_VALUE else value :: any
 		end
 
-		entity_storage.pairs_values[relation] = targets
-		info[entity] = TRACK_TYPES.pair_value
-		add_entity_tracked(server, entity, relation, TRACK_TYPES.pair_value)
+		entity_storage.relation_values[relation] = targets
+		info[entity] = TRACK_TYPES.relation_value
+		add_entity_component_tracked(server, entity, relation, TRACK_TYPES.relation_value)
 
-		return COMPONENT_TYPES.pair_value
+		return COMPONENT_TYPES.relation_value
 	else
 		local targets = {} :: Set<Entity>
 
@@ -487,11 +677,11 @@ local function track_entity_pair(server: Server, entity: Entity, relation: Entit
 			targets[target] = true
 		end
 
-		entity_storage.pairs[relation] = targets
-		info[entity] = TRACK_TYPES.pair
-		add_entity_tracked(server, entity, relation, TRACK_TYPES.pair)
+		entity_storage.relations[relation] = targets
+		info[entity] = TRACK_TYPES.relation
+		add_entity_component_tracked(server, entity, relation, TRACK_TYPES.relation)
 
-		return COMPONENT_TYPES.pair
+		return COMPONENT_TYPES.relation
 	end
 end
 
@@ -505,21 +695,33 @@ local function untrack_entity_component(server: Server, entity: Entity, componen
 
 	local storage = server.storage[entity]
 	if storage then
-		storage.values[component] = nil
+		storage.components[component] = nil
 		storage.tags[component] = nil
 	end
 
-	local entity_tracked = server.track_info.entities[entity]
-	if entity_tracked then
-		entity_tracked[component] = nil
-	end
-
-	remove_entity_tracked(server, entity, component)
-
+	remove_entity_component_tracked(server, entity, component)
 	return listen_type
 end
 
-local function untrack_entity_pair(server: Server, entity: Entity, relation: Entity): number?
+local function untrack_entity_pair(server: Server, entity: Entity, id: Entity): number?
+	local info = server.track_info.pairs[id]
+	if not info then
+		return nil
+	end
+	local listen_type = info[entity]
+	info[entity] = nil
+
+	local storage = server.storage[entity]
+	if storage then
+		storage.pair_tags[id] = nil
+		storage.pair_components[id] = nil
+	end
+
+	remove_entity_pair_tracked(server, entity, id)
+	return listen_type
+end
+
+local function untrack_entity_relation(server: Server, entity: Entity, relation: Entity): number?
 	local info = server.track_info.components[relation]
 	if not info then
 		return nil
@@ -529,16 +731,11 @@ local function untrack_entity_pair(server: Server, entity: Entity, relation: Ent
 
 	local storage = server.storage[entity]
 	if storage then
-		storage.pairs[relation] = nil
-		storage.pairs_values[relation] = nil
+		storage.relations[relation] = nil
+		storage.relation_values[relation] = nil
 	end
 
-	local entity_tracked = server.track_info.entities[entity]
-	if entity_tracked then
-		entity_tracked[relation] = nil
-	end
-
-	remove_entity_tracked(server, entity, relation)
+	remove_entity_component_tracked(server, entity, relation)
 	return listen_type
 end
 
@@ -661,7 +858,7 @@ function server_replicator.write_entity_id(server: Server, c: Cursor, entity: En
 end
 
 function server_replicator.write_entity_relations(server: Server, storage: EntityStorage, c: Cursor, relation: Entity)
-	local targets = storage.pairs[relation]
+	local targets = storage.relations[relation]
 	local total_targets = 0
 
 	for target in targets do
@@ -679,7 +876,7 @@ function server_replicator.write_entity_relations_values(
 	relation: Entity,
 	variants: { any }
 )
-	local targets = storage.pairs_values[relation]
+	local targets = storage.relation_values[relation]
 	local total_targets = 0
 
 	for target, value in targets do
@@ -700,23 +897,23 @@ function server_replicator.write_entity(
 )
 	local storage = server.storage[entity]
 
-	local all_pairs_values = 0
-	for relation in active.components[COMPONENT_TYPES.pair_value] do
+	local all_relation_values = 0
+	for relation in active.components[COMPONENT_TYPES.relation_value] do
 		server_replicator.write_entity_relations_values(server, storage, c, relation, variants)
-		all_pairs_values += 1
+		all_relation_values += 1
 	end
-	cursor.write_vlq(c, all_pairs_values)
+	cursor.write_vlq(c, all_relation_values)
 
-	local all_pairs = 0
-	for relation in active.components[COMPONENT_TYPES.pair] do
+	local all_relations = 0
+	for relation in active.components[COMPONENT_TYPES.relation] do
 		server_replicator.write_entity_relations(server, storage, c, relation)
-		all_pairs += 1
+		all_relations += 1
 	end
-	cursor.write_vlq(c, all_pairs)
+	cursor.write_vlq(c, all_relations)
 
 	local components = 0
 	for component in active.components[COMPONENT_TYPES.component] do
-		local value = storage.values[component]
+		local value = storage.components[component]
 		if value == nil then
 			continue
 		end
@@ -938,17 +1135,17 @@ function server_replicator.collect_updates(server: Server)
 		local total_component_deleted = 0
 		local component_deletions = storage.deletions.components
 		for entity, deleted in component_deletions do
-			local total_pairs = 0
+			local total_relations = 0
 
-			for relation in deleted[COMPONENT_TYPES.pair_value] do
+			for relation in deleted[COMPONENT_TYPES.relation_value] do
 				server_replicator.write_component_id(server, c, relation)
-				total_pairs += 1
+				total_relations += 1
 			end
-			for relation in deleted[COMPONENT_TYPES.pair] do
+			for relation in deleted[COMPONENT_TYPES.relation] do
 				server_replicator.write_component_id(server, c, relation)
-				total_pairs += 1
+				total_relations += 1
 			end
-			cursor.write_vlq(c, total_pairs)
+			cursor.write_vlq(c, total_relations)
 
 			local total_removed = 0
 			for component in deleted[COMPONENT_TYPES.component] do
@@ -972,8 +1169,33 @@ function server_replicator.collect_updates(server: Server)
 		for entity, changes in storage_changes.changed do
 			local changed_mask = 0
 
-			local total_pairs_values = 0
-			for relation, targets in changes.pairs_values.changed do
+			local total_relations_removed = 0
+			for relation, targets in changes.relation_removed.component do
+				local total_targets = 0
+
+				for target in targets do
+					server_replicator.write_entity_id(server, c, target)
+					total_targets += 1
+				end
+				cursor.write_vlq(c, total_targets)
+				server_replicator.write_component_id(server, c, relation)
+				total_relations_removed += 1
+			end
+			for relation, targets in changes.relation_removed.tag do
+				local total_targets = 0
+
+				for target in targets do
+					server_replicator.write_entity_id(server, c, target)
+					total_targets += 1
+				end
+				cursor.write_vlq(c, total_targets)
+				server_replicator.write_component_id(server, c, relation)
+				total_relations_removed += 1
+			end
+			changed_mask = write_vlq_bitmask(c, total_relations_removed, changed_mask, 5)
+
+			local total_relation_values = 0
+			for relation, targets in changes.relation_value do
 				local total_targets = 0
 
 				for target, value in targets do
@@ -983,12 +1205,12 @@ function server_replicator.collect_updates(server: Server)
 				end
 				cursor.write_vlq(c, total_targets)
 				server_replicator.write_component_id(server, c, relation)
-				total_pairs_values += 1
+				total_relation_values += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_pairs_values, changed_mask, 5)
+			changed_mask = write_vlq_bitmask(c, total_relation_values, changed_mask, 4)
 
-			local total_pairs_values_removed = 0
-			for relation, targets in changes.pairs_values.removed do
+			local total_relations_added = 0
+			for relation, targets in changes.relation_added do
 				local total_targets = 0
 
 				for target in targets do
@@ -997,31 +1219,16 @@ function server_replicator.collect_updates(server: Server)
 				end
 				cursor.write_vlq(c, total_targets)
 				server_replicator.write_component_id(server, c, relation)
-				total_pairs_values_removed += 1
+				total_relations_added += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_pairs_values_removed, changed_mask, 4)
-
-			local total_pairs = 0
-			for relation, targets in changes.pairs do
-				local total_targets = 0
-
-				for target, added in targets do
-					server_replicator.write_entity_id(server, c, target)
-					if added then
-						cursor.writei8(c, 1)
-					else
-						cursor.writei8(c, -1)
-					end
-					total_targets += 1
-				end
-				cursor.write_vlq(c, total_targets)
-				server_replicator.write_component_id(server, c, relation)
-				total_pairs += 1
-			end
-			changed_mask = write_vlq_bitmask(c, total_pairs, changed_mask, 3)
+			changed_mask = write_vlq_bitmask(c, total_relations_added, changed_mask, 3)
 
 			local total_removed = 0
-			for component in changes.removed do
+			for component in changes.removed.component do
+				server_replicator.write_component_id(server, c, component)
+				total_removed += 1
+			end
+			for component in changes.removed.tag do
 				server_replicator.write_component_id(server, c, component)
 				total_removed += 1
 			end
@@ -1055,23 +1262,23 @@ function server_replicator.collect_updates(server: Server)
 			local entity_storage = server.storage[entity]
 			local added_mask = 0
 
-			local total_pairs_values = 0
-			for relation in components[COMPONENT_TYPES.pair_value] do
+			local total_relation_values = 0
+			for relation in components[COMPONENT_TYPES.relation_value] do
 				server_replicator.write_entity_relations_values(server, entity_storage, c, relation, variants)
-				total_pairs_values += 1
+				total_relation_values += 1
 			end
-			added_mask = write_vlq_bitmask(c, total_pairs_values, added_mask, 3)
+			added_mask = write_vlq_bitmask(c, total_relation_values, added_mask, 3)
 
-			local total_pairs = 0
-			for relation in components[COMPONENT_TYPES.pair] do
+			local total_relations = 0
+			for relation in components[COMPONENT_TYPES.relation] do
 				server_replicator.write_entity_relations(server, entity_storage, c, relation)
-				total_pairs += 1
+				total_relations += 1
 			end
-			added_mask = write_vlq_bitmask(c, total_pairs, added_mask, 2)
+			added_mask = write_vlq_bitmask(c, total_relations, added_mask, 2)
 
 			local total_components = 0
 			for component in components[COMPONENT_TYPES.component] do
-				local value = entity_storage.values[component]
+				local value = entity_storage.components[component]
 				if value == nil then
 					continue
 				end
@@ -1220,47 +1427,64 @@ end
 function server_replicator.start_networked(server: Server, entity: Entity, filter: AnyFilter?)
 	local masking = server.masking
 
-	masking:unregister_stop_entity(entity)
+	masking:deallocate_entity_stop(entity)
 	masking:start_entity(entity, filter)
-	masking:propagate_entity_addition(entity)
+	masking:allocate_propagated_entity_start(entity)
 
 	server.additions[entity] = true
 	server.track_info.networked[entity] = true
 	track_entity_lifetime(server, entity)
 end
+
 function server_replicator.start_reliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local masking = server.masking
 
-	local component_type = track_entity_component(server :: Server, entity, component)
-	masking:unregister_stop_component(entity, component, component_type)
-	masking:start_component(entity, component, component_type, filter)
+	local track_type = track_entity_component(server :: Server, entity, component)
+	masking:deallocate_component_stop(entity, component, track_type)
+	masking:start_component(entity, component, track_type, filter)
+
 	if server.additions[entity] then
-		masking:allocate_entity_addition(entity, component, component_type)
+		masking:allocate_shared_entity_start(entity, component, track_type)
 	elseif server.track_info.networked[entity] then
-		masking:register_component_addition(entity, component, component_type)
+		masking:allocate_component_start(entity, component, track_type)
 	end
 end
 
 function server_replicator.start_unreliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local masking = server.masking
 
-	masking:unregister_stop_component(entity, component, COMPONENT_TYPES.unreliable)
+	masking:deallocate_component_stop(entity, component, COMPONENT_TYPES.unreliable)
 	masking:start_component(entity, component, COMPONENT_TYPES.unreliable, filter)
 	if server.additions[entity] then
-		masking:allocate_entity_addition(entity, component, COMPONENT_TYPES.unreliable)
+		masking:allocate_component_start(entity, component, COMPONENT_TYPES.unreliable)
 	end
 end
 
-function server_replicator.start_pair(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
+function server_replicator.start_pair(server: Server, entity: Entity, id: Component, filter: AnyFilter?)
 	local masking = server.masking
 
-	local component_type = track_entity_pair(server, entity, relation)
-	masking:unregister_stop_component(entity, relation, component_type)
-	masking:start_component(entity, relation, component_type, filter)
+	local track_type = track_entity_pair(server :: Server, entity, id)
+	masking:deallocate_component_stop(entity, id, track_type)
+	masking:start_component(entity, id, track_type, filter)
+
 	if server.additions[entity] then
-		masking:allocate_entity_addition(entity, relation, component_type)
+		masking:allocate_shared_entity_start(entity, id, track_type)
 	elseif server.track_info.networked[entity] then
-		masking:register_component_addition(entity, relation, component_type)
+		masking:allocate_component_start(entity, id, track_type)
+	end
+end
+
+function server_replicator.start_relation(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
+	local masking = server.masking
+
+	local track_type = track_entity_relation(server, entity, relation)
+	masking:deallocate_component_stop(entity, relation, track_type)
+	masking:start_component(entity, relation, track_type, filter)
+
+	if server.additions[entity] then
+		masking:allocate_shared_entity_start(entity, relation, track_type)
+	elseif server.track_info.networked[entity] then
+		masking:allocate_component_start(entity, relation, track_type)
 	end
 end
 
@@ -1268,6 +1492,7 @@ function server_replicator.change_networked(server: Server, entity: Entity, filt
 	local masking = server.masking
 	masking:set_entity(entity, filter)
 end
+
 function server_replicator.change_reliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local world = server.world
 	local masking = server.masking
@@ -1278,82 +1503,116 @@ function server_replicator.change_reliable(server: Server, entity: Entity, compo
 		masking:set_component(entity, component, COMPONENT_TYPES.tag, filter)
 	end
 end
+
 function server_replicator.change_unreliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local masking = server.masking
 	masking:set_component(entity, component, COMPONENT_TYPES.unreliable, filter)
 end
-function server_replicator.change_pair(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
+
+function server_replicator.change_pair(server: Server, entity: Entity, id: Component, filter: AnyFilter?)
+	local world = server.world
+	local masking = server.masking
+
+	if IS_COMPONENT(world, id) then
+		masking:set_component(entity, id, COMPONENT_TYPES.pair_component, filter)
+	else
+		masking:set_component(entity, id, COMPONENT_TYPES.pair_tag, filter)
+	end
+end
+
+function server_replicator.change_relation(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
 	local world = server.world
 	local masking = server.masking
 
 	if IS_COMPONENT(world, relation) then
-		masking:set_component(entity, relation, COMPONENT_TYPES.pair_value, filter)
+		masking:set_component(entity, relation, COMPONENT_TYPES.relation_value, filter)
 	else
-		masking:set_component(entity, relation, COMPONENT_TYPES.pair, filter)
+		masking:set_component(entity, relation, COMPONENT_TYPES.relation, filter)
 	end
 end
 
-function server_replicator.stop_networked(server: Server, entity: Entity)
+local function stop_tracked_component(
+	server: Server,
+	entity: Entity,
+	component: Component,
+	track_type: number,
+	keep: boolean?
+)
+	local masking = server.masking
+	if server.track_info.networked[entity] then
+		masking:deallocate_component_start(entity, component, track_type)
+		if not keep then
+			masking:allocate_component_stop(entity, component, track_type)
+		end
+	end
+	masking:stop_component(entity, component, track_type)
+end
+
+function server_replicator.stop_networked(server: Server, entity: Entity, keep: boolean?)
 	if not server.track_info.networked[entity] then
 		return
 	end
 
 	local masking = server.masking
-	masking:register_stop_entity(entity)
+	if not keep then
+		masking:allocate_entity_stop(entity)
+	end
 	masking:stop_entity(entity)
 
 	server.additions[entity] = nil
 	server.track_info.networked[entity] = nil
 end
-function server_replicator.stop_reliable(server: Server, entity: Entity, component: Component)
-	local masking = server.masking
+
+function server_replicator.stop_reliable(server: Server, entity: Entity, component: Component, keep: boolean?)
 	if not server.track_info.entities[entity] then
 		return
 	end
 
-	local component_type = untrack_entity_component(server, entity, component)
-	if not component_type then
+	local track_type = untrack_entity_component(server, entity, component)
+	if not track_type then
 		return
 	end
 
-	if server.track_info.networked[entity] then
-		masking:unregister_component_addition(entity, component, component_type)
-		masking:register_stop_component(entity, component, component_type)
-	end
-	masking:stop_component(entity, component, component_type)
+	stop_tracked_component(server, entity, component, track_type, keep)
 end
-function server_replicator.stop_unreliable(server: Server, entity: Entity, component: Component)
-	local masking = server.masking
+
+function server_replicator.stop_unreliable(server: Server, entity: Entity, component: Component, keep: boolean?)
 	if not server.track_info.entities[entity] then
 		return
 	end
 
-	local component_type = untrack_entity_component(server, entity, component)
-	if not component_type then
+	local track_type = untrack_entity_component(server, entity, component)
+	if not track_type then
 		return
 	end
 
-	if server.track_info.networked[entity] then
-		masking:register_stop_component(entity, component, COMPONENT_TYPES.unreliable)
-	end
-	masking:stop_component(entity, component, COMPONENT_TYPES.unreliable)
+	stop_tracked_component(server, entity, component, COMPONENT_TYPES.unreliable, keep)
 end
-function server_replicator.stop_pair(server: Server, entity: Entity, relation: Component)
-	local masking = server.masking
+
+function server_replicator.stop_pair(server: Server, entity: Entity, id: Component, keep: boolean?)
 	if not server.track_info.entities[entity] then
 		return
 	end
 
-	local component_type = untrack_entity_pair(server, entity, relation)
-	if not component_type then
+	local track_type = untrack_entity_pair(server, entity, id)
+	if not track_type then
 		return
 	end
 
-	if server.track_info.networked[entity] then
-		masking:unregister_component_addition(entity, relation, component_type)
-		masking:register_stop_component(entity, relation, component_type)
+	stop_tracked_component(server, entity, id, track_type, keep)
+end
+
+function server_replicator.stop_relation(server: Server, entity: Entity, relation: Component, keep: boolean?)
+	if not server.track_info.entities[entity] then
+		return
 	end
-	masking:stop_component(entity, relation, component_type)
+
+	local track_type = untrack_entity_relation(server, entity, relation)
+	if not track_type then
+		return
+	end
+
+	stop_tracked_component(server, entity, relation, track_type, keep)
 end
 
 function server_replicator.set_networked(server: Server, entity: Entity, filter: AnyFilter?)
@@ -1363,30 +1622,43 @@ function server_replicator.set_networked(server: Server, entity: Entity, filter:
 		server_replicator.start_networked(server, entity, filter)
 	end
 end
+
 function server_replicator.set_reliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local entity_tracked = server.track_info.entities[entity]
-	if entity_tracked and entity_tracked[component] then
+	if entity_tracked and entity_tracked.components[component] then
 		server_replicator.change_reliable(server, entity, component, filter)
 	else
 		server_replicator.start_reliable(server, entity, component, filter)
 	end
 end
+
 function server_replicator.set_unreliable(server: Server, entity: Entity, component: Component, filter: AnyFilter?)
 	local entity_tracked = server.track_info.entities[entity]
-	if entity_tracked and entity_tracked[component] then
+	if entity_tracked and entity_tracked.components[component] then
 		server_replicator.change_unreliable(server, entity, component, filter)
 	else
 		server_replicator.start_unreliable(server, entity, component, filter)
 	end
 end
-function server_replicator.set_pair(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
+
+function server_replicator.set_pair(server: Server, entity: Entity, id: Component, filter: AnyFilter?)
 	local entity_tracked = server.track_info.entities[entity]
-	if entity_tracked and entity_tracked[relation] then
-		server_replicator.change_pair(server, entity, relation, filter)
+	if entity_tracked and entity_tracked.pairs[id] then
+		server_replicator.change_pair(server, entity, id, filter)
 	else
-		server_replicator.start_pair(server, entity, relation, filter)
+		server_replicator.start_pair(server, entity, id, filter)
 	end
 end
+
+function server_replicator.set_relation(server: Server, entity: Entity, relation: Component, filter: AnyFilter?)
+	local entity_tracked = server.track_info.entities[entity]
+	if entity_tracked and entity_tracked.components[relation] then
+		server_replicator.change_relation(server, entity, relation, filter)
+	else
+		server_replicator.start_relation(server, entity, relation, filter)
+	end
+end
+
 function server_replicator.set_custom(server: Server, entity: Entity, handler: Component | CustomId)
 	if server.custom_ids[entity] then
 		common.log_warn("attempted to register a custom_id twice for the same entity", debug.traceback())
@@ -1462,17 +1734,17 @@ function server_replicator.init(server: Server, wrd: World?)
 			server_replicator.stop_reliable(server, entity, component)
 		end))
 
-		hook(HOOK_ADDED(world, components.pair, function(entity, id, filter)
+		hook(HOOK_ADDED(world, components.relation, function(entity, id, filter)
 			local relation = PAIR_SECOND(world, id)
-			server_replicator.start_pair(server, entity, relation, filter)
+			server_replicator.start_relation(server, entity, relation, filter)
 		end))
-		hook(HOOK_CHANGED(world, components.pair, function(entity, id, filter)
+		hook(HOOK_CHANGED(world, components.relation, function(entity, id, filter)
 			local relation = PAIR_SECOND(world, id)
-			server_replicator.change_pair(server, entity, relation, filter)
+			server_replicator.change_relation(server, entity, relation, filter)
 		end))
-		hook(HOOK_REMOVED(world, components.pair, function(entity, id)
+		hook(HOOK_REMOVED(world, components.relation, function(entity, id)
 			local relation = PAIR_SECOND(world, id)
-			server_replicator.stop_pair(server, entity, relation)
+			server_replicator.stop_relation(server, entity, relation)
 		end))
 
 		hook(HOOK_ADDED(world, components.unreliable, function(entity, id, filter)
@@ -1624,6 +1896,7 @@ local function create(world: World?, components: types.Components?): Server
 		networked = {},
 		entities = {},
 		components = {},
+		pairs = {},
 	}
 	self.connections = {}
 	self.inited = false

@@ -34,6 +34,13 @@ local function PAIR(relation: Entity, target: Entity): Entity
 	return jecs.pair(relation, target)
 end
 
+local function PAIR_FIRST(world: World, id: Entity): Entity
+	if not IS_PAIR(id) then
+		LOGERROR(`expected a pair, got: {LOG_COMPONENT(world, id)}`)
+	end
+	return jecs.pair_first(world, id)
+end
+
 local function PAIR_SECOND(world: World, id: Entity): Entity
 	if not IS_PAIR(id) then
 		LOGERROR(`expected a pair, got: {LOG_COMPONENT(world, id)}`)
@@ -121,7 +128,7 @@ local PREREGISTER_COMPONENT = jecs.component
 local PREREGISTER_TAG = jecs.tag
 
 local function IS_COMPONENT(world: World, id: Component)
-	return world:has(id, jecs.Component)
+	return not jecs.is_tag(world, id)
 end
 
 local function HOOK_ADDED(world: World, id: Component, callback: (e: Entity, id: Component, value: any) -> ()): () -> ()
@@ -148,6 +155,7 @@ common.implicitly_shared = IMPLICITLY_SHARED
 
 common.is_pair = IS_PAIR
 common.pair = PAIR
+common.pair_first = PAIR_FIRST
 common.pair_second = PAIR_SECOND
 common.add_name = ADD_NAME
 common.add_preregistered_name = ADD_PREREGISTERED_NAME
