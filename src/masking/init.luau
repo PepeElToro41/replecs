@@ -46,18 +46,18 @@ type EntityLookup = Lookup & {
 }
 
 export type EntityChanges = {
-	tagged: { [Component]: boolean },
-	component: { [Component]: any },
+	tagged: Set<Component>,
+	component: Map<Component, any>,
 	removed: {
-		component: { [Component]: boolean },
-		tag: { [Component]: boolean },
+		component: Set<Component>,
+		tag: Set<Component>,
 	},
 
-	pair_changed: { [Component]: any },
-	pair_added: { [Component]: any },
+	pair_changed: Map<Component, any>,
+	pair_added: Set<Component>,
 	pair_removed: {
-		component: { [Component]: boolean },
-		tag: { [Component]: boolean },
+		component: Set<Component>,
+		tag: Set<Component>,
 	},
 
 	relation_added: { [Component]: Set<Entity> },
@@ -122,7 +122,7 @@ type Storages = {
 	[MaskHash]: StorageGroup,
 }
 
-export type MaskingController = {
+export type MaskingControllerClass = {
 	member_count: number,
 
 	client_indexes: { [Member]: number },
@@ -138,95 +138,6 @@ export type MaskingController = {
 
 	storages: Storages,
 	lookups: LookupsList,
-
-	register_mask_group: (self: MaskingController, group: Member) -> (),
-	unregister_mask_group: (self: MaskingController, group: Member) -> (),
-	register_client: (self: MaskingController, member: Member) -> (),
-	unregister_client: (self: MaskingController, member: Member) -> (),
-	activate_client: (self: MaskingController, member: Member) -> (),
-	member_is_active: (self: MaskingController, member: Member) -> boolean,
-
-	start_entity: (self: MaskingController, entity: Entity, filter: GivenFilter?) -> (),
-	set_entity: (self: MaskingController, entity: Entity, filter: GivenFilter?) -> (),
-	stop_entity: (self: MaskingController, entity: Entity) -> (),
-	cleanup_entity: (self: MaskingController, entity: Entity) -> (),
-
-	start_component: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number,
-		filter: GivenFilter?
-	) -> (),
-	set_component: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number,
-		filter: GivenFilter?
-	) -> (),
-	stop_component: (self: MaskingController, entity: Entity, component: Component, component_type: number) -> (),
-
-	allocate_propagated_entity_start: (self: MaskingController, entity: Entity) -> (),
-	allocate_shared_entity_start: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number
-	) -> (),
-	allocate_component_start: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number
-	) -> (),
-	allocate_entity_stop: (self: MaskingController, entity: Entity) -> (),
-	allocate_component_stop: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number
-	) -> (),
-
-	deallocate_component_start: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number
-	) -> (),
-	deallocate_entity_stop: (self: MaskingController, entity: Entity) -> (),
-	deallocate_component_stop: (
-		self: MaskingController,
-		entity: Entity,
-		component: Component,
-		component_type: number
-	) -> (),
-
-	allocate_component_change: (self: MaskingController, entity: Entity, component: Component, value: any) -> (),
-	allocate_pair_change: (self: MaskingController, entity: Entity, id: Component, value: any) -> (),
-	allocate_relation_value_change: (
-		self: MaskingController,
-		entity: Entity,
-		relation: Component,
-		target: Entity,
-		value: any
-	) -> (),
-
-	allocate_tag_addition: (self: MaskingController, entity: Entity, tag: Component) -> (),
-	allocate_pair_addition: (self: MaskingController, entity: Entity, id: Component) -> (),
-	allocate_relation_addition: (self: MaskingController, entity: Entity, relation: Component, target: Entity) -> (),
-
-	allocate_component_removal: (self: MaskingController, entity: Entity, component: Component) -> (),
-	allocate_tag_removal: (self: MaskingController, entity: Entity, tag: Component) -> (),
-	allocate_pair_tag_removal: (self: MaskingController, entity: Entity, id: Component) -> (),
-	allocate_pair_component_removal: (self: MaskingController, entity: Entity, id: Component) -> (),
-	allocate_relation_removal: (self: MaskingController, entity: Entity, relation: Component, target: Entity) -> (),
-	allocate_relation_value_removal: (
-		self: MaskingController,
-		entity: Entity,
-		relation: Component,
-		target: Entity
-	) -> (),
 }
 
 local COMPONENT_TYPES = {
@@ -243,9 +154,9 @@ local COMPONENT_TYPES_COUNT = COMPONENT_TYPES.unreliable
 local masking_controller = {}
 masking_controller.__index = masking_controller
 
-export type MaskingInternal = MaskingController & typeof(masking_controller)
+export type MaskingController = MaskingControllerClass & typeof(masking_controller)
 
-function masking_controller.get_clients_from_bitmask(controller: MaskingInternal, bitmask: Bitmask): Array<Member>
+function masking_controller.get_clients_from_bitmask(controller: MaskingController, bitmask: Bitmask): Array<Member>
 	local members: { Member } = {}
 	for player, index in controller.client_indexes do
 		if bitmask:get(index) then
@@ -301,7 +212,7 @@ local function create_entity_changes(): EntityChanges
 end
 
 function masking_controller.create_new_storage(
-	controller: MaskingInternal,
+	controller: MaskingController,
 	bitmask: Bitmask,
 	hash: string?,
 	members: Array<Member>?
@@ -488,7 +399,7 @@ local function remove_component_active(
 	end
 end
 
-function masking_controller.get_or_create_storage_group(masking: MaskingInternal, bitmask: Bitmask): StorageGroup
+function masking_controller.get_or_create_storage_group(masking: MaskingController, bitmask: Bitmask): StorageGroup
 	local hash = bitmask:tostring()
 	local storage = masking.storages[hash]
 
@@ -500,12 +411,16 @@ function masking_controller.get_or_create_storage_group(masking: MaskingInternal
 end
 
 function masking_controller.get_component_lookup(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
 ): (ComponentLookup, EntityLookup)
 	local entity_lookup = masking.lookups.entities[entity]
+	if not entity_lookup then
+		return nil :: any
+	end
+
 	return entity_lookup.filtered_components[component_type][component], entity_lookup
 end
 
@@ -708,7 +623,7 @@ local function merge_component_changes(current: EntityChanges, destination: Enti
 end
 
 function masking_controller.merge_component_filter(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -735,7 +650,7 @@ function masking_controller.merge_component_filter(
 end
 
 function masking_controller.move_entity_storage(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	storage: StorageGroup,
 	destination: Bitmask
@@ -811,7 +726,7 @@ function masking_controller.move_entity_storage(
 end
 
 function masking_controller.move_component_storage(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number,
@@ -872,7 +787,7 @@ function masking_controller.move_component_storage(
 end
 
 function masking_controller.bind_component_generator(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number,
@@ -902,7 +817,7 @@ function masking_controller.bind_component_generator(
 	return generator
 end
 
-function masking_controller.rebind_component_generators(masking: MaskingInternal, entity: Entity)
+function masking_controller.rebind_component_generators(masking: MaskingController, entity: Entity)
 	local entity_lookup = masking.lookups.entities[entity]
 	if entity_lookup then
 		for component_type, lookups in entity_lookup.filtered_components do
@@ -919,7 +834,7 @@ function masking_controller.rebind_component_generators(masking: MaskingInternal
 end
 
 function masking_controller.get_or_postpone_entity_lookup(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number,
@@ -940,7 +855,7 @@ function masking_controller.get_or_postpone_entity_lookup(
 end
 
 function masking_controller.update_entity_filter(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	filter: MemberFilter?
 ): MaskGenerator
@@ -966,7 +881,7 @@ function masking_controller.update_entity_filter(
 	return generator
 end
 
-function masking_controller.start_entity(masking: MaskingInternal, entity: Entity, given_filter: GivenFilter?)
+function masking_controller.start_entity(masking: MaskingController, entity: Entity, given_filter: GivenFilter?)
 	local filter = get_usable_filter(given_filter)
 	local generator = masking:update_entity_filter(entity, filter)
 
@@ -994,7 +909,7 @@ function masking_controller.start_entity(masking: MaskingInternal, entity: Entit
 	end
 end
 
-function masking_controller.set_entity(masking: MaskingInternal, entity: Entity, given_filter: GivenFilter?)
+function masking_controller.set_entity(masking: MaskingController, entity: Entity, given_filter: GivenFilter?)
 	local filter = get_usable_filter(given_filter)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
@@ -1011,7 +926,7 @@ function masking_controller.set_entity(masking: MaskingInternal, entity: Entity,
 	masking:rebind_component_generators(entity)
 end
 
-function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity)
+function masking_controller.stop_entity(masking: MaskingController, entity: Entity)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
 		common.log_error "attemped to stop an unactive entity"
@@ -1057,7 +972,7 @@ function masking_controller.stop_entity(masking: MaskingInternal, entity: Entity
 	masking.lookups.entities[entity] = nil
 end
 
-function masking_controller.cleanup_entity(masking: MaskingInternal, entity: Entity)
+function masking_controller.cleanup_entity(masking: MaskingController, entity: Entity)
 	masking.lookups.entities[entity] = nil
 	masking.lookups.postponed[entity] = nil
 	masking.lookups.deletions.entities[entity] = nil
@@ -1065,7 +980,7 @@ function masking_controller.cleanup_entity(masking: MaskingInternal, entity: Ent
 end
 
 function masking_controller.update_component_filter(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number,
@@ -1077,7 +992,7 @@ function masking_controller.update_component_filter(
 end
 
 function masking_controller.start_component(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number,
@@ -1112,7 +1027,7 @@ function masking_controller.start_component(
 end
 
 function masking_controller.set_component(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number,
@@ -1174,7 +1089,7 @@ function masking_controller.set_component(
 end
 
 function masking_controller.stop_component(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1198,7 +1113,7 @@ function masking_controller.stop_component(
 end
 
 function masking_controller.get_component_storage_group(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1214,7 +1129,7 @@ function masking_controller.get_component_storage_group(
 	end
 end
 
-function masking_controller.allocate_propagated_entity_start(masking: MaskingInternal, entity: Entity)
+function masking_controller.allocate_propagated_entity_start(masking: MaskingController, entity: Entity)
 	local entity_lookup = masking.lookups.entities[entity]
 	if entity_lookup then
 		entity_lookup.storage_group.changes.added[entity] = true
@@ -1228,7 +1143,7 @@ function masking_controller.allocate_propagated_entity_start(masking: MaskingInt
 end
 
 function masking_controller.allocate_shared_entity_start(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1239,7 +1154,7 @@ function masking_controller.allocate_shared_entity_start(
 	end
 end
 
-function masking_controller.allocate_entity_stop(masking: MaskingInternal, entity: Entity)
+function masking_controller.allocate_entity_stop(masking: MaskingController, entity: Entity)
 	local lookup = masking.lookups.entities[entity]
 	if not lookup then
 		return
@@ -1253,7 +1168,7 @@ function masking_controller.allocate_entity_stop(masking: MaskingInternal, entit
 end
 
 function masking_controller.allocate_component_start(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1264,7 +1179,7 @@ function masking_controller.allocate_component_start(
 end
 
 function masking_controller.allocate_component_stop(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1285,7 +1200,7 @@ function masking_controller.allocate_component_stop(
 end
 
 function masking_controller.deallocate_component_start(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1297,7 +1212,7 @@ function masking_controller.deallocate_component_start(
 	end
 end
 
-function masking_controller.deallocate_entity_stop(masking: MaskingInternal, entity: Entity)
+function masking_controller.deallocate_entity_stop(masking: MaskingController, entity: Entity)
 	local deletion_lookup = masking.lookups.deletions.entities[entity]
 	if not deletion_lookup then
 		return
@@ -1311,7 +1226,7 @@ function masking_controller.deallocate_entity_stop(masking: MaskingInternal, ent
 end
 
 function masking_controller.deallocate_component_stop(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	component_type: number
@@ -1332,19 +1247,44 @@ function masking_controller.deallocate_component_stop(
 end
 
 function masking_controller.allocate_component_change(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	component: Component,
 	value: any
 )
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changed(storage, entity)
+
 	changes.component[component] = value
 	changes.removed.component[component] = nil
 end
 
+function masking_controller.allocate_tag_addition(masking: MaskingController, entity: Entity, tag: Component)
+	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.tagged[tag] = true
+	changes.removed.tag[tag] = nil
+end
+
+function masking_controller.allocate_pair_change(masking: MaskingController, entity: Entity, id: Component, value: any)
+	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_component)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.pair_removed.component[id] = nil
+	changes.pair_changed[id] = value
+end
+
+function masking_controller.allocate_pair_addition(masking: MaskingController, entity: Entity, id: Component)
+	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_tag)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.pair_removed.tag[id] = nil
+	changes.pair_added[id] = true
+end
+
 function masking_controller.allocate_relation_value_change(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	relation: Component,
 	target: Entity,
@@ -1365,15 +1305,8 @@ function masking_controller.allocate_relation_value_change(
 	end
 end
 
-function masking_controller.allocate_tag_addition(masking: MaskingInternal, entity: Entity, tag: Component)
-	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
-	local changes = get_or_set_changed(storage, entity)
-	changes.tagged[tag] = true
-	changes.removed.tag[tag] = nil
-end
-
 function masking_controller.allocate_relation_addition(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	relation: Component,
 	target: Entity
@@ -1393,7 +1326,7 @@ function masking_controller.allocate_relation_addition(
 	end
 end
 
-function masking_controller.allocate_component_removal(masking: MaskingInternal, entity: Entity, component: Component)
+function masking_controller.allocate_component_removal(masking: MaskingController, entity: Entity, component: Component)
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changed(storage, entity)
 
@@ -1401,7 +1334,7 @@ function masking_controller.allocate_component_removal(masking: MaskingInternal,
 	changes.removed.component[component] = true
 end
 
-function masking_controller.allocate_tag_removal(masking: MaskingInternal, entity: Entity, tag: Component)
+function masking_controller.allocate_tag_removal(masking: MaskingController, entity: Entity, tag: Component)
 	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
 	local changes = get_or_set_changed(storage, entity)
 
@@ -1409,8 +1342,24 @@ function masking_controller.allocate_tag_removal(masking: MaskingInternal, entit
 	changes.removed.tag[tag] = true
 end
 
+function masking_controller.allocate_pair_tag_removal(masking: MaskingController, entity: Entity, id: Component)
+	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_tag)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.pair_added[id] = nil
+	changes.pair_removed.tag[id] = true
+end
+
+function masking_controller.allocate_pair_component_removal(masking: MaskingController, entity: Entity, id: Component)
+	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_component)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.pair_changed[id] = nil
+	changes.pair_removed.component[id] = true
+end
+
 function masking_controller.allocate_relation_value_removal(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	relation: Component,
 	target: Entity
@@ -1431,7 +1380,7 @@ function masking_controller.allocate_relation_value_removal(
 end
 
 function masking_controller.allocate_relation_removal(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	entity: Entity,
 	relation: Component,
 	target: Entity
@@ -1472,7 +1421,7 @@ local function remap_bitmask(
 	return result
 end
 
-local function bitmask_from_set(masking: MaskingInternal, member_set: { [Member]: boolean }): utils.Bitmask
+local function bitmask_from_set(masking: MaskingController, member_set: { [Member]: boolean }): utils.Bitmask
 	local new_bitmask = utils.bitmask.create(masking.member_count)
 	for member: Member in member_set do
 		local index = masking.client_indexes[member]
@@ -1495,7 +1444,7 @@ local function bitmask_from_set(masking: MaskingInternal, member_set: { [Member]
 end
 
 function masking_controller.merge_storages(
-	masking: MaskingInternal,
+	masking: MaskingController,
 	old_storage: StorageGroup,
 	new_storage: StorageGroup
 )
@@ -1547,7 +1496,7 @@ function masking_controller.merge_storages(
 	end
 end
 
-function masking_controller.compact_members(masking: MaskingInternal)
+function masking_controller.compact_members(masking: MaskingController)
 	-- we dont recompute as nothing should've changed
 	-- so this should be hopefully quite cheap
 	local old_indexes = masking.client_indexes
@@ -1619,7 +1568,10 @@ function masking_controller.compact_members(masking: MaskingInternal)
 	masking.storages = new_storages
 end
 
-function masking_controller.create_generator_from_filter(masking: MaskingInternal, filter: MemberFilter): MaskGenerator
+function masking_controller.create_generator_from_filter(
+	masking: MaskingController,
+	filter: MemberFilter
+): MaskGenerator
 	local is_include = is_include_filter(filter)
 	if is_include then
 		return masking:create_include_generator(filter) :: MaskGenerator
@@ -1628,7 +1580,7 @@ function masking_controller.create_generator_from_filter(masking: MaskingInterna
 	end
 end
 
-function masking_controller.create_exclude_generator(masking: MaskingInternal, exclude: MemberFilter)
+function masking_controller.create_exclude_generator(masking: MaskingController, exclude: MemberFilter)
 	local bitmask = bitmask_from_set(masking, exclude)
 	local active_members = masking.active_members_generator
 
@@ -1642,7 +1594,7 @@ function masking_controller.create_exclude_generator(masking: MaskingInternal, e
 end
 
 -- TODO: check for players existing and register them if they don't
-function masking_controller.create_include_generator(masking: MaskingInternal, include: MemberFilter): MaskGenerator
+function masking_controller.create_include_generator(masking: MaskingController, include: MemberFilter): MaskGenerator
 	local bitmask = bitmask_from_set(masking, include)
 	local active_members = masking.active_members_generator
 
@@ -1655,7 +1607,7 @@ function masking_controller.create_include_generator(masking: MaskingInternal, i
 	return new_generator
 end
 
-function masking_controller.create_all_members_generator(masking: MaskingInternal)
+function masking_controller.create_all_members_generator(masking: MaskingController)
 	local filter: MemberFilter = {}
 	for member in masking.client_indexes do
 		filter[member] = true
@@ -1680,11 +1632,11 @@ function masking_controller.create_active_generator(masking: MaskingController):
 	return new_generator
 end
 
---function masking_controller.register_mask_group(masking: MaskingInternal, group: Member) end
+--function masking_controller.register_mask_group(masking: MaskingController, group: Member) end
 
---function masking_controller.unregister_mask_group(masking: MaskingInternal, group: Member) end
+--function masking_controller.unregister_mask_group(masking: MaskingController, group: Member) end
 
-function masking_controller.register_client(masking: MaskingInternal, member: Member)
+function masking_controller.register_client(masking: MaskingController, member: Member)
 	if masking.client_indexes[member] then
 		return
 	end
@@ -1703,7 +1655,7 @@ function masking_controller.register_client(masking: MaskingInternal, member: Me
 	end
 end
 
-function masking_controller.unregister_client(masking: MaskingInternal, member: Member)
+function masking_controller.unregister_client(masking: MaskingController, member: Member)
 	local index = masking.client_indexes[member]
 	if index == nil then
 		return
@@ -1713,7 +1665,7 @@ function masking_controller.unregister_client(masking: MaskingInternal, member: 
 	masking.active_members_generator:compute()
 end
 
-function masking_controller.activate_client(masking: MaskingInternal, member: Member)
+function masking_controller.activate_client(masking: MaskingController, member: Member)
 	local index = masking.client_indexes[member]
 
 	masking.unreplicated[member] = nil
@@ -1721,7 +1673,7 @@ function masking_controller.activate_client(masking: MaskingInternal, member: Me
 	masking.active_members_generator:compute()
 end
 
-function masking_controller.member_is_active(masking: MaskingInternal, member: Member): boolean
+function masking_controller.member_is_active(masking: MaskingController, member: Member): boolean
 	local index = masking.client_indexes[member]
 	if index == nil then
 		return false
@@ -1731,7 +1683,7 @@ function masking_controller.member_is_active(masking: MaskingInternal, member: M
 end
 
 local function create(): MaskingController
-	local self = {} :: MaskingInternal
+	local self = {} :: MaskingController
 
 	self.client_indexes = {}
 	self.group_indexes = {}

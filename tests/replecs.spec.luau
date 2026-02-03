@@ -137,7 +137,7 @@ TEST("bitmasking", function()
 	end
 end)
 
-local function register_members(masking: player_masking.MaskingInternal)
+local function register_members(masking: player_masking.MaskingController)
 	local member0 = "member0"
 	local member1 = "member1"
 	local member2 = "member2"
@@ -158,17 +158,17 @@ local function mask_hash(members: { number })
 	return bitmask:tostring()
 end
 
-local function active_all_members(masking: player_masking.MaskingInternal)
+local function active_all_members(masking: player_masking.MaskingController)
 	for member in masking.client_indexes do
 		masking:activate_client(member)
 	end
 end
 
 TEST("mask generators", function()
-	local masking: player_masking.MaskingInternal = nil :: any
+	local masking: player_masking.MaskingController = nil :: any
 
 	local function PRE()
-		masking = player_masking.create() :: player_masking.MaskingInternal
+		masking = player_masking.create()
 	end
 
 	do
@@ -244,11 +244,11 @@ TEST("mask generators", function()
 end)
 
 TEST("member bitmasking", function()
-	local masking: player_masking.MaskingInternal = nil :: any
+	local masking: player_masking.MaskingController = nil :: any
 	local world: jecs.World = nil :: any
 
 	local function PRE()
-		masking = player_masking.create() :: player_masking.MaskingInternal
+		masking = player_masking.create() :: player_masking.MaskingController
 		world = jecs.world()
 	end
 
@@ -346,7 +346,7 @@ TEST("member bitmasking", function()
 	end
 
 	local function check_component_is_merged(entity: jecs.Entity, component: jecs.Entity, hash: string)
-		local entity_lookup = masking.lookups.entities[entity]
+		local entity_lookup = masking.lookups.entities[entity :: any]
 		if not entity_lookup then
 			error "entity lookup not found"
 		end
@@ -1073,16 +1073,16 @@ TEST("storage moving", function()
 		CASE "it should move tag removals"
 	end
 	do
-		CASE "it should move pair changes"
+		CASE "it should move relation changes"
 	end
 	do
-		CASE "it should move pair removals"
+		CASE "it should move relation removals"
 	end
 	do
-		CASE "it should move pair value changes"
+		CASE "it should move relation value changes"
 	end
 	do
-		CASE "it should move pair value removals"
+		CASE "it should move relation value removals"
 	end
 end)
 
@@ -1105,8 +1105,12 @@ local function create_test_components(test_world: jecs.World)
 	return components
 end
 
+local function filter(members: { [any]: boolean }): { [Player]: boolean }
+	return members :: any
+end
+
 local function create_test_tags(test_world: jecs.World)
-	local tags = {} :: { jecs.Entity<number> }
+	local tags = {} :: { jecs.Entity }
 	for i = 1, 6 do
 		local tag = test_world:entity()
 		test_world:add(tag, replecs.shared)
@@ -1257,7 +1261,7 @@ TEST("custom ids", function()
 
 		local s_entity = s_world:entity()
 		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
-		server:set_pair(s_entity, s_tags[1])
+		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
 
 		local buf, variants = server:get_full(plr)
@@ -1308,7 +1312,7 @@ TEST("custom ids", function()
 		local s_entity = s_world:entity()
 		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
 		server:set_custom(s_entity, custom)
-		server:set_pair(s_entity, s_tags[1])
+		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
 
 		local buf, variants = server:get_full(plr)
@@ -1339,7 +1343,7 @@ TEST("custom ids", function()
 		local s_target = s_world:entity()
 		server:set_networked(s_target)
 
-		local custom = replecs.create_custom_id("custom", function(ctx)
+		local custom = replecs.create_custom_id("custom", function(ctx: replecs.HandleContext)
 			if ctx.target(c_tags[1]) == client:get_client_entity(s_target :: any) then
 				return c_world:entity()
 			else
@@ -1353,7 +1357,7 @@ TEST("custom ids", function()
 		local s_entity = s_world:entity()
 		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
 		server:set_custom(s_entity, custom)
-		server:set_pair(s_entity, s_tags[1])
+		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
 
 		local buf, variants = server:get_full(plr)
@@ -1384,7 +1388,7 @@ TEST("custom ids", function()
 			return target_entity
 		end)
 
-		local custom = replecs.create_custom_id("custom", function(ctx)
+		local custom = replecs.create_custom_id("custom", function(ctx: replecs.HandleContext)
 			table.insert(callstack, 1)
 			if ctx.target(c_tags[1]) == target_entity then
 				table.insert(callstack, 3)
@@ -1406,7 +1410,7 @@ TEST("custom ids", function()
 		local s_entity = s_world:entity()
 		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
 		server:set_custom(s_entity, custom)
-		server:set_pair(s_entity, s_tags[1])
+		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
 
 		local buf, variants = server:get_full(plr)
@@ -1461,20 +1465,69 @@ TEST("server -> client replication", function()
 		end
 		return false
 	end
-	local function client_pair(
+
+	local function client_relation_value(
+		member: MemberData,
+		server_entity: jecs.Entity,
+		relation_index: number,
+		target_server: jecs.Entity
+	): any?
+		local relation = member.components[relation_index]
+		local target = client_entity(member, target_server)
+
+		local entity = client_entity(member, server_entity)
+		if entity and target then
+			return member.world:get(entity, jecs.pair(relation, target))
+		end
+		return nil
+	end
+
+	local function client_pair_value(
+		member: MemberData,
+		server_entity: jecs.Entity,
+		relation_index: number,
+		target_index: number
+	): any?
+		local relation = member.components[relation_index]
+		local target = member.tags[target_index]
+
+		local entity = client_entity(member, server_entity)
+		if entity and target then
+			return member.world:get(entity, jecs.pair(relation, target))
+		end
+		return nil
+	end
+
+	local function client_relation(
 		member: MemberData,
 		server_entity: jecs.Entity,
 		relation_index: number,
 		target_server: jecs.Entity
 	): boolean?
-		local target = client_entity(member, target_server)
 		local relation = member.tags[relation_index]
+		local target = client_entity(member, target_server)
 
 		local entity = client_entity(member, server_entity)
 		if entity and target then
 			return member.world:has(entity, jecs.pair(relation, target))
 		end
 		return false
+	end
+
+	local function client_pair(
+		member: MemberData,
+		server_entity: jecs.Entity,
+		relation_index: number,
+		target_index: number
+	): boolean?
+		local relation = member.tags[relation_index]
+		local target = member.tags[target_index]
+
+		local entity = client_entity(member, server_entity)
+		if entity and target then
+			return member.world:has(entity, jecs.pair(relation, target))
+		end
+		return nil
 	end
 
 	local function client_global_pair(
@@ -1548,19 +1601,19 @@ TEST("server -> client replication", function()
 		local entity1 = world:entity()
 		local entity2 = world:entity()
 
-		world:add(entity1, server.components.networked)
+		server:set_networked(entity1)
 
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], "foo")
 
-		world:add(entity2, server.components.networked)
-
-		world:add(entity2, jecs.pair(server.components.reliable, components[2]))
+		server:set_networked(entity2)
+		server:set_reliable(entity2, components[2])
 		world:set(entity2, components[2], "bar")
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
-			member.client:apply_full(buf, variants)
+			local client = member.client
+			client:apply_full(buf, variants)
 
 			CHECK(client_entity(member, entity1) ~= nil)
 			CHECK(client_component(member, entity1, 1) == "foo")
@@ -1588,12 +1641,12 @@ TEST("server -> client replication", function()
 		local entity1 = world:entity()
 		local entity2 = world:entity()
 
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, tags[1])
 		world:add(entity1, tags[1])
 
-		world:add(entity2, server.components.networked)
-		world:add(entity2, jecs.pair(server.components.reliable, tags[2]))
+		server:set_networked(entity2)
+		server:set_reliable(entity2, tags[2])
 		world:add(entity2, tags[2])
 
 		for _, member in members do
@@ -1614,7 +1667,52 @@ TEST("server -> client replication", function()
 	end
 
 	do
-		CASE "should send full pairs to all players"
+		CASE "should send full pairs with shared targets to all players"
+		PRE()
+
+		create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
+
+		local members = create_members_data()
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		local entity2 = world:entity()
+
+		server:set_networked(entity1)
+		server:set_networked(entity2)
+
+		server:set_pair(entity1, jecs.pair(tags[1], tags[2]))
+		world:add(entity1, jecs.pair(tags[1], tags[2]))
+		world:add(entity1, jecs.pair(tags[1], tags[3]))
+
+		server:set_pair(entity2, jecs.pair(tags[2], tags[3]))
+		world:add(entity2, jecs.pair(tags[1], tags[2]))
+		world:add(entity1, jecs.pair(tags[2], tags[1]))
+		world:add(entity2, jecs.pair(tags[2], tags[3]))
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+
+			CHECK(client_entity(member, entity1) ~= nil)
+			CHECK(client_entity(member, entity2) ~= nil)
+
+			CHECK(client_pair(member, entity1, 1, 2) == true)
+			CHECK(client_pair(member, entity1, 1, 3) == false)
+
+			CHECK(client_pair(member, entity2, 1, 2) == false)
+			CHECK(client_pair(member, entity2, 2, 1) == false)
+			CHECK(client_pair(member, entity2, 2, 3) == true)
+		end
+
+		POST()
+	end
+
+	do
+		CASE "should send full pairs with networked targets to all players"
 		PRE()
 
 		create_test_components(world)
@@ -1629,20 +1727,119 @@ TEST("server -> client replication", function()
 		local entity2 = world:entity()
 
 		local target1 = world:entity()
-		world:add(target1, server.components.networked)
 		local target2 = world:entity()
-		world:add(target2, server.components.networked)
+
+		server:set_networked(entity1)
+		server:set_networked(entity2)
+		server:set_networked(target1)
+		server:set_networked(target2)
+
+		world:add(entity1, jecs.pair(tags[1], target1))
+		world:add(entity1, jecs.pair(tags[1], target2))
+		server:set_pair(entity1, jecs.pair(tags[1], target1))
+
+		world:add(entity2, jecs.pair(tags[1], target1))
+		world:add(entity2, jecs.pair(tags[2], target1))
+		world:add(entity2, jecs.pair(tags[2], target2))
+		server:set_pair(entity2, jecs.pair(tags[2], target2))
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+
+			CHECK(client_entity(member, entity1) ~= nil)
+			CHECK(client_entity(member, entity2) ~= nil)
+
+			CHECK(client_relation(member, entity1, 1, target1) == true)
+			CHECK(client_relation(member, entity1, 1, target2) == false)
+
+			CHECK(client_relation(member, entity2, 1, target1) == false)
+			CHECK(client_relation(member, entity2, 2, target1) == false)
+			CHECK(client_relation(member, entity2, 2, target2) == true)
+		end
+
+		POST()
+	end
+
+	do
+		CASE "should send full pairs with values to all players"
+		PRE()
+
+		local components = create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
+
+		local members = create_members_data()
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		local entity2 = world:entity()
+
+		server:set_networked(entity1)
+		server:set_networked(entity2)
+
+		world:set(entity1, jecs.pair(components[1], tags[1]), "yes")
+		world:set(entity1, jecs.pair(components[1], tags[2]), "no")
+		server:set_pair(entity1, jecs.pair(components[1], tags[1]))
+
+		world:set(entity2, jecs.pair(components[1], tags[1]), "no")
+		world:set(entity2, jecs.pair(components[2], tags[1]), "no")
+		world:set(entity2, jecs.pair(components[2], tags[3]), "yes")
+		server:set_pair(entity2, jecs.pair(components[2], tags[3]))
+
+		print("NETWORKED IDS", entity1, entity2)
+		print("STORAGE", server.storage)
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			print "GOT FULL"
+			member.client:apply_full(buf, variants)
+
+			print(client_entity(member, entity1) ~= nil)
+			print(client_entity(member, entity2) ~= nil)
+
+			print(client_pair_value(member, entity1, 1, 1) == "yes")
+			print(client_pair_value(member, entity1, 1, 2) == nil)
+
+			print(client_pair_value(member, entity2, 1, 1) == nil)
+			print(client_pair_value(member, entity2, 2, 1) == nil)
+			print(client_pair_value(member, entity2, 2, 3) == "yes")
+		end
+
+		POST()
+	end
+
+	do
+		CASE "should send full relations to all players"
+		PRE()
+
+		create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
+
+		local members = create_members_data()
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		local entity2 = world:entity()
+
+		local target1 = world:entity()
+		server:set_networked(target1)
+		local target2 = world:entity()
+		server:set_networked(target2)
 		local target3 = world:entity()
-		world:add(target3, server.components.networked)
+		server:set_networked(target3)
 		local target4 = world:entity()
-		world:add(target4, server.components.networked)
+		server:set_networked(target4)
 
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.pair, tags[1]))
-		world:add(entity1, jecs.pair(server.components.pair, jecs.ChildOf))
+		server:set_networked(entity1)
+		server:set_relation(entity1, tags[1])
+		server:set_relation(entity1, jecs.ChildOf)
 
-		world:add(entity2, server.components.networked)
-		world:add(entity2, jecs.pair(server.components.pair, tags[2]))
+		server:set_networked(entity2)
+		server:set_relation(entity2, tags[2])
 
 		world:add(entity1, jecs.pair(tags[1], target1))
 		world:add(entity1, jecs.pair(tags[1], target2))
@@ -1659,18 +1856,18 @@ TEST("server -> client replication", function()
 			CHECK(client_entity(member, entity1) ~= nil)
 			CHECK(client_entity(member, entity2) ~= nil)
 
-			CHECK(client_pair(member, entity1, 1, target1) == true)
+			CHECK(client_relation(member, entity1, 1, target1) == true)
 			CHECK(client_global_pair(member, entity1, jecs.ChildOf, target3) == true)
-			CHECK(client_pair(member, entity1, 1, target2) == true)
-			CHECK(client_pair(member, entity1, 1, target3) == true)
-			CHECK(client_pair(member, entity2, 2, target3) == true)
-			CHECK(client_pair(member, entity2, 2, target4) == true)
+			CHECK(client_relation(member, entity1, 1, target2) == true)
+			CHECK(client_relation(member, entity1, 1, target3) == true)
+			CHECK(client_relation(member, entity2, 2, target3) == true)
+			CHECK(client_relation(member, entity2, 2, target4) == true)
 
-			CHECK(client_pair(member, entity1, 2, target3) == false)
-			CHECK(client_pair(member, entity1, 2, target4) == false)
-			CHECK(client_pair(member, entity1, 2, target1) == false)
-			CHECK(client_pair(member, entity2, 1, target2) == false)
-			CHECK(client_pair(member, entity2, 1, target3) == false)
+			CHECK(client_relation(member, entity1, 2, target3) == false)
+			CHECK(client_relation(member, entity1, 2, target4) == false)
+			CHECK(client_relation(member, entity1, 2, target1) == false)
+			CHECK(client_relation(member, entity2, 1, target2) == false)
+			CHECK(client_relation(member, entity2, 1, target3) == false)
 		end
 
 		POST()
@@ -1691,18 +1888,26 @@ TEST("server -> client replication", function()
 		local entity1 = world:entity()
 		local entity2 = world:entity()
 
-		world:set(entity1, server.components.networked, {
-			[members[1]] = true,
-			[members[2]] = true,
-		})
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_networked(
+			entity1,
+			filter {
+				[members[1]] = true,
+				[members[2]] = true,
+			}
+		)
+
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], "foo")
 
-		world:set(entity2, server.components.networked, {
-			[members[3]] = true,
-			[members[4]] = true,
-		})
-		world:add(entity2, jecs.pair(server.components.reliable, components[2]))
+		server:set_networked(
+			entity2,
+			filter {
+				[members[3]] = true,
+				[members[4]] = true,
+			}
+		)
+
+		server:set_reliable(entity2, components[2])
 		world:set(entity2, components[2], "bar")
 
 		for _, member in members do
@@ -1742,19 +1947,27 @@ TEST("server -> client replication", function()
 		local entity1 = world:entity()
 		local entity2 = world:entity()
 
-		world:add(entity1, server.components.networked)
-		world:set(entity1, jecs.pair(server.components.reliable, components[1]), {
-			[members[1]] = true,
-			[members[2]] = true,
-			[members[3]] = true,
-		})
+		server:set_networked(entity1)
+		server:set_reliable(
+			entity1,
+			components[1],
+			filter {
+				[members[1]] = true,
+				[members[2]] = true,
+				[members[3]] = true,
+			}
+		)
 		world:set(entity1, components[1], "foo")
 
-		world:add(entity2, server.components.networked)
-		world:set(entity2, jecs.pair(server.components.reliable, components[2]), {
-			[members[3]] = true,
-			[members[4]] = true,
-		})
+		server:set_networked(entity2)
+		server:set_reliable(
+			entity2,
+			components[2],
+			filter {
+				[members[3]] = true,
+				[members[4]] = true,
+			}
+		)
 		world:set(entity2, components[2], "bar")
 
 		for _, member in members do
@@ -1806,7 +2019,7 @@ TEST("server -> client replication", function()
 		CASE "should allow custom serdes for component values"
 		PRE()
 
-		local serdes = {
+		local serdes: replecs.Serdes = {
 			serialize = function(value: vector)
 				local buf = buffer.create(3)
 				buffer.writeu8(buf, 0, value.x)
@@ -1898,9 +2111,9 @@ TEST("server -> client replication", function()
 
 		local entity1 = world:entity()
 		world:add(entity1, server.components.networked)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[1]))
-		world:set(entity1, jecs.pair(server.components.reliable, tags[2]))
-		world:set(entity1, jecs.pair(server.components.reliable, tags[3]))
+		world:set(entity1, jecs.pair(server.components.reliable, tags[1]), nil)
+		world:set(entity1, jecs.pair(server.components.reliable, tags[2]), nil)
+		world:set(entity1, jecs.pair(server.components.reliable, tags[3]), nil)
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1944,7 +2157,7 @@ TEST("server -> client replication", function()
 		POST()
 	end
 	do
-		CASE "should send pair changes"
+		CASE "should send relation changes"
 		PRE()
 		create_test_components(world)
 		local tags = create_test_tags(world)
@@ -1970,14 +2183,14 @@ TEST("server -> client replication", function()
 		for _ = 1, 10 do
 			local target = world:entity()
 			world:add(target, server.components.networked)
-			world:add(target, jecs.pair(replecs.pair, jecs.ChildOf))
+			world:add(target, jecs.pair(replecs.relation, jecs.ChildOf))
 			world:add(target, jecs.pair(jecs.ChildOf, entity))
 		end
 
 		POST()
 	end
 	do
-		CASE "should send pair changes to all players"
+		CASE "should send relation changes to all players"
 		PRE()
 
 		create_test_components(world)
@@ -1991,8 +2204,8 @@ TEST("server -> client replication", function()
 		local entity1 = world:entity()
 
 		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.pair, tags[1]))
-		world:add(entity1, jecs.pair(server.components.pair, jecs.ChildOf))
+		world:add(entity1, jecs.pair(server.components.relation, tags[1]))
+		world:add(entity1, jecs.pair(server.components.relation, jecs.ChildOf))
 
 		local r1 = world:entity()
 		local r2 = world:entity()
@@ -2010,9 +2223,9 @@ TEST("server -> client replication", function()
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
-			CHECK(client_pair(member, entity1, 1, r1) == true)
-			CHECK(client_pair(member, entity1, 1, r2) == false)
-			CHECK(client_pair(member, entity1, 1, r2) == false)
+			CHECK(client_relation(member, entity1, 1, r1) == true)
+			CHECK(client_relation(member, entity1, 1, r2) == false)
+			CHECK(client_relation(member, entity1, 1, r2) == false)
 		end
 		world:add(entity1, jecs.pair(tags[1], r2))
 		world:add(entity1, jecs.pair(jecs.ChildOf, r2))
@@ -2020,9 +2233,9 @@ TEST("server -> client replication", function()
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
-			CHECK(client_pair(member, entity1, 1, r1) == true)
-			CHECK(client_pair(member, entity1, 1, r2) == true)
-			CHECK(client_pair(member, entity1, 1, r3) == false)
+			CHECK(client_relation(member, entity1, 1, r1) == true)
+			CHECK(client_relation(member, entity1, 1, r2) == true)
+			CHECK(client_relation(member, entity1, 1, r3) == false)
 			CHECK(client_global_pair(member, entity1, jecs.ChildOf, r2) == true)
 		end
 		world:remove(entity1, jecs.pair(tags[1], r1))
@@ -2031,9 +2244,9 @@ TEST("server -> client replication", function()
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
-			CHECK(client_pair(member, entity1, 1, r1) == false)
-			CHECK(client_pair(member, entity1, 1, r2) == true)
-			CHECK(client_pair(member, entity1, 1, r3) == true)
+			CHECK(client_relation(member, entity1, 1, r1) == false)
+			CHECK(client_relation(member, entity1, 1, r2) == true)
+			CHECK(client_relation(member, entity1, 1, r3) == true)
 		end
 
 		POST()
@@ -2094,7 +2307,7 @@ TEST("server -> client replication", function()
 		world:add(entity1, server.components.networked)
 		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
 		world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
-		world:add(entity1, jecs.pair(server.components.pair, tags[2]))
+		world:add(entity1, jecs.pair(server.components.relation, tags[2]))
 
 		local r1 = world:entity()
 		local r2 = world:entity()
@@ -2122,8 +2335,8 @@ TEST("server -> client replication", function()
 			CHECK(client_entity(member, entity1) ~= nil)
 			CHECK(client_has_component(member, entity1, 1) == false)
 			CHECK(client_tag(member, entity1, 1) == true)
-			CHECK(client_pair(member, entity1, 2, r1) == true)
-			CHECK(client_pair(member, entity1, 2, r2) == true)
+			CHECK(client_relation(member, entity1, 2, r1) == true)
+			CHECK(client_relation(member, entity1, 2, r2) == true)
 		end
 
 		world:remove(entity1, jecs.pair(server.components.reliable, tags[1]))
@@ -2133,19 +2346,19 @@ TEST("server -> client replication", function()
 			CHECK(client_entity(member, entity1) ~= nil)
 			CHECK(client_has_component(member, entity1, 1) == false)
 			CHECK(client_tag(member, entity1, 1) == false)
-			CHECK(client_pair(member, entity1, 2, r1) == true)
-			CHECK(client_pair(member, entity1, 2, r2) == true)
+			CHECK(client_relation(member, entity1, 2, r1) == true)
+			CHECK(client_relation(member, entity1, 2, r2) == true)
 		end
 
-		world:remove(entity1, jecs.pair(server.components.pair, tags[2]))
+		world:remove(entity1, jecs.pair(server.components.relation, tags[2]))
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
 			CHECK(client_entity(member, entity1) ~= nil)
 			CHECK(client_has_component(member, entity1, 1) == false)
 			CHECK(client_tag(member, entity1, 1) == false)
-			CHECK(client_pair(member, entity1, 2, r1) == false)
-			CHECK(client_pair(member, entity1, 2, r2) == false)
+			CHECK(client_relation(member, entity1, 2, r1) == false)
+			CHECK(client_relation(member, entity1, 2, r2) == false)
 		end
 	end
 end)

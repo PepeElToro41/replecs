@@ -29,7 +29,6 @@ type CustomIdSerialization = {
 }
 
 type EntityTrackInfo = {
-
 	components: Map<Component, number>,
 	pairs: Map<Component, number>,
 }
@@ -57,6 +56,7 @@ export type ServerImp = {
 	set_networked: (server: Server, entity: Entity, filter: AnyFilter?) -> (),
 	set_reliable: (server: Server, entity: Entity, component: Component, filter: AnyFilter?) -> (),
 	set_unreliable: (server: Server, entity: Entity, component: Component, filter: AnyFilter?) -> (),
+	set_pair: (server: Server, entity: Entity, id: Component, filter: AnyFilter?) -> (),
 	set_relation: (server: Server, entity: Entity, relation: Component, filter: AnyFilter?) -> (),
 
 	stop_networked: (server: Server, entity: Entity, keep: boolean?) -> (),
@@ -66,6 +66,9 @@ export type ServerImp = {
 
 	set_custom: (server: Server, entity: Entity, component: Component | CustomId) -> (),
 	remove_custom: (server: Server, entity: Entity) -> (),
+
+	set_serdes: <T>(server: Server, id: Component<T>, serdes: types.Serdes<T>) -> (),
+	remove_serdes: (server: Server, id: Component) -> (),
 }
 
 export type Server = ServerImp & {
@@ -92,12 +95,14 @@ export type Server = ServerImp & {
 	function_filters: masking_controller.EntityComponentIndex<FunctionFilter>,
 
 	registered_custom_ids: Map<CustomId, boolean>,
+	component_serdes: Map<Component, types.Serdes>,
 
 	init: (self: Server, world: World?) -> (),
 	destroy: (self: Server) -> (),
 
 	encode_component: (self: Server, component: Component) -> number,
-	decode_component: (self: Server, component: number) -> Component,
+	decode_component: (self: Server, component: number) -> Component?,
+	get_shared_count: (self: Server) -> number,
 	register_custom_id: (self: Server, custom_id: CustomId) -> (),
 
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
@@ -195,6 +200,15 @@ local function QUERY_CURRENT_NETWORKED(server: Server)
 		QUERY_TRACKING_TYPE(server, server.components.reliable)
 		QUERY_TRACKING_TYPE(server, server.components.unreliable)
 		QUERY_TRACKING_TYPE(server, server.components.relation)
+	end
+end
+
+local function QUERY_CURRENT_COMPONENTS(server: Server)
+	for component, serdes in server.world:query(server.components.serdes):iter() do
+		server.component_serdes[component] = serdes
+	end
+	for entity, id in server.world:query(server.components.global):iter() do
+		server.global_ids[entity] = id
 	end
 end
 
@@ -739,45 +753,33 @@ local function untrack_entity_relation(server: Server, entity: Entity, relation:
 	return listen_type
 end
 
-function server_replicator.encode_component(server: Server, component: Entity): number
-	local encoded = server.shared.components.members[component]
-	if not encoded then
-		common.log_error(`attempted to encode a non-shared component `, common.log_component(server.world, component))
-		return 0
+local function write_vlq_bitmask(c: Cursor, value: number, mask: number, bit: number): number
+	if value > 0 then
+		cursor.write_vlq(c, value)
+		return utils.setbit(mask, bit)
+	else
+		return mask
 	end
-	return encoded
-end
-
-function server_replicator.decode_component(server: Server, encoded: number): Entity
-	local component = server.shared.components.indexes[encoded]
-	if not component then
-		print("NON SHARED COMPONENTS", encoded, server.shared.components)
-		error "attemped to decode a non shared component"
-	end
-	return component
 end
 
 function server_replicator.write_component_id(server: Server, c: Cursor, component: Entity)
 	local shared_componens = server.shared.components
 	local encoded = shared_componens.members[component]
 	if not encoded then
-		common.log_error(
-			`attempted to replicate a non-shared component `,
-			common.log_component(server.world, component)
-		)
+		common.log_error(`attempted to replicate a non-shared component `, common.log_component(server.world, component))
 		return
 	end
 	cursor.write_span(c, encoded, #shared_componens.keys)
 end
 
-function server_replicator.write_component_value(
+function server_replicator.write_variant_value(
 	server: Server,
 	c: Cursor,
-	component: Entity,
+	log_component: Component,
+	serdes: types.Serdes?,
 	value: any,
-	variants: { any }
+	variants: any
 )
-	local serdes = server.shared.serdes[component]
 	if serdes then
 		local output, serdes_variants = serdes.serialize(if value == NIL_COMPONENT_VALUE then nil else value)
 
@@ -795,8 +797,8 @@ function server_replicator.write_component_value(
 			end
 		elseif serdes_variants ~= nil then
 			common.log_error(
-				"serdes: serializer provided variants yet includes_variants is not set to true for component",
-				common.log_component(server.world, component)
+				"serdes: serializer provided variants yet includes_variants is not set to true for component: ",
+				common.log_component(server.world, log_component)
 			)
 		end
 
@@ -805,8 +807,8 @@ function server_replicator.write_component_value(
 		if bytespan then
 			if bytespan ~= buffer.len(output) then
 				common.log_error(
-					`bytespan: {bytespan} mismatch for buffer lenght: {buffer.len(output)} in component`,
-					common.log_component(server.world, component)
+					`bytespan: {bytespan} mismatch for buffer lenght: {buffer.len(output)} in component: `,
+					common.log_component(server.world, log_component)
 				)
 			end
 		else
@@ -824,9 +826,27 @@ function server_replicator.write_component_value(
 	end
 end
 
-function server_replicator.write_component(server: Server, c: Cursor, component: Entity, value: any, variants: { any })
-	server_replicator.write_component_value(server, c, component, value, variants)
-	server_replicator.write_component_id(server, c, component)
+function server_replicator.write_component_value(
+	server: Server,
+	c: Cursor,
+	component: Component,
+	value: any,
+	variants: { any }
+)
+	local serdes = server.shared.serdes[component]
+	server_replicator.write_variant_value(server, c, component, serdes, value, variants)
+end
+
+function server_replicator.write_pair_value(
+	server: Server,
+	c: Cursor,
+	relation: Component,
+	id: Entity,
+	value: any,
+	variants: { any }
+)
+	local serdes = server.shared.serdes[id] or server.shared.serdes[PAIR(relation, WILDCARD)]
+	server_replicator.write_variant_value(server, c, relation, serdes, value, variants)
 end
 
 function server_replicator.write_entity_id(server: Server, c: Cursor, entity: Entity)
@@ -888,6 +908,35 @@ function server_replicator.write_entity_relations_values(
 	server_replicator.write_component_id(server, c, relation)
 end
 
+function server_replicator.write_entity_pair_value(
+	server: Server,
+	world: World,
+	c: Cursor,
+	id: Component,
+	value: any,
+	variants: { any }
+)
+	local first, second = PAIR_FIRST(world, id), PAIR_SECOND(world, id)
+	local pointer_start = c.offset
+
+	server_replicator.write_pair_value(server, c, first, id, value, variants)
+
+	-- if the entity is a custom id, we dont know if this has a serdes in the client, as it needs to be processed first
+	-- we write a vlq so the client can jump in the cursor to skip this value entirely and process it later
+	local pointer_offset = c.offset - pointer_start
+	cursor.write_vlq(c, pointer_offset)
+
+	server_replicator.write_entity_id(server, c, second)
+	server_replicator.write_component_id(server, c, first)
+end
+
+function server_replicator.write_entity_pair(server: Server, world: World, c: Cursor, id: Component)
+	local first, second = PAIR_FIRST(world, id), PAIR_SECOND(world, id)
+
+	server_replicator.write_entity_id(server, c, second)
+	server_replicator.write_component_id(server, c, first)
+end
+
 function server_replicator.write_entity(
 	server: Server,
 	c: Cursor,
@@ -895,49 +944,82 @@ function server_replicator.write_entity(
 	active: masking_controller.ActiveEntity,
 	variants: { any }
 )
+	local world = server.world
 	local storage = server.storage[entity]
+	local entity_mask = 0
 
-	local all_relation_values = 0
+	local total_relation_values = 0
 	for relation in active.components[COMPONENT_TYPES.relation_value] do
 		server_replicator.write_entity_relations_values(server, storage, c, relation, variants)
-		all_relation_values += 1
+		total_relation_values += 1
 	end
-	cursor.write_vlq(c, all_relation_values)
+	entity_mask = write_vlq_bitmask(c, total_relation_values, entity_mask, 5)
 
-	local all_relations = 0
+	local total_relations = 0
 	for relation in active.components[COMPONENT_TYPES.relation] do
 		server_replicator.write_entity_relations(server, storage, c, relation)
-		all_relations += 1
+		total_relations += 1
 	end
-	cursor.write_vlq(c, all_relations)
+	entity_mask = write_vlq_bitmask(c, total_relations, entity_mask, 4)
 
-	local components = 0
+	local total_pair_values = 0
+	for id in active.components[COMPONENT_TYPES.pair_component] do
+		local value = storage.pair_components[id]
+		if value == nil then
+			continue
+		end
+
+		server_replicator.write_entity_pair_value(server, world, c, id, value, variants)
+		total_pair_values += 1
+	end
+	entity_mask = write_vlq_bitmask(c, total_pair_values, entity_mask, 3)
+
+	local total_pairs = 0
+	for id in active.components[COMPONENT_TYPES.pair_tag] do
+		local has_pair = storage.pair_tags[id]
+		if has_pair then
+			server_replicator.write_entity_pair(server, world, c, id)
+			total_pairs += 1
+		end
+	end
+	entity_mask = write_vlq_bitmask(c, total_pairs, entity_mask, 2)
+
+	local total_components = 0
 	for component in active.components[COMPONENT_TYPES.component] do
 		local value = storage.components[component]
 		if value == nil then
 			continue
 		end
 
-		server_replicator.write_component(server, c, component, value, variants)
-		components += 1
+		server_replicator.write_component_value(server, c, component, value, variants)
+		server_replicator.write_component_id(server, c, component)
+		total_components += 1
 	end
-	cursor.write_vlq(c, components)
+	entity_mask = write_vlq_bitmask(c, total_components, entity_mask, 1)
 
-	local tags = 0
+	local total_tags = 0
 	for tag in active.components[COMPONENT_TYPES.tag] do
 		local has_tag = storage.tags[tag]
 		if has_tag then
 			server_replicator.write_component_id(server, c, tag)
-			tags += 1
+			total_tags += 1
 		end
 	end
-	cursor.write_vlq(c, tags)
+	entity_mask = write_vlq_bitmask(c, total_tags, entity_mask, 0)
+
+	cursor.writeu8(c, entity_mask)
 	server_replicator.write_entity_id(server, c, entity)
 end
 
 function server_replicator.resolve_dirty(server: Server)
 	if server.is_shared_dirty then
-		server.shared = utils.resolved_shared(server.world, server.components, server.registered_custom_ids)
+		-- stylua: ignore
+		server.shared = utils.resolved_shared(
+			server.world,
+			server.components,
+			server.registered_custom_ids,
+			server.component_serdes
+		)
 		server.is_shared_dirty = false
 	end
 end
@@ -1103,17 +1185,9 @@ function server_replicator.get_full(server: Server, client: Player): (buffer, { 
 	return combine_packet_outputs(packets, total_size, PACKET_TYPES.full)
 end
 
-local function write_vlq_bitmask(c: Cursor, value: number, mask: number, bit: number): number
-	if value > 0 then
-		cursor.write_vlq(c, value)
-		return utils.setbit(mask, bit)
-	else
-		return mask
-	end
-end
-
 function server_replicator.collect_updates(server: Server)
 	server_replicator.resolve_dirty(server)
+	local world = server.world
 	local packets: { [Player]: MemberPackets } = {}
 
 	for _, storage in server.masking.storages do
@@ -1147,16 +1221,27 @@ function server_replicator.collect_updates(server: Server)
 			end
 			cursor.write_vlq(c, total_relations)
 
-			local total_removed = 0
+			local total_pairs = 0
+			for id in deleted[COMPONENT_TYPES.pair_component] do
+				server_replicator.write_entity_pair(server, world, c, id)
+				total_pairs += 1
+			end
+			for id in deleted[COMPONENT_TYPES.pair_tag] do
+				server_replicator.write_entity_pair(server, world, c, id)
+				total_pairs += 1
+			end
+			cursor.write_vlq(c, total_pairs)
+
+			local total_components = 0
 			for component in deleted[COMPONENT_TYPES.component] do
 				server_replicator.write_component_id(server, c, component)
-				total_removed += 1
+				total_components += 1
 			end
 			for tag in deleted[COMPONENT_TYPES.tag] do
 				server_replicator.write_component_id(server, c, tag)
-				total_removed += 1
+				total_components += 1
 			end
-			cursor.write_vlq(c, total_removed)
+			cursor.write_vlq(c, total_components)
 
 			server_replicator.write_entity_id(server, c, entity)
 			total_component_deleted += 1
@@ -1167,7 +1252,7 @@ function server_replicator.collect_updates(server: Server)
 		local storage_changes = storage.changes
 		local changed = 0
 		for entity, changes in storage_changes.changed do
-			local changed_mask = 0
+			-- relations remove
 
 			local total_relations_removed = 0
 			for relation, targets in changes.relation_removed.component do
@@ -1192,7 +1277,13 @@ function server_replicator.collect_updates(server: Server)
 				server_replicator.write_component_id(server, c, relation)
 				total_relations_removed += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_relations_removed, changed_mask, 5)
+			-- using a normal vlq here sadly
+			-- cause I ran out of bitmask space for this one :/
+			cursor.write_vlq(c, total_relations_removed)
+
+			local changed_mask = 0
+
+			-- relations add/set
 
 			local total_relation_values = 0
 			for relation, targets in changes.relation_value do
@@ -1207,7 +1298,7 @@ function server_replicator.collect_updates(server: Server)
 				server_replicator.write_component_id(server, c, relation)
 				total_relation_values += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_relation_values, changed_mask, 4)
+			changed_mask = write_vlq_bitmask(c, total_relation_values, changed_mask, 7)
 
 			local total_relations_added = 0
 			for relation, targets in changes.relation_added do
@@ -1221,7 +1312,38 @@ function server_replicator.collect_updates(server: Server)
 				server_replicator.write_component_id(server, c, relation)
 				total_relations_added += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_relations_added, changed_mask, 3)
+			changed_mask = write_vlq_bitmask(c, total_relations_added, changed_mask, 6)
+
+			-- pairs removed
+
+			local total_pairs_removed = 0
+			for id in changes.pair_removed.component do
+				server_replicator.write_entity_pair(server, world, c, id)
+				total_pairs_removed += 1
+			end
+			for id in changes.pair_removed.tag do
+				server_replicator.write_entity_pair(server, world, c, id)
+				total_pairs_removed += 1
+			end
+			changed_mask = write_vlq_bitmask(c, total_pairs_removed, changed_mask, 5)
+
+			-- pairs add/set
+
+			local total_pairs_set = 0
+			for id, value in changes.pair_changed do
+				server_replicator.write_entity_pair_value(server, world, c, id, value, variants)
+				total_pairs_set += 1
+			end
+			changed_mask = write_vlq_bitmask(c, total_pairs_set, changed_mask, 4)
+
+			local total_pairs_added = 0
+			for id in changes.pair_added do
+				server_replicator.write_entity_pair(server, world, c, id)
+				total_pairs_added += 1
+			end
+			changed_mask = write_vlq_bitmask(c, total_pairs_added, changed_mask, 3)
+
+			-- tags/components removed
 
 			local total_removed = 0
 			for component in changes.removed.component do
@@ -1234,9 +1356,12 @@ function server_replicator.collect_updates(server: Server)
 			end
 			changed_mask = write_vlq_bitmask(c, total_removed, changed_mask, 2)
 
+			-- tags/components set
+
 			local total_components = 0
 			for component, value in changes.component do
-				server_replicator.write_component(server, c, component, value, variants)
+				server_replicator.write_component_value(server, c, component, value, variants)
+				server_replicator.write_component_id(server, c, component)
 				total_components += 1
 			end
 			changed_mask = write_vlq_bitmask(c, total_components, changed_mask, 1)
@@ -1248,7 +1373,7 @@ function server_replicator.collect_updates(server: Server)
 			end
 			changed_mask = write_vlq_bitmask(c, total_tagged, changed_mask, 0)
 
-			if changed_mask ~= 0 then
+			if changed_mask + total_relations_removed ~= 0 then
 				cursor.writeu8(c, changed_mask)
 				server_replicator.write_entity_id(server, c, entity)
 				changed += 1
@@ -1267,22 +1392,44 @@ function server_replicator.collect_updates(server: Server)
 				server_replicator.write_entity_relations_values(server, entity_storage, c, relation, variants)
 				total_relation_values += 1
 			end
-			added_mask = write_vlq_bitmask(c, total_relation_values, added_mask, 3)
+			added_mask = write_vlq_bitmask(c, total_relation_values, added_mask, 5)
 
 			local total_relations = 0
 			for relation in components[COMPONENT_TYPES.relation] do
 				server_replicator.write_entity_relations(server, entity_storage, c, relation)
 				total_relations += 1
 			end
-			added_mask = write_vlq_bitmask(c, total_relations, added_mask, 2)
+			added_mask = write_vlq_bitmask(c, total_relations, added_mask, 4)
+
+			local total_pair_values = 0
+			for id in components[COMPONENT_TYPES.pair_component] do
+				local value = entity_storage.pair_components[id]
+				-- nil is saved here as a special value, this gets automatically handled by write_component_value
+				if value == nil then
+					continue
+				end
+
+				server_replicator.write_entity_pair_value(server, world, c, id, value, variants)
+				total_pair_values += 1
+			end
+			added_mask = write_vlq_bitmask(c, total_pair_values, added_mask, 3)
+
+			local total_pairs = 0
+			for id in components[COMPONENT_TYPES.pair_tag] do
+				server_replicator.write_entity_pair(server, world, c, id)
+				total_pairs += 1
+			end
+			added_mask = write_vlq_bitmask(c, total_pairs, added_mask, 2)
 
 			local total_components = 0
 			for component in components[COMPONENT_TYPES.component] do
 				local value = entity_storage.components[component]
+				-- nil is saved here as a special value, this gets automatically handled by write_component_value
 				if value == nil then
 					continue
 				end
-				server_replicator.write_component(server, c, component, value, variants)
+				server_replicator.write_component_value(server, c, component, value, variants)
+				server_replicator.write_component_id(server, c, component)
 				total_components += 1
 			end
 			added_mask = write_vlq_bitmask(c, total_components, added_mask, 1)
@@ -1399,7 +1546,9 @@ function server_replicator.collect_unreliable(server: Server)
 					continue
 				end
 
-				server_replicator.write_component(server, c, component, value, variants)
+				server_replicator.write_component_value(server, c, component, value, variants)
+				server_replicator.write_component_id(server, c, component)
+
 				total_unreliable += 1
 			end
 
@@ -1671,13 +1820,23 @@ function server_replicator.remove_custom(server: Server, entity: Entity)
 	server.custom_ids[entity] = nil
 end
 
+function server_replicator.set_serdes(server: Server, component: Component, serdes: types.Serdes)
+	server.component_serdes[component] = serdes
+	server.is_shared_dirty = true
+end
+
+function server_replicator.remove_serdes(server: Server, component: Component)
+	server.component_serdes[component] = nil
+	server.is_shared_dirty = true
+end
+
 local function check_created(server: Server)
 	if server.inited == true then
 		warn "attempted to init a server twice"
 		return false
 	end
 	if server.inited == nil then
-		warn "attempted to create a server twice"
+		warn "attempted to init a destroyed server"
 		return false
 	end
 	return true
@@ -1704,7 +1863,6 @@ function server_replicator.init(server: Server, wrd: World?)
 	end
 
 	local components = server.components
-	server.shared = utils.resolved_shared(world, components, server.registered_custom_ids)
 
 	local function hook(unhook: () -> ())
 		table.insert(server.hooked, unhook)
@@ -1788,6 +1946,16 @@ function server_replicator.init(server: Server, wrd: World?)
 		server.global_ids[entity] = nil
 	end))
 
+	hook(HOOK_ADDED(world, components.serdes, function(component, _, serdes)
+		server_replicator.set_serdes(server, component, serdes)
+	end))
+	hook(HOOK_CHANGED(world, components.serdes, function(component, _, serdes)
+		server_replicator.set_serdes(server, component, serdes)
+	end))
+	hook(HOOK_REMOVED(world, components.serdes, function(component)
+		server_replicator.remove_serdes(server, component)
+	end))
+
 	hook(HOOK_REMOVED(world, components.__alive_tracking__, function(entity)
 		if server.track_info.networked[entity] then
 			server_replicator.stop_networked(server, entity)
@@ -1807,7 +1975,10 @@ function server_replicator.init(server: Server, wrd: World?)
 		end))
 	end
 
+	QUERY_CURRENT_COMPONENTS(server)
 	QUERY_CURRENT_NETWORKED(server)
+
+	server.shared = utils.resolved_shared(world, components, server.registered_custom_ids, server.component_serdes)
 
 	if game and game:GetService("RunService"):IsServer() then
 		local Players = game:GetService "Players"
@@ -1825,6 +1996,27 @@ function server_replicator.init(server: Server, wrd: World?)
 		table.insert(server.connections, added)
 		table.insert(server.connections, removed)
 	end
+end
+
+function server_replicator.encode_component(server: Server, component: Entity): number
+	server_replicator.resolve_dirty(server)
+	local encoded = server.shared.components.members[component]
+	if not encoded then
+		common.log_error(`attempted to encode a non-shared component `, common.log_component(server.world, component))
+		return 0
+	end
+	return encoded
+end
+
+function server_replicator.decode_component(server: Server, encoded: number): Entity?
+	server_replicator.resolve_dirty(server)
+	local component = server.shared.components.indexes[encoded]
+	return component
+end
+
+function server_replicator.get_shared_count(server: Server): number
+	server_replicator.resolve_dirty(server)
+	return #server.shared.components.keys
 end
 
 function server_replicator.mark_player_ready(server: Server, player: Player)
@@ -1904,9 +2096,9 @@ local function create(world: World?, components: types.Components?): Server
 	self.alive_tracked = {}
 	self.custom_ids = {}
 	self.registered_custom_ids = {}
+	self.component_serdes = {}
 	self.requires_shared_lookup = {
 		self.components.shared,
-		self.components.serdes,
 		ECS_NAME,
 	}
 

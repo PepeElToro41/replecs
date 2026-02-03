@@ -19,15 +19,136 @@ local RELATIONSHPIS = common.relationships
 
 local utils = {}
 
+function utils.create_shared_lookup<T>(lookup: { [string]: T }): types.SharedInfo<T>
+	local keys = {}
+	local indexes = {}
+	local members = {}
+
+	for name in lookup do
+		table.insert(keys, name)
+	end
+	table.sort(keys)
+
+	for index, name in keys do
+		local member = lookup[name]
+		members[member] = index
+		indexes[index] = member
+	end
+
+	return {
+		lookup = lookup,
+		keys = keys,
+		indexes = indexes,
+		members = members,
+	}
+end
+
+function utils.generate_handshake(world: World, shared: types.Shared): types.HandshakeInfo
+	local component_to_name: { [Entity]: string } = {}
+	local handshake: types.HandshakeInfo = {
+		components = {},
+		custom_ids = {},
+		serdes = {},
+	}
+
+	for component_name, component in shared.components.lookup do
+		handshake.components[component_name] = true
+		component_to_name[component] = component_name
+	end
+
+	for custom_id in shared.custom_ids.lookup do
+		handshake.custom_ids[custom_id] = true
+	end
+
+	for component, serdes in shared.serdes do
+		local name = component_to_name[component]
+		if not name then
+			continue
+		end
+
+		handshake.serdes[name] = {
+			includes_variants = serdes.includes_variants,
+			bytespan = serdes.bytespan,
+		}
+	end
+
+	return handshake
+end
+
+function utils.verify_handshake(
+	world: World,
+	shared: types.Shared,
+	handshake: types.HandshakeInfo,
+	handshake_side: string,
+	verify_side: string
+): (boolean, string?)
+	local component_to_name: { [Entity]: string } = {}
+
+	for component_name in handshake.components do
+		if not shared.components.lookup[component_name] then
+			return false, `missing shared component "{component_name}" in {verify_side}`
+		end
+	end
+	for component_name, component in shared.components.lookup do
+		if not handshake.components[component_name] then
+			return false, `missing shared component "{component_name}" in {handshake_side}`
+		end
+		component_to_name[component] = component_name
+	end
+
+	for custom_id in handshake.custom_ids do
+		if not shared.custom_ids.lookup[custom_id] then
+			return false, `missing custom id "{custom_id}" in {verify_side}`
+		end
+	end
+	for custom_id in shared.custom_ids.lookup do
+		if not handshake.custom_ids[custom_id] then
+			return false, `missing custom id "{custom_id}" in {handshake_side}`
+		end
+	end
+
+	for component_name, serdes_info in handshake.serdes do
+		local component = shared.components.lookup[component_name]
+		if not component then
+			warn(`{handshake_side} registered a serdes for "{component_name}" that {verify_side} doesn't have`)
+			continue
+		end
+
+		local serdes = shared.serdes[component]
+		if not serdes then
+			return false, `missing serdes for component "{component_name}" in {verify_side}`
+		end
+
+		if (serdes_info.includes_variants or false) ~= (serdes.includes_variants or false) then
+			return false,
+				`mismatched includes_variants for component "{component_name}": ({serdes_info.includes_variants} ~= {serdes.includes_variants})`
+		end
+		if serdes_info.bytespan ~= serdes.bytespan then
+			return false,
+				`mismatched bytespan for component "{component_name}": ({serdes_info.bytespan} ~= {serdes.bytespan})`
+		end
+	end
+	for component in shared.serdes do
+		local component_name = component_to_name[component]
+		if not component_name then
+			continue
+		end
+
+		if not handshake.serdes[component_name] then
+			warn(`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`)
+		end
+	end
+
+	return true, nil
+end
+
 function utils.resolved_shared(
 	world: World,
 	components: types.Components,
-	registered_custom_ids: { [customid.CustomId]: boolean }
+	registered_custom_ids: { [customid.CustomId]: boolean },
+	serdes: { [Component]: types.Serdes }
 ): types.Shared
-	local shared = {
-		serdes = {},
-		bytespan = {},
-	} :: types.Shared
+	local shared = {} :: types.Shared
 
 	local components_lookup: { [string]: Entity } = table.clone(common.implicitly_shared)
 	local custom_ids_lookup = {}
@@ -40,10 +161,11 @@ function utils.resolved_shared(
 		custom_ids_lookup[custom.identifier] = custom
 	end
 
-	for component, serdes in world:query(components.serdes):with(components.shared, ECS_NAME):iter() do
-		shared.serdes[component] = serdes
+	for custom in registered_custom_ids do
+		custom_ids_lookup[custom.identifier] = custom
 	end
 
+	shared.serdes = serdes
 	shared.components = utils.create_shared_lookup(components_lookup)
 	shared.custom_ids = utils.create_shared_lookup(custom_ids_lookup)
 
@@ -124,6 +246,13 @@ function cursor.from(buf: buffer): Cursor
 	return {
 		buffer = buf,
 		offset = buffer.len(buf),
+	}
+end
+
+function cursor.from_offset(buf: buffer, offset: number): Cursor
+	return {
+		buffer = buf,
+		offset = offset,
 	}
 end
 
@@ -681,131 +810,6 @@ utils.bitmask = {
 	create = bitmask.create,
 	from_set = bitmask.from_set,
 }
-
-function utils.create_shared_lookup<T>(lookup: { [string]: T }): types.SharedInfo<T>
-	local keys = {}
-	local indexes = {}
-	local members = {}
-
-	for name in lookup do
-		table.insert(keys, name)
-	end
-	table.sort(keys)
-
-	for index, name in keys do
-		local member = lookup[name]
-		members[member] = index
-		indexes[index] = member
-	end
-
-	return {
-		lookup = lookup,
-		keys = keys,
-		indexes = indexes,
-		members = members,
-	}
-end
-
-function utils.generate_handshake(world: World, shared: types.Shared): types.HandshakeInfo
-	local component_to_name: { [Entity]: string } = {}
-	local handshake: types.HandshakeInfo = {
-		components = {},
-		custom_ids = {},
-		serdes = {},
-	}
-
-	for component_name, component in shared.components.lookup do
-		handshake.components[component_name] = true
-		component_to_name[component] = component_name
-	end
-
-	for custom_id in shared.custom_ids.lookup do
-		handshake.custom_ids[custom_id] = true
-	end
-
-	for component, serdes in shared.serdes do
-		local name = component_to_name[component]
-		if not name then
-			common.log_warn(`found serdes for component {common.log_component(world, component)} was not shared`)
-			continue
-		end
-
-		handshake.serdes[name] = {
-			includes_variants = serdes.includes_variants,
-			bytespan = serdes.bytespan,
-		}
-	end
-
-	return handshake
-end
-
-function utils.verify_handshake(
-	world: World,
-	shared: types.Shared,
-	handshake: types.HandshakeInfo,
-	handshake_side: string,
-	verify_side: string
-): (boolean, string?)
-	local component_to_name: { [Entity]: string } = {}
-
-	for component_name in handshake.components do
-		if not shared.components.lookup[component_name] then
-			return false, `missing shared component "{component_name}" in {verify_side}`
-		end
-	end
-	for component_name, component in shared.components.lookup do
-		if not handshake.components[component_name] then
-			return false, `missing shared component "{component_name}" in {handshake_side}`
-		end
-		component_to_name[component] = component_name
-	end
-
-	for custom_id in handshake.custom_ids do
-		if not shared.custom_ids.lookup[custom_id] then
-			return false, `missing custom id "{custom_id}" in {verify_side}`
-		end
-	end
-	for custom_id in shared.custom_ids.lookup do
-		if not handshake.custom_ids[custom_id] then
-			return false, `missing custom id "{custom_id}" in {handshake_side}`
-		end
-	end
-
-	for component_name, serdes_info in handshake.serdes do
-		local component = shared.components.lookup[component_name]
-		if not component then
-			warn(`{handshake_side} registered a serdes for "{component_name}" that {verify_side} doesn't have`)
-			continue
-		end
-
-		local serdes = shared.serdes[component]
-		if not serdes then
-			return false, `missing serdes for component "{component_name}" in {verify_side}`
-		end
-
-		if (serdes_info.includes_variants or false) ~= (serdes.includes_variants or false) then
-			return false,
-				`mismatched includes_variants for component "{component_name}": ({serdes_info.includes_variants} ~= {serdes.includes_variants})`
-		end
-		if serdes_info.bytespan ~= serdes.bytespan then
-			return false,
-				`mismatched bytespan for component "{component_name}": ({serdes_info.bytespan} ~= {serdes.bytespan})`
-		end
-	end
-	for component in shared.serdes do
-		local component_name = component_to_name[component]
-		if not component_name then
-			common.log_warn(`found serdes for component {common.log_component(world, component)} was not shared`)
-			continue
-		end
-
-		if not handshake.serdes[component_name] then
-			warn(`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`)
-		end
-	end
-
-	return true, nil
-end
 
 function utils.is_client_valid(player: any): boolean
 	if game then

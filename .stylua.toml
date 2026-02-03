@@ -1,4 +1,6 @@
 call_parentheses = "None"
 collapse_simple_statement = "Never"
 
+column_width = 120
+indent_width = 3
 syntax = "Luau"

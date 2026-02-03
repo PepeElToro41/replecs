@@ -17,6 +17,7 @@ type World = common.World
 export type HandleContext = customid.HandleContext
 export type CustomId = customid.CustomId
 export type HandshakeInfo = types.HandshakeInfo
+export type Serdes = types.Serdes
 
 export type ReplecsLib = {
 	server: Server,

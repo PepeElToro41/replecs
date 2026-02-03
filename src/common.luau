@@ -102,7 +102,7 @@ local function WORLD_DELETE(world: World, entity: Entity)
 end
 
 local function WORLD_GET<T>(world: World, entity: Entity, id: Component<T>): T
-	return world:get(entity, id)
+	return world:get(entity, id) :: T
 end
 
 local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): jecs.Entity?
