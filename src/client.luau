@@ -417,13 +417,7 @@ function client_replicator.entity_clear_relation(
 	end
 end
 
-function client_replicator.read_variant_value(
-	client: Client,
-	c: Cursor,
-	log_component: Component,
-	serdes: types.Serdes?,
-	variants: { any }?
-)
+function client_replicator.read_variant_value(client: Client, c: Cursor, serdes: types.Serdes?, variants: { any }?)
 	if serdes then
 		local bytespan = serdes.bytespan or cursor.read_vlq(c)
 
@@ -461,7 +455,7 @@ function client_replicator.read_pair_value(
 	local pair_id = PAIR(relation, target)
 	local pair_wildcard = PAIR(relation, ECS_WILDCARD)
 	local serdes = client.component_serdes[pair_id] or client.component_serdes[pair_wildcard]
-	local value = client_replicator.read_variant_value(client, c, relation, serdes, variants)
+	local value = client_replicator.read_variant_value(client, c, serdes, variants)
 	return pair_id, value
 end
 

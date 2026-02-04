@@ -433,7 +433,7 @@ local function track_pair(server: Server, pair_id: Component)
 		if track_type == TRACK_TYPES.pair_component then
 			allocate_pair_change(server, entity, id, value)
 		else
-			allocate_pair_addition(server, entity, id, value)
+			allocate_pair_addition(server, entity, id)
 		end
 	end))
 	hook(HOOK_CHANGED(world, relation, function(entity, id, value)
@@ -1534,7 +1534,7 @@ function server_replicator.collect_unreliable(server: Server)
 		local checkpoint_variants_count = 0
 		local checkpoint_total_entities = 0
 
-		local function create_checkpoint(entity: Entity)
+		local function create_checkpoint()
 			checkpoint_offset = c.offset
 			checkpoint_variants_count = #variants
 			checkpoint_total_entities = total_entities
@@ -1566,7 +1566,7 @@ function server_replicator.collect_unreliable(server: Server)
 		end
 
 		for entity, actives in active do
-			create_checkpoint(entity)
+			create_checkpoint()
 
 			local total_unreliable = 0
 			for component in actives.components[COMPONENT_TYPES.unreliable] do
