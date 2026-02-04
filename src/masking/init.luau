@@ -30,17 +30,17 @@ export type EntityComponentIndex<T> = {
 	[Entity]: ComponentIndex<T>,
 }
 
-type Lookup = {
+export type Lookup = {
 	generator: MaskGenerator,
 	filter: MemberFilter?,
 	storage_group: StorageGroup,
 }
 
-type ComponentLookup = Lookup & {
+export type ComponentLookup = Lookup & {
 	band_generator: MaskGenerator,
 }
 
-type EntityLookup = Lookup & {
+export type EntityLookup = Lookup & {
 	filtered_components: ComponentIndex<ComponentLookup>,
 	components: ComponentIndex<true>,
 }
@@ -97,7 +97,7 @@ type MaskInfo = {
 	members: Array<Member>,
 }
 
-type StorageGroup = {
+export type StorageGroup = {
 	mask: MaskInfo,
 	shared_with: EntityComponentIndex<boolean>,
 	is_empty: boolean,
@@ -149,6 +149,7 @@ local COMPONENT_TYPES = {
 	relation_value = 6,
 	unreliable = 7,
 }
+
 local COMPONENT_TYPES_COUNT = COMPONENT_TYPES.unreliable
 
 local masking_controller = {}
@@ -1526,8 +1527,7 @@ function masking_controller.compact_members(masking: MaskingController)
 				if component_bitmask then
 					component_generator.bitmask = remap_bitmask(component_bitmask, old_indexes, new_indexes, new_count)
 				end
-				component_generator.result =
-					remap_bitmask(component_generator.result, old_indexes, new_indexes, new_count)
+				component_generator.result = remap_bitmask(component_generator.result, old_indexes, new_indexes, new_count)
 
 				local band_generator = component_lookup.band_generator
 				local band_bitmask = band_generator.bitmask

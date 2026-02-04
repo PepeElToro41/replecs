@@ -88,7 +88,6 @@ export type Client = ClientImp & {
 	global_handler: ((id: number) -> Entity)?,
 	server_ids: { [number]: Entity },
 	client_ids: { [Entity]: number },
-	ordered_creation: boolean,
 	command_buffers: { [Entity]: CommandBuffer }?,
 	command_buffers_active: boolean,
 
@@ -123,9 +122,10 @@ export type Client = ClientImp & {
 
 	register_custom_id: (self: Client, custom_id: CustomId) -> (),
 
+	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
+	apply_entity: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_updates: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 	apply_unreliable: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
-	apply_full: (self: Client, buf: buffer, all_variants: { { any } }?) -> (),
 
 	generate_handshake: (self: Client) -> types.HandshakeInfo,
 	verify_handshake: (self: Client, handshake: types.HandshakeInfo) -> (boolean, string?),
@@ -144,8 +144,9 @@ local ENTITY_ID_TYPES = {
 }
 local PACKET_TYPES = {
 	full = 1,
-	unreliable = 2,
-	reliable = 3,
+	entity = 2,
+	updates = 3,
+	unreliable = 4,
 }
 
 local ECS_NAME = common.ecs_name
@@ -664,47 +665,51 @@ function client_replicator.process_entity_pair(client: Client, entity: Entity, c
 	end)
 end
 
-function client_replicator.process_entity(client: Client, c: Cursor, custom_ids: CustomIdMap, variants: { any }?)
-	client_replicator.process_entity_id(client, c, custom_ids, function(entity)
-		local mask = cursor.readu8(c)
-		local changed_hooks = client.network_hooks.changed
-		local components = client.components
+function client_replicator.process_entity(
+	client: Client,
+	entity: Entity,
+	c: Cursor,
+	custom_ids: CustomIdMap,
+	variants: { any }?
+)
+	local mask = cursor.readu8(c)
+	local changed_hooks = client.network_hooks.changed
+	local components = client.components
 
-		local total_tags = read_vlq_bitmask(c, mask, 0)
-		for _ = 1, total_tags do
-			local tag = client_replicator.read_component_id(client, c)
-			local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
-			client_replicator.entity_add(client, entity, tag, tag_hooks)
-		end
+	local total_tags = read_vlq_bitmask(c, mask, 0)
+	for _ = 1, total_tags do
+		local tag = client_replicator.read_component_id(client, c)
+		local tag_hooks = changed_hooks[PAIR(components.reliable, tag)]
+		client_replicator.entity_add(client, entity, tag, tag_hooks)
+	end
 
-		local total_components = read_vlq_bitmask(c, mask, 1)
-		for _ = 1, total_components do
-			local component = client_replicator.read_component_id(client, c)
-			local value = client_replicator.read_component_value(client, component, c, variants)
-			local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-			client_replicator.entity_set(client, entity, component, value, component_hooks)
-		end
+	local total_components = read_vlq_bitmask(c, mask, 1)
+	for _ = 1, total_components do
+		local component = client_replicator.read_component_id(client, c)
+		local value = client_replicator.read_component_value(client, component, c, variants)
+		local component_hooks = changed_hooks[PAIR(components.reliable, component)]
+		client_replicator.entity_set(client, entity, component, value, component_hooks)
+	end
 
-		local total_pairs = read_vlq_bitmask(c, mask, 2)
-		for _ = 1, total_pairs do
-			client_replicator.process_entity_pair(client, entity, c, custom_ids)
-		end
+	local total_pairs = read_vlq_bitmask(c, mask, 2)
+	for _ = 1, total_pairs do
+		client_replicator.process_entity_pair(client, entity, c, custom_ids)
+	end
 
-		local total_pair_values = read_vlq_bitmask(c, mask, 3)
-		for _ = 1, total_pair_values do
-			client_replicator.process_entity_pair_value(client, entity, c, custom_ids, variants)
-		end
+	local total_pair_values = read_vlq_bitmask(c, mask, 3)
+	for _ = 1, total_pair_values do
+		client_replicator.process_entity_pair_value(client, entity, c, custom_ids, variants)
+	end
 
-		local total_relations = read_vlq_bitmask(c, mask, 4)
-		for _ = 1, total_relations do
-			client_replicator.process_entity_relations(client, entity, c, custom_ids)
-		end
+	local total_relations = read_vlq_bitmask(c, mask, 4)
+	for _ = 1, total_relations do
+		client_replicator.process_entity_relations(client, entity, c, custom_ids)
+	end
 
-		local total_relation_values = read_vlq_bitmask(c, mask, 5)
-		for _ = 1, total_relation_values do
-			client_replicator.process_entity_relation_values(client, entity, c, custom_ids, variants)
-		end
-	end)
+	local total_relation_values = read_vlq_bitmask(c, mask, 5)
+	for _ = 1, total_relation_values do
+		client_replicator.process_entity_relation_values(client, entity, c, custom_ids, variants)
+	end
 end
 
 function client_replicator.finish_replication(client: Client)
@@ -1074,11 +1079,69 @@ function client_replicator.finish_custom_ids(
 	end
 end
 
-function client_replicator.apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
-	local c = cursor.from(buf)
-	check_packet_type(c, PACKET_TYPES.reliable)
+function client_replicator.apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
 	client_replicator.resolve_dirty(client)
 	client.is_replicating = true
+
+	local c = cursor.from(buf)
+	check_packet_type(c, PACKET_TYPES.full)
+
+	local total_packets = cursor.read_vlq(c)
+	local variant_start = (all_variants and #all_variants + 1) :: number
+
+	local command_buffers: { [Entity]: CommandBuffer } = {}
+	local custom_ids: CustomIdMap = {}
+
+	client.command_buffers = command_buffers
+
+	for a = 1, total_packets do
+		local total_entities = cursor.read_vlq(c)
+		local variants = all_variants and all_variants[variant_start - a]
+
+		for _ = 1, total_entities do
+			client_replicator.process_entity_id(client, c, custom_ids, function(entity)
+				client_replicator.process_entity(client, entity, c, custom_ids, variants)
+			end)
+		end
+	end
+
+	client_replicator.finish_custom_ids(client, custom_ids, command_buffers)
+	client_replicator.finish_replication(client)
+end
+
+function client_replicator.apply_entity(client: Client, buf: buffer, all_variants: { { any } })
+	client_replicator.resolve_dirty(client)
+	client.is_replicating = true
+
+	local c = cursor.from(buf)
+	check_packet_type(c, PACKET_TYPES.entity)
+
+	local total_packets = cursor.read_vlq(c)
+	local variant_start = (all_variants and #all_variants + 1) :: number
+
+	local command_buffers: { [Entity]: CommandBuffer } = {}
+	local custom_ids: CustomIdMap = {}
+
+	client.command_buffers = command_buffers
+
+	for a = 1, total_packets do
+		local variants = all_variants and all_variants[variant_start - a]
+
+		client_replicator.process_entity_id(client, c, custom_ids, function(entity)
+			client_replicator.process_entity(client, entity, c, custom_ids, variants)
+		end)
+	end
+
+	client_replicator.finish_custom_ids(client, custom_ids, command_buffers)
+	client_replicator.finish_replication(client)
+end
+
+function client_replicator.apply_updates(client: Client, buf: buffer, all_variants: { { any } }?)
+	client_replicator.resolve_dirty(client)
+	client.is_replicating = true
+
+	local c = cursor.from(buf)
+	check_packet_type(c, PACKET_TYPES.updates)
 
 	local world = client.world
 	local components = client.components
@@ -1099,7 +1162,9 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 
 		local total_added = read_vlq_bitmask(c, storage_mask, 0)
 		for _ = 1, total_added do
-			client_replicator.process_entity(client, c, custom_ids, variants)
+			client_replicator.process_entity_id(client, c, custom_ids, function(entity)
+				client_replicator.process_entity(client, entity, c, custom_ids, variants)
+			end)
 		end
 
 		local total_components_added = read_vlq_bitmask(c, storage_mask, 1)
@@ -1289,10 +1354,11 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 end
 
 function client_replicator.apply_unreliable(client: Client, buf: buffer, all_variants: { { any } }?)
-	local c = cursor.from(buf)
-	check_packet_type(c, PACKET_TYPES.unreliable)
 	client_replicator.resolve_dirty(client)
 	client.is_replicating = true
+
+	local c = cursor.from(buf)
+	check_packet_type(c, PACKET_TYPES.unreliable)
 
 	local components = client.components
 	local total_packets = cursor.read_vlq(c)
@@ -1336,33 +1402,6 @@ end
 function client_replicator.remove_serdes(client: Client, component: Component)
 	client.component_serdes[component] = nil
 	client.is_shared_dirty = true
-end
-
-function client_replicator.apply_full(client: Client, buf: buffer, all_variants: { { any } }?)
-	local c = cursor.from(buf)
-	check_packet_type(c, PACKET_TYPES.full)
-	client_replicator.resolve_dirty(client)
-	client.is_replicating = true
-
-	local total_packets = cursor.read_vlq(c)
-	local variant_start = (all_variants and #all_variants + 1) :: number
-
-	local command_buffers: { [Entity]: CommandBuffer } = {}
-	local custom_ids: CustomIdMap = {}
-
-	client.command_buffers = command_buffers
-
-	for a = 1, total_packets do
-		local total_entities = cursor.read_vlq(c)
-		local variants = all_variants and all_variants[variant_start - a]
-
-		for _ = 1, total_entities do
-			client_replicator.process_entity(client, c, custom_ids, variants)
-		end
-	end
-
-	client_replicator.finish_custom_ids(client, custom_ids, command_buffers)
-	client_replicator.finish_replication(client)
 end
 
 -- TODO: Deserialize pairs in client
@@ -1604,7 +1643,6 @@ local function create(world: World?, components: types.Components?): Client
 		end)
 	end
 
-	self.ordered_creation = true
 	self.server_ids = {}
 	self.client_ids = {}
 	self.is_shared_dirty = false

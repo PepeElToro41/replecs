@@ -11,6 +11,7 @@ local cursor = utils.cursor
 
 type Cursor = utils.Cursor
 type CustomId = customid.CustomId
+type StorageGroup = masking_controller.StorageGroup
 
 type World = common.World
 type Entity = common.Entity
@@ -62,6 +63,7 @@ export type ServerImp = {
 	stop_networked: (server: Server, entity: Entity, keep: boolean?) -> (),
 	stop_reliable: (server: Server, entity: Entity, component: Component, keep: boolean?) -> (),
 	stop_unreliable: (server: Server, entity: Entity, component: Component, keep: boolean?) -> (),
+	stop_pair: (server: Server, entity: Entity, id: Component, keep: boolean?) -> (),
 	stop_relation: (server: Server, entity: Entity, relation: Component, keep: boolean?) -> (),
 
 	set_custom: (server: Server, entity: Entity, component: Component | CustomId) -> (),
@@ -106,6 +108,7 @@ export type Server = ServerImp & {
 	register_custom_id: (self: Server, custom_id: CustomId) -> (),
 
 	get_full: (self: Server, player: Player) -> (buffer, { { any } }),
+	collect_entity: (self: Server, entity: Entity) -> () -> (Player, buffer, { { any } }),
 	collect_updates: (self: Server) -> () -> (Player, buffer, { { any } }),
 	collect_unreliable: (self: Server) -> () -> (Player, buffer, { { any } }),
 
@@ -146,8 +149,9 @@ local TRACK_TYPES = {
 
 local PACKET_TYPES = {
 	full = 1,
-	unreliable = 2,
-	reliable = 3,
+	entity = 2,
+	updates = 3,
+	unreliable = 4,
 }
 
 local MAX_PACKET_SIZE = 900
@@ -1006,9 +1010,7 @@ function server_replicator.write_entity(
 		end
 	end
 	entity_mask = write_vlq_bitmask(c, total_tags, entity_mask, 0)
-
 	cursor.writeu8(c, entity_mask)
-	server_replicator.write_entity_id(server, c, entity)
 end
 
 function server_replicator.resolve_dirty(server: Server)
@@ -1170,6 +1172,7 @@ function server_replicator.get_full(server: Server, client: Player): (buffer, { 
 		local total_entities = 0
 		for entity, active in storage.active do
 			server_replicator.write_entity(server, c, entity, active, variants)
+			server_replicator.write_entity_id(server, c, entity)
 			total_entities += 1
 		end
 		cursor.write_vlq(c, total_entities)
@@ -1185,6 +1188,42 @@ function server_replicator.get_full(server: Server, client: Player): (buffer, { 
 	return combine_packet_outputs(packets, total_size, PACKET_TYPES.full)
 end
 
+function server_replicator.collect_entity(server: Server, entity: Entity)
+	server_replicator.resolve_dirty(server)
+	local packets: { [Player]: MemberPackets } = {}
+	local processed_storages: Set<StorageGroup> = {}
+
+	local lookup = server.masking.lookups.entities[entity]
+	local entity_storage = lookup.storage_group
+
+	local c_main = cursor.new()
+	local variants_main = {}
+
+	server_replicator.write_entity(server, c_main, entity, entity_storage.active[entity], variants_main)
+	server_replicator.write_entity_id(server, c_main, entity)
+	append_packet(packets, entity_storage.mask.members, cursor.close(c_main), variants_main)
+	processed_storages[entity_storage] = true
+
+	for _, filtered in lookup.filtered_components do
+		for _, component in filtered do
+			local storage = component.storage_group
+			if processed_storages[storage] then
+				continue
+			end
+
+			local c = cursor.new()
+			local variants = {}
+
+			server_replicator.write_entity(server, c, entity, storage.active[entity], variants)
+			server_replicator.write_entity_id(server, c_main, entity)
+			append_packet(packets, storage.mask.members, cursor.close(c), variants)
+			processed_storages[storage] = true
+		end
+	end
+
+	return create_packet_iterator(packets, PACKET_TYPES.entity)
+end
+
 function server_replicator.collect_updates(server: Server)
 	server_replicator.resolve_dirty(server)
 	local world = server.world
@@ -1192,7 +1231,6 @@ function server_replicator.collect_updates(server: Server)
 
 	for _, storage in server.masking.storages do
 		local c = cursor.new()
-
 		local variants = {}
 
 		local storage_mask = 0
@@ -1461,6 +1499,7 @@ function server_replicator.collect_updates(server: Server)
 			end
 
 			server_replicator.write_entity(server, c, entity, active, variants)
+			server_replicator.write_entity_id(server, c, entity)
 			total_added += 1
 		end
 		table.clear(storage_changes.added)
@@ -1473,7 +1512,7 @@ function server_replicator.collect_updates(server: Server)
 		end
 	end
 	table.clear(server.additions)
-	return create_packet_iterator(packets, PACKET_TYPES.reliable)
+	return create_packet_iterator(packets, PACKET_TYPES.updates)
 end
 
 function server_replicator.collect_unreliable(server: Server)
@@ -1489,19 +1528,16 @@ function server_replicator.collect_unreliable(server: Server)
 
 		local c = cursor.new()
 		local variants = {} :: Array<{ any }>
-		local custom_ids: Set<Entity> = {}
 		local total_entities = 0
 
 		local checkpoint_offset = 0
 		local checkpoint_variants_count = 0
 		local checkpoint_total_entities = 0
-		local checkpoint_entity: Entity? = nil
 
 		local function create_checkpoint(entity: Entity)
 			checkpoint_offset = c.offset
 			checkpoint_variants_count = #variants
 			checkpoint_total_entities = total_entities
-			checkpoint_entity = entity
 		end
 
 		local function rollback_checkpoint()
@@ -1514,13 +1550,6 @@ function server_replicator.collect_unreliable(server: Server)
 			for _ = #variants, checkpoint_variants_count + 1, -1 do
 				table.insert(new_variants, 1, table.remove(variants) :: { any })
 			end
-
-			local new_custom_ids = {} :: Set<Entity>
-			if checkpoint_entity then
-				new_custom_ids[checkpoint_entity] = true
-				custom_ids[checkpoint_entity] = nil
-			end
-			custom_ids = new_custom_ids
 
 			variants = new_variants
 			total_entities = total_entities - checkpoint_total_entities
