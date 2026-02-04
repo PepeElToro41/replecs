@@ -43,7 +43,7 @@ function utils.create_shared_lookup<T>(lookup: { [string]: T }): types.SharedInf
 	}
 end
 
-function utils.generate_handshake(world: World, shared: types.Shared): types.HandshakeInfo
+function utils.generate_handshake(shared: types.Shared): types.HandshakeInfo
 	local component_to_name: { [Entity]: string } = {}
 	local handshake: types.HandshakeInfo = {
 		components = {},
@@ -76,7 +76,6 @@ function utils.generate_handshake(world: World, shared: types.Shared): types.Han
 end
 
 function utils.verify_handshake(
-	world: World,
 	shared: types.Shared,
 	handshake: types.HandshakeInfo,
 	handshake_side: string,
@@ -160,7 +159,7 @@ function utils.resolved_shared(
 		components_lookup[name] = component
 	end
 
-	for component, name in world:query(components.shared):without(ECS_NAME):iter() do
+	for component in world:query(components.shared):without(ECS_NAME):iter() do
 		common.log_warn(`shared component: {component} has no name assigned.`)
 	end
 

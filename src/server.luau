@@ -2071,12 +2071,12 @@ end
 
 function server_replicator.generate_handshake(server: Server): types.HandshakeInfo
 	server_replicator.resolve_dirty(server)
-	return utils.generate_handshake(server.world, server.shared)
+	return utils.generate_handshake(server.shared)
 end
 
 function server_replicator.verify_handshake(server: Server, handshake: types.HandshakeInfo): (boolean, string?)
 	server_replicator.resolve_dirty(server)
-	return utils.verify_handshake(server.world, server.shared, handshake, "client", "server")
+	return utils.verify_handshake(server.shared, handshake, "client", "server")
 end
 
 function server_replicator.destroy(server: Server)

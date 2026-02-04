@@ -1603,12 +1603,12 @@ end
 
 function client_replicator.generate_handshake(client: Client): types.HandshakeInfo
 	client_replicator.resolve_dirty(client)
-	return utils.generate_handshake(client.world, client.shared)
+	return utils.generate_handshake(client.shared)
 end
 
 function client_replicator.verify_handshake(client: Client, handshake: types.HandshakeInfo): (boolean, string?)
 	client_replicator.resolve_dirty(client)
-	return utils.verify_handshake(client.world, client.shared, handshake, "server", "client")
+	return utils.verify_handshake(client.shared, handshake, "server", "client")
 end
 
 function client_replicator.destroy(client: Client)

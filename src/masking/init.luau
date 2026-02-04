@@ -26,6 +26,7 @@ export type FunctionFilter = (player: Player) -> boolean
 export type ComponentIndex<T> = {
 	[number]: { [Entity]: T },
 }
+
 export type EntityComponentIndex<T> = {
 	[Entity]: ComponentIndex<T>,
 }
@@ -466,6 +467,8 @@ end
 local function dissect_component_changes(changes: EntityChanges, shared_index: ComponentIndex<boolean>)
 	local new_changes: EntityChanges
 
+	-- COMPONENTS
+
 	local shared_component = shared_index[COMPONENT_TYPES.component]
 	local shared_tag = shared_index[COMPONENT_TYPES.tag]
 
@@ -504,6 +507,48 @@ local function dissect_component_changes(changes: EntityChanges, shared_index: C
 		end
 	end
 
+	-- PAIRS
+
+	local shared_pair_component = shared_index[COMPONENT_TYPES.pair_component]
+	local shared_pair_tag = shared_index[COMPONENT_TYPES.pair_tag]
+
+	for id, change in changes.pair_changed do
+		local is_shared = shared_pair_component and shared_pair_component[id]
+		if is_shared then
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pair_changed[id] = change
+			changes.pair_changed[id] = nil
+		end
+	end
+	for id in changes.pair_added do
+		local is_shared = shared_pair_tag and shared_pair_tag[id]
+		if is_shared then
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pair_added[id] = true
+			changes.pair_added[id] = nil
+		end
+	end
+
+	local removed_pairs = changes.pair_removed
+	for id in removed_pairs.component do
+		local is_shared = shared_pair_component and shared_pair_component[id]
+		if is_shared then
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pair_removed.component[id] = true
+			removed_pairs.component[id] = nil
+		end
+	end
+	for id in removed_pairs.tag do
+		local is_shared = shared_pair_tag and shared_pair_tag[id]
+		if is_shared then
+			new_changes = new_changes or create_entity_changes()
+			new_changes.pair_removed.tag[id] = true
+			removed_pairs.tag[id] = nil
+		end
+	end
+
+	-- RELATIONS
+
 	local shared_relation_value = shared_index[COMPONENT_TYPES.relation_value]
 	local shared_relation = shared_index[COMPONENT_TYPES.relation]
 
@@ -526,23 +571,23 @@ local function dissect_component_changes(changes: EntityChanges, shared_index: C
 		end
 	end
 
-	local relation_removed = changes.relation_removed
-	for relation, targets_removed in relation_removed.component do
+	local removed_relations = changes.relation_removed
+	for relation, targets_removed in removed_relations.component do
 		local is_shared = shared_relation and shared_relation[relation]
 
 		if is_shared then
 			new_changes = new_changes or create_entity_changes()
 			new_changes.relation_removed.component[relation] = targets_removed
-			relation_removed.component[relation] = nil
+			removed_relations.component[relation] = nil
 		end
 	end
-	for relation, targets_removed in relation_removed.tag do
+	for relation, targets_removed in removed_relations.tag do
 		local is_shared = shared_relation and shared_relation[relation]
 
 		if is_shared then
 			new_changes = new_changes or create_entity_changes()
 			new_changes.relation_removed.tag[relation] = targets_removed
-			relation_removed.tag[relation] = nil
+			removed_relations.tag[relation] = nil
 		end
 	end
 
@@ -566,60 +611,55 @@ local function merge_component_additions(current: ComponentIndex<boolean>, targe
 end
 
 local function merge_component_changes(current: EntityChanges, destination: EntityChanges)
+	-- COMPONENTS/TAGS
+
 	for component, change in current.component do
 		destination.component[component] = change
 	end
-	for entity, entity_changes in current.tagged do
-		destination.tagged[entity] = entity_changes
+	for tag in current.tagged do
+		destination.tagged[tag] = true
 	end
-	for tag in current.removed.tag do
-		destination.removed.tag[tag] = true
-	end
-	for tag in current.removed.component do
+
+	local components_removed = current.removed
+	for tag in components_removed.component do
 		destination.removed.component[tag] = true
 	end
-
-	for entity, added_targets in current.relation_added do
-		local targets = destination.relation_added
-		if not targets then
-			targets = {}
-			destination.relation_added = targets
-		end
-		for target in added_targets do
-			targets[target] = added_targets
-		end
+	for tag in components_removed.tag do
+		destination.removed.tag[tag] = true
 	end
 
-	for entity, added_targets in current.relation_value do
-		local targets = destination.relation_value
-		if not targets then
-			targets = {}
-			destination.relation_value = targets
-		end
-		for target in added_targets do
-			targets[target] = added_targets
-		end
+	-- PAIRS
+
+	for id, change in current.pair_changed do
+		destination.pair_changed[id] = change
+	end
+	for id in current.pair_added do
+		destination.pair_added[id] = true
 	end
 
-	for entity, removed_targets in current.relation_removed.tag do
-		local targets = destination.relation_removed.tag
-		if not targets then
-			targets = {}
-			destination.relation_removed.tag = targets
-		end
-		for target in removed_targets do
-			targets[target] = removed_targets
-		end
+	local pairs_removed = current.pair_removed
+	for id in pairs_removed.component do
+		destination.pair_removed.component[id] = true
 	end
-	for entity, removed_targets in current.relation_removed.component do
-		local targets = destination.relation_removed.component
-		if not targets then
-			targets = {}
-			destination.relation_removed.component = targets
-		end
-		for target in removed_targets do
-			targets[target] = removed_targets
-		end
+	for id in pairs_removed.tag do
+		destination.pair_removed.tag[id] = true
+	end
+
+	-- RELATIONS
+
+	for relation, target_values in current.relation_value do
+		destination.relation_value[relation] = target_values
+	end
+	for relation, added_targets in current.relation_added do
+		destination.relation_added[relation] = added_targets
+	end
+
+	local relation_removed = current.relation_removed
+	for relation, removed_targets in relation_removed.component do
+		destination.relation_removed.component[relation] = removed_targets
+	end
+	for relation, removed_targets in relation_removed.tag do
+		destination.relation_removed.tag[relation] = removed_targets
 	end
 end
 
@@ -769,6 +809,18 @@ function masking_controller.move_component_storage(
 
 			changes.component[component] = nil
 			changes.removed.component[component] = nil
+		elseif component_type == COMPONENT_TYPES.pair_tag then
+			destination_changes.pair_added[component] = changes.pair_added[component]
+			destination_changes.pair_removed.tag[component] = changes.pair_removed.tag[component]
+
+			changes.pair_added[component] = nil
+			changes.pair_removed.tag[component] = nil
+		elseif component_type == COMPONENT_TYPES.pair_component then
+			destination_changes.pair_changed[component] = changes.pair_changed[component]
+			destination_changes.pair_removed.component[component] = changes.pair_removed.component[component]
+
+			changes.pair_changed[component] = nil
+			changes.pair_removed.component[component] = nil
 		elseif component_type == COMPONENT_TYPES.relation then
 			destination_changes.relation_added[component] = changes.relation_added[component]
 			destination_changes.relation_removed.tag[component] = changes.relation_removed.tag[component]
@@ -776,11 +828,11 @@ function masking_controller.move_component_storage(
 			changes.relation_added[component] = nil
 			changes.relation_removed.tag[component] = nil
 		elseif component_type == COMPONENT_TYPES.relation_value then
-			destination_changes.relation_added[component] = changes.relation_added[component]
-			destination_changes.relation_removed.tag[component] = changes.relation_removed.tag[component]
+			destination_changes.relation_value[component] = changes.relation_value[component]
+			destination_changes.relation_removed.component[component] = changes.relation_removed.component[component]
 
-			changes.relation_added[component] = nil
-			changes.relation_removed.tag[component] = nil
+			changes.relation_value[component] = nil
+			changes.relation_removed.component[component] = nil
 		end
 	end
 
