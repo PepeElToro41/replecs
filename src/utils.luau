@@ -154,7 +154,14 @@ function utils.resolved_shared(
 	local custom_ids_lookup = {}
 
 	for component, name in world:query(ECS_NAME):with(components.shared):iter() do
+		if components_lookup[name] then
+			common.log_error(`detected two components with the same {name} name: ({components_lookup[name]}, {component})`)
+		end
 		components_lookup[name] = component
+	end
+
+	for component, name in world:query(components.shared):without(ECS_NAME):iter() do
+		common.log_warn(`shared component: {component} has no name assigned.`)
 	end
 
 	for custom in registered_custom_ids do
