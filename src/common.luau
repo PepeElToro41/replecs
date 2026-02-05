@@ -48,6 +48,10 @@ local function PAIR_SECOND(world: World, id: Entity): Entity
 	return jecs.pair_second(world, id)
 end
 
+local function LISTEN_RELATION(relation: Entity)
+	return relation
+end
+
 local function ADD_NAME(world: World, component: Component, name: string)
 	world:set(component, ECS_NAME, name)
 end
@@ -177,6 +181,7 @@ common.preregister_component = PREREGISTER_COMPONENT
 common.preregister_tag = PREREGISTER_TAG
 
 common.is_component = IS_COMPONENT
+common.listen_relation = LISTEN_RELATION
 
 common.hook_added = HOOK_ADDED
 common.hook_changed = HOOK_CHANGED
