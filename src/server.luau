@@ -176,9 +176,44 @@ local WORLD_GET = common.world_get
 local WORLD_TARGET = common.world_target
 local IS_COMPONENT = common.is_component
 
+local LISTEN_RELATION = common.listen_relation
+
 local HOOK_ADDED = common.hook_added
 local HOOK_CHANGED = common.hook_changed
 local HOOK_REMOVED = common.hook_removed
+
+local function HOOK_PAIR_ADDED(world: World, pair_id: Entity, callback: (Entity, Component, any) -> ())
+	local relation = PAIR_FIRST(world, pair_id)
+
+	return HOOK_ADDED(world, relation, function(entity, id, value)
+		if id ~= pair_id then
+			return
+		end
+		callback(entity, id, value)
+	end)
+end
+
+local function HOOK_PAIR_CHANGED(world: World, pair_id: Entity, callback: (Entity, Component, any) -> ())
+	local relation = PAIR_FIRST(world, pair_id)
+
+	return HOOK_CHANGED(world, relation, function(entity, id, value)
+		if id ~= pair_id then
+			return
+		end
+		callback(entity, id, value)
+	end)
+end
+
+local function HOOK_PAIR_REMOVED(world: World, pair_id: Entity, callback: (Entity, Component) -> ())
+	local relation = PAIR_FIRST(world, pair_id)
+
+	return HOOK_REMOVED(world, relation, function(entity, id)
+		if id ~= pair_id then
+			return
+		end
+		callback(entity, id)
+	end)
+end
 
 local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 	local world = server.world
@@ -419,12 +454,7 @@ local function track_pair(server: Server, pair_id: Component)
 		table.insert(server.hooked, unhook)
 	end
 
-	local relation = PAIR_FIRST(world, pair_id)
-
-	hook(HOOK_ADDED(world, relation, function(entity, id, value)
-		if id ~= pair_id then
-			return
-		end
+	hook(HOOK_PAIR_ADDED(world, pair_id, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -436,10 +466,7 @@ local function track_pair(server: Server, pair_id: Component)
 			allocate_pair_addition(server, entity, id)
 		end
 	end))
-	hook(HOOK_CHANGED(world, relation, function(entity, id, value)
-		if id ~= pair_id then
-			return
-		end
+	hook(HOOK_PAIR_CHANGED(world, pair_id, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -447,10 +474,7 @@ local function track_pair(server: Server, pair_id: Component)
 
 		allocate_pair_change(server, entity, id, value)
 	end))
-	hook(HOOK_REMOVED(world, relation, function(entity, id)
-		if id ~= pair_id then
-			return
-		end
+	hook(HOOK_PAIR_REMOVED(world, pair_id, function(entity, id)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -1908,53 +1932,53 @@ function server_replicator.init(server: Server, wrd: World?)
 	end))
 
 	if RELATIONSHIPS then
-		hook(HOOK_ADDED(world, components.reliable, function(entity, id, filter)
+		hook(HOOK_ADDED(world, LISTEN_RELATION(components.reliable), function(entity, id, filter)
 			local component = PAIR_SECOND(world, id)
 			server_replicator.start_reliable(server, entity, component, filter)
 		end))
-		hook(HOOK_CHANGED(world, components.reliable, function(entity, id, filter)
+		hook(HOOK_CHANGED(world, LISTEN_RELATION(components.reliable), function(entity, id, filter)
 			local component = PAIR_SECOND(world, id)
 			server_replicator.change_reliable(server, entity, component, filter)
 		end))
-		hook(HOOK_REMOVED(world, components.reliable, function(entity, id)
+		hook(HOOK_REMOVED(world, LISTEN_RELATION(components.reliable), function(entity, id)
 			local component = PAIR_SECOND(world, id)
 			server_replicator.stop_reliable(server, entity, component)
 		end))
 
-		hook(HOOK_ADDED(world, components.relation, function(entity, id, filter)
+		hook(HOOK_ADDED(world, LISTEN_RELATION(components.relation), function(entity, id, filter)
 			local relation = PAIR_SECOND(world, id)
 			server_replicator.start_relation(server, entity, relation, filter)
 		end))
-		hook(HOOK_CHANGED(world, components.relation, function(entity, id, filter)
+		hook(HOOK_CHANGED(world, LISTEN_RELATION(components.relation), function(entity, id, filter)
 			local relation = PAIR_SECOND(world, id)
 			server_replicator.change_relation(server, entity, relation, filter)
 		end))
-		hook(HOOK_REMOVED(world, components.relation, function(entity, id)
+		hook(HOOK_REMOVED(world, LISTEN_RELATION(components.relation), function(entity, id)
 			local relation = PAIR_SECOND(world, id)
 			server_replicator.stop_relation(server, entity, relation)
 		end))
 
-		hook(HOOK_ADDED(world, components.unreliable, function(entity, id, filter)
+		hook(HOOK_ADDED(world, LISTEN_RELATION(components.unreliable), function(entity, id, filter)
 			local component = PAIR_SECOND(world, id)
 			server_replicator.start_unreliable(server, entity, component, filter)
 		end))
-		hook(HOOK_CHANGED(world, components.unreliable, function(entity, id, filter)
+		hook(HOOK_CHANGED(world, LISTEN_RELATION(components.unreliable), function(entity, id, filter)
 			local component = PAIR_SECOND(world, id)
 			server_replicator.change_unreliable(server, entity, component, filter)
 		end))
-		hook(HOOK_REMOVED(world, components.unreliable, function(entity, id)
+		hook(HOOK_REMOVED(world, LISTEN_RELATION(components.unreliable), function(entity, id)
 			local component = PAIR_SECOND(world, id)
 			server_replicator.stop_unreliable(server, entity, component)
 		end))
 
-		hook(HOOK_ADDED(world, components.custom, function(entity, id)
+		hook(HOOK_ADDED(world, LISTEN_RELATION(components.custom), function(entity, id)
 			if not IS_PAIR(id) then
 				common.log_error "replecs.custom should be used with a relationship in the server"
 			end
 			local target = PAIR_SECOND(world, id)
 			server_replicator.set_custom(server, entity, target)
 		end))
-		hook(HOOK_REMOVED(world, components.custom, function(entity)
+		hook(HOOK_REMOVED(world, LISTEN_RELATION(components.custom), function(entity)
 			server_replicator.remove_custom(server, entity)
 		end))
 	end
