@@ -182,38 +182,9 @@ local HOOK_ADDED = common.hook_added
 local HOOK_CHANGED = common.hook_changed
 local HOOK_REMOVED = common.hook_removed
 
-local function HOOK_PAIR_ADDED(world: World, pair_id: Entity, callback: (Entity, Component, any) -> ())
-	local relation = PAIR_FIRST(world, pair_id)
-
-	return HOOK_ADDED(world, relation, function(entity, id, value)
-		if id ~= pair_id then
-			return
-		end
-		callback(entity, id, value)
-	end)
-end
-
-local function HOOK_PAIR_CHANGED(world: World, pair_id: Entity, callback: (Entity, Component, any) -> ())
-	local relation = PAIR_FIRST(world, pair_id)
-
-	return HOOK_CHANGED(world, relation, function(entity, id, value)
-		if id ~= pair_id then
-			return
-		end
-		callback(entity, id, value)
-	end)
-end
-
-local function HOOK_PAIR_REMOVED(world: World, pair_id: Entity, callback: (Entity, Component) -> ())
-	local relation = PAIR_FIRST(world, pair_id)
-
-	return HOOK_REMOVED(world, relation, function(entity, id)
-		if id ~= pair_id then
-			return
-		end
-		callback(entity, id)
-	end)
-end
+local HOOK_PAIR_ADDED = HOOK_ADDED
+local HOOK_PAIR_CHANGED = HOOK_CHANGED
+local HOOK_PAIR_REMOVED = HOOK_REMOVED
 
 local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 	local world = server.world

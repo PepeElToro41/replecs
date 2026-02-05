@@ -49,7 +49,7 @@ local function PAIR_SECOND(world: World, id: Entity): Entity
 end
 
 local function LISTEN_RELATION(relation: Entity)
-	return relation
+	return pepecs.pair(relation, pepecs.Wildcard)
 end
 
 local function ADD_NAME(world: World, component: Component, name: string)
@@ -83,7 +83,7 @@ local function WORLD_DELETE(world: World, entity: Entity)
 end
 
 local function WORLD_GET<T>(world: World, entity: Entity, id: Component<T>): T
-	return world.get(entity, id) :: T
+	return world.get(entity, id)
 end
 
 local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): Entity?

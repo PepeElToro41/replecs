@@ -5,9 +5,9 @@ name = "pepeeltoro41/replecs"
 version = "0.0.1"
 target = "luau"
 
-[graph."pepeeltoro41/pepecs@0.0.2 luau"]
-direct = ["pepecs", { name = "pepeeltoro41/pepecs", version = "^0.0.2", index = "default" }, "standard"]
+[graph."pepeeltoro41/pepecs@0.0.4 luau"]
+direct = ["pepecs", { name = "pepeeltoro41/pepecs", version = "^0.0.4", index = "default" }, "standard"]
 
-[graph."pepeeltoro41/pepecs@0.0.2 luau".pkg_ref]
+[graph."pepeeltoro41/pepecs@0.0.4 luau".pkg_ref]
 ref_ty = "pesde"
 index_url = "https://github.com/pesde-pkg/index"

@@ -14,4 +14,4 @@ environment = "luau"
 lib = "src/init.luau"
 
 [dependencies]
-pepecs = { name = "pepeeltoro41/pepecs", version = "^0.0.2" }
+pepecs = { name = "pepeeltoro41/pepecs", version = "^0.0.4" }
