@@ -165,7 +165,7 @@ local HOOK_CHANGED = common.hook_changed
 local HOOK_REMOVED = common.hook_removed
 
 local function QUERY_CURRENT_COMPONENTS(client: Client)
-	for component, serdes in client.world:query(client.components.serdes):iter() do
+	for component, serdes in client.world.query(client.components.serdes):iter() do
 		client.component_serdes[component] = serdes
 	end
 end

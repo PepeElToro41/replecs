@@ -182,7 +182,7 @@ local HOOK_REMOVED = common.hook_removed
 
 local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 	local world = server.world
-	for entity in world:query(PAIR(track_type, WILDCARD)):iter() do
+	for entity in world.query(PAIR(track_type, WILDCARD)):iter() do
 		local index = 0
 		while true do
 			local target = WORLD_TARGET(world, entity, track_type, index)
@@ -196,7 +196,7 @@ local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 end
 
 local function QUERY_CURRENT_NETWORKED(server: Server)
-	for entity, filter in server.world:query(server.components.networked):iter() do
+	for entity, filter in server.world.query(server.components.networked):iter() do
 		server.set_networked(server, entity, filter)
 	end
 
@@ -208,10 +208,10 @@ local function QUERY_CURRENT_NETWORKED(server: Server)
 end
 
 local function QUERY_CURRENT_COMPONENTS(server: Server)
-	for component, serdes in server.world:query(server.components.serdes):iter() do
+	for component, serdes in server.world.query(server.components.serdes):iter() do
 		server.component_serdes[component] = serdes
 	end
-	for entity, id in server.world:query(server.components.global):iter() do
+	for entity, id in server.world.query(server.components.global):iter() do
 		server.global_ids[entity] = id
 	end
 end

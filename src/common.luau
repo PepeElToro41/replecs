@@ -1,18 +1,18 @@
-local jecs = require "../jecs"
+local pepecs = require "../pepecs"
 
-export type Entity = jecs.Entity
-export type World = jecs.World
-export type Component<T = any> = jecs.Entity<T>
+export type Entity = pepecs.Entity
+export type World = pepecs.World
+export type Component<T = any> = pepecs.Entity<T>
 
 local common = {}
 
-local WILDCARD = jecs.Wildcard
-local ECS_NAME = jecs.Name
+local WILDCARD = pepecs.Wildcard
+local ECS_NAME = pepecs.Name
 local PREREGISTRATION = true
 local RELATIONSHIPS = true
 
 local IMPLICITLY_SHARED: { [string]: Entity } = {
-	["jecs.ChildOf"] = jecs.ChildOf,
+	["pepecs.ChildOf"] = pepecs.ChildOf,
 }
 
 function LOGERROR(...: string): never
@@ -23,116 +23,93 @@ function LOGWARN(...: string)
 end
 
 function LOG_COMPONENT(world: World, component: Entity)
-	return ` name: {world:get(component, ECS_NAME) or "(no name)"}, id: {component}`
+	return ` name: {world.get(component, ECS_NAME) or "(no name)"}, id: {component}`
 end
 
 local function IS_PAIR(id: Component): boolean
-	return jecs.IS_PAIR(id)
+	return pepecs.is_pair(id)
 end
 
 local function PAIR(relation: Entity, target: Entity): Entity
-	return jecs.pair(relation, target)
+	return pepecs.pair(relation, target)
 end
 
 local function PAIR_FIRST(world: World, id: Entity): Entity
 	if not IS_PAIR(id) then
 		LOGERROR(`expected a pair, got: {LOG_COMPONENT(world, id)}`)
 	end
-	return jecs.pair_first(world, id)
+	return world.pair_first(id)
 end
 
 local function PAIR_SECOND(world: World, id: Entity): Entity
 	if not IS_PAIR(id) then
 		LOGERROR(`expected a pair, got: {LOG_COMPONENT(world, id)}`)
 	end
-	return jecs.pair_second(world, id)
+	return world.pair_second(id)
 end
 
 local function ADD_NAME(world: World, component: Component, name: string)
-	world:set(component, ECS_NAME, name)
+	world.set(component, ECS_NAME, name)
 end
 
 local function ADD_PREREGISTERED_NAME(component: Component, name: string)
-	jecs.meta(component, ECS_NAME, name)
+	pepecs.meta(component, ECS_NAME, name)
 end
 
 local function ITERATE_ALL_RELATIONS(world: World, entity: Entity, relation: Component, callback: (id: Component) -> ())
-	local entity_index = jecs.entity_index_try_get_fast(world.entity_index :: any, entity :: any)
-	if not entity_index then
-		return
-	end
-	local archetype = entity_index.archetype
-	local wildcard = PAIR(relation, WILDCARD) :: any
-	local idr = world.component_index[wildcard]
-	if not idr then
-		return
-	end
-
-	local archetype_id = archetype.id
-	local count = idr.counts[archetype_id]
-	if not count then
-		return
-	end
-
-	local start = idr.records[archetype_id]
-	if not start then
-		return
-	end
-
-	for i = start, start + count - 1 do
-		local pair = archetype.types[i]
-		callback(pair)
+	for id in world.pairs(entity, relation) do
+		callback(id)
 	end
 end
 
 local function WORLD_ADD(world: World, entity: Entity, id: Component)
-	world:add(entity, id)
+	world.add(entity, id)
 end
 
 local function WORLD_SET<T>(world: World, entity: Entity, id: Component<T>, value: T)
-	world:set(entity, id, value)
+	world.set(entity, id, value)
 end
 
 local function WORLD_REMOVE(world: World, entity: Entity, id: Component)
-	world:remove(entity, id)
+	world.remove(entity, id)
 end
 
 local function WORLD_DELETE(world: World, entity: Entity)
-	world:delete(entity)
+	world.delete(entity)
 end
 
 local function WORLD_GET<T>(world: World, entity: Entity, id: Component<T>): T
-	return world:get(entity, id) :: T
+	return world.get(entity, id) :: T
 end
 
-local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): jecs.Entity?
-	return world:target(entity, rel, index)
+local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): Entity?
+	return world.target(entity, rel, index)
 end
 
 local function WORLD_HAS(world: World, entity: Entity, id: Component)
-	return world:has(entity, id)
+	return world.has(entity, id)
 end
 
 local function WORLD_ENTITY(world: World)
-	return world:entity()
+	return world.entity()
 end
 
 local function WORLD_TAG(world: World)
-	return world:entity()
+	return world.entity()
 end
 local function WORLD_COMPONENT(world: World)
-	return world:component()
+	return world.component()
 end
 
-local PREREGISTER_COMPONENT = jecs.component
-local PREREGISTER_TAG = jecs.tag
+local PREREGISTER_COMPONENT = pepecs.component
+local PREREGISTER_TAG = pepecs.tag
 
 local function IS_COMPONENT(world: World, id: Component)
-	return not jecs.is_tag(world, id)
+	return world.is_component(id)
 end
 
 local function HOOK_ADDED(world: World, id: Component, callback: (e: Entity, id: Component, value: any) -> ()): () -> ()
-	return world:added(id, callback)
+	return world.added(id, callback)
 end
 
 local function HOOK_CHANGED(
@@ -140,11 +117,11 @@ local function HOOK_CHANGED(
 	id: Component,
 	callback: (e: Entity, id: Component, value: any) -> ()
 ): () -> ()
-	return world:changed(id, callback)
+	return world.changed(id, callback)
 end
 
 local function HOOK_REMOVED(world: World, id: Component, callback: (e: Entity, id: Component) -> ()): () -> ()
-	return world:removed(id, callback)
+	return world.removed(id, callback)
 end
 
 common.preregistration = PREREGISTRATION

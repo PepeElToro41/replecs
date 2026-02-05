@@ -1,15 +1,15 @@
 {
-  "name": "replecs-dev",
-  "tree": {
-    "$className": "DataModel",
-	"ReplicatedStorage": {
-	  "$className": "ReplicatedStorage",
-	  "replecs": {
-		"$path": "out/replecs"
-	  },
-	  "jecs": {
-        "$path": "out/jecs.luau"
-      }
+	"name": "replecs-dev",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"replecs": {
+				"$path": "out/replecs"
+			},
+			"pepecs": {
+				"$path": "out/pepecs.luau"
+			}
+		}
 	}
-  }
 }

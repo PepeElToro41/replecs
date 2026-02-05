@@ -1,18 +1,18 @@
 {
-   "name": "replecs",
-   "tree": {
-      "$className": "DataModel",
-      "ReplicatedStorage": {
-         "$className": "ReplicatedStorage",
-         "luau_packages": {
-            "$className": "Folder",
-            "replecs": {
-               "$path": "src/"
-            },
-            "jecs": {
-               "$path": "jecs.luau"
-            }
-         }
-      }
-   }
+	"name": "replecs",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"luau_packages": {
+				"$className": "Folder",
+				"replecs": {
+					"$path": "src/"
+				},
+				"pepecs": {
+					"$path": "pepecs.luau"
+				}
+			}
+		}
+	}
 }

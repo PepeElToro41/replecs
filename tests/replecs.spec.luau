@@ -2,16 +2,16 @@ local replecs = require "@replecs"
 local player_masking = require "@replecs/masking"
 local utils = require "@replecs/utils"
 
-local jecs = require "@pkg/jecs"
+local pepecs = require "@pkg/pepecs"
 local testkit = require "./testkit"
 
-type Entity<T = any> = jecs.Entity<T>
+type Entity<T = any> = pepecs.Entity<T>
 
 type MemberData = {
-	world: jecs.World,
+	world: pepecs.World,
 	client: replecs.Client,
-	components: { jecs.Entity },
-	tags: { jecs.Entity },
+	components: { pepecs.Entity },
+	tags: { pepecs.Entity },
 }
 
 local it = testkit.test()
@@ -245,16 +245,16 @@ end)
 
 TEST("member bitmasking", function()
 	local masking: player_masking.MaskingController = nil :: any
-	local world: jecs.World = nil :: any
+	local world: pepecs.World = nil :: any
 
 	local function PRE()
 		masking = player_masking.create() :: player_masking.MaskingController
-		world = jecs.world()
+		world = pepecs.world()
 	end
 
 	local function POST()
 		-- heuristic sanity checks
-		local entity_masks: { [jecs.Entity]: boolean } = {}
+		local entity_masks: { [pepecs.Entity]: boolean } = {}
 
 		for hash, storage in masking.storages do
 			local real_active_count = 0
@@ -298,7 +298,7 @@ TEST("member bitmasking", function()
 		end
 	end
 
-	local function check_entity_mask(entity: jecs.Entity, hash: string)
+	local function check_entity_mask(entity: pepecs.Entity, hash: string)
 		local storage = masking.storages[hash]
 		local lookup = masking.lookups.entities[entity]
 
@@ -318,7 +318,7 @@ TEST("member bitmasking", function()
 			end
 		end
 	end
-	local function check_component_mask(entity: jecs.Entity, component: jecs.Entity, hash: string)
+	local function check_component_mask(entity: pepecs.Entity, component: pepecs.Entity, hash: string)
 		local storage = masking.storages[hash]
 		local lookup = masking.lookups.entities[entity].filtered_components[1][component]
 
@@ -345,7 +345,7 @@ TEST("member bitmasking", function()
 		end
 	end
 
-	local function check_component_is_merged(entity: jecs.Entity, component: jecs.Entity, hash: string)
+	local function check_component_is_merged(entity: pepecs.Entity, component: pepecs.Entity, hash: string)
 		local entity_lookup = masking.lookups.entities[entity :: any]
 		if not entity_lookup then
 			error "entity lookup not found"
@@ -364,7 +364,7 @@ TEST("member bitmasking", function()
 		end
 	end
 
-	local function check_component_is_not_active(entity: jecs.Entity, component: jecs.Entity)
+	local function check_component_is_not_active(entity: pepecs.Entity, component: pepecs.Entity)
 		local entity_lookup = masking.lookups.entities[entity]
 		if entity_lookup then
 			CHECK(entity_lookup.filtered_components[1][component] == nil)
@@ -384,7 +384,7 @@ TEST("member bitmasking", function()
 		end
 	end
 
-	local function check_entity_is_not_active(entity: jecs.Entity)
+	local function check_entity_is_not_active(entity: pepecs.Entity)
 		CHECK(masking.lookups.entities[entity] == nil)
 
 		for hash, check_storage in masking.storages do
@@ -408,7 +408,7 @@ TEST("member bitmasking", function()
 		PRE()
 
 		local member0, member1, member2 = register_members(masking)
-		local entity = world:entity()
+		local entity = world.entity()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member2] = true,
@@ -417,7 +417,7 @@ TEST("member bitmasking", function()
 		active_all_members(masking)
 		check_entity_mask(entity, mask_hash { 0, 2 })
 
-		local entity2 = world:entity()
+		local entity2 = world.entity()
 		masking:start_entity(entity2, {
 			[member0] = false,
 			[member2] = false,
@@ -434,7 +434,7 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
+		local entity = world.entity()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member2] = true,
@@ -456,7 +456,7 @@ TEST("member bitmasking", function()
 		PRE()
 
 		local member0, member1, member2, member3 = register_members(masking)
-		local entity = world:entity()
+		local entity = world.entity()
 		masking:start_entity(entity, nil)
 		check_entity_mask(entity, "")
 		masking:activate_client(member0)
@@ -476,8 +476,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member1] = true,
@@ -497,7 +497,7 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
+		local entity = world.entity()
 
 		masking:start_entity(entity, member2)
 		check_entity_mask(entity, mask_hash { 2 })
@@ -515,8 +515,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -536,8 +536,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2, member3 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member1] = true,
@@ -566,8 +566,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member1] = true,
@@ -592,8 +592,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member2] = true,
@@ -621,8 +621,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_component(entity, component, 1, {
 			[member0] = true,
@@ -651,8 +651,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -677,8 +677,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member1] = true,
@@ -712,8 +712,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -743,8 +743,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -791,8 +791,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -817,8 +817,8 @@ TEST("member bitmasking", function()
 
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -854,9 +854,9 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component1 = world:component()
-		local component2 = world:component()
+		local entity = world.entity()
+		local component1 = world.component()
+		local component2 = world.component()
 
 		masking:start_component(entity, component1, 1, nil)
 		masking:start_component(entity, component2, 1, nil)
@@ -879,8 +879,8 @@ TEST("member bitmasking", function()
 		local member0, member1 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member1] = true,
@@ -907,8 +907,8 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking:start_entity(entity, {
 			[member0] = true,
 			[member1] = true,
@@ -937,10 +937,10 @@ TEST("member bitmasking", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
-		local component1 = world:component()
-		local component2 = world:component()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
+		local component1 = world.component()
+		local component2 = world.component()
 
 		masking:start_entity(entity1, {
 			[member0] = true,
@@ -986,11 +986,11 @@ TEST("member bitmasking", function()
 		PRE()
 		local member0, member1, member2, member3 = register_members(masking)
 		active_all_members(masking)
-		local entity = world:entity()
-		local component1 = world:component()
-		local component2 = world:component()
-		local component3 = world:component()
-		local component4 = world:component()
+		local entity = world.entity()
+		local component1 = world.component()
+		local component2 = world.component()
+		local component3 = world.component()
+		local component4 = world.component()
 
 		masking:start_entity(entity, {
 			[member0] = true,
@@ -1030,8 +1030,8 @@ TEST("member bitmasking", function()
 		PRE()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
-		local entity = world:entity()
-		local component = world:component()
+		local entity = world.entity()
+		local component = world.component()
 		masking.client_aliases["m0"] = member0
 		masking.client_aliases["m1"] = member1
 
@@ -1092,12 +1092,12 @@ TEST("replecs server", function() end)
 
 TEST("replecs client", function() end)
 
-local function create_test_components(test_world: jecs.World)
-	local components = {} :: { jecs.Entity<any> }
+local function create_test_components(test_world: pepecs.World)
+	local components = {} :: { pepecs.Entity<any> }
 	for i = 1, 6 do
-		local component = test_world:component()
-		test_world:add(component, replecs.shared)
-		test_world:set(component, jecs.Name, "component" .. i)
+		local component = test_world.component()
+		test_world.add(component, replecs.shared)
+		test_world.set(component, pepecs.Name, "component" .. i)
 
 		table.insert(components, component)
 	end
@@ -1109,12 +1109,12 @@ local function filter(members: { [any]: boolean }): { [Player]: boolean }
 	return members :: any
 end
 
-local function create_test_tags(test_world: jecs.World)
-	local tags = {} :: { jecs.Entity }
+local function create_test_tags(test_world: pepecs.World)
+	local tags = {} :: { pepecs.Entity }
 	for i = 1, 6 do
-		local tag = test_world:entity()
-		test_world:add(tag, replecs.shared)
-		test_world:set(tag, jecs.Name, "tag" .. i)
+		local tag = test_world.entity()
+		test_world.add(tag, replecs.shared)
+		test_world.set(tag, pepecs.Name, "tag" .. i)
 
 		table.insert(tags, tag)
 	end
@@ -1123,14 +1123,14 @@ local function create_test_tags(test_world: jecs.World)
 end
 
 TEST("custom ids", function()
-	local s_world: jecs.World = nil :: any
-	local c_world: jecs.World = nil :: any
+	local s_world: pepecs.World = nil :: any
+	local c_world: pepecs.World = nil :: any
 	local server: replecs.Server = nil :: any
 	local client: replecs.Client = nil :: any
 
 	local function PRE()
-		s_world = jecs.world()
-		c_world = jecs.world()
+		s_world = pepecs.world()
+		c_world = pepecs.world()
 		server = replecs.create_server(s_world)
 		client = replecs.create_client(c_world)
 	end
@@ -1143,11 +1143,11 @@ TEST("custom ids", function()
 		CASE "should use custom ids"
 		PRE()
 
-		local created_entity: jecs.Entity? = nil
+		local created_entity: pepecs.Entity? = nil
 		local called = 0
 
 		local custom = replecs.create_custom_id("custom", function()
-			created_entity = c_world:entity()
+			created_entity = c_world.entity()
 			called += 1
 			return created_entity
 		end)
@@ -1162,10 +1162,10 @@ TEST("custom ids", function()
 		server.masking:register_client(plr)
 		server.masking:activate_client(plr)
 
-		local e1 = s_world:entity()
+		local e1 = s_world.entity()
 		server:set_custom(e1, custom)
 		server:set_networked(e1)
-		local e2 = s_world:entity()
+		local e2 = s_world.entity()
 		server:set_networked(e2)
 
 		local buf, var = server:get_full(plr)
@@ -1188,7 +1188,7 @@ TEST("custom ids", function()
 		local c_components = create_test_components(c_world)
 
 		local custom = replecs.create_custom_id("custom", function(ctx)
-			local entity = c_world:entity()
+			local entity = c_world.entity()
 			if ctx.component(c_components[1]) == "foo" then
 				foo_entity = entity
 				return entity
@@ -1209,15 +1209,15 @@ TEST("custom ids", function()
 		server.masking:register_client(plr)
 		server.masking:activate_client(plr)
 
-		local s_foo = s_world:entity()
-		s_world:set(s_foo, s_components[1], "foo")
+		local s_foo = s_world.entity()
+		s_world.set(s_foo, s_components[1], "foo")
 
 		server:set_custom(s_foo, custom)
 		server:set_reliable(s_foo, s_components[1])
 		server:set_networked(s_foo)
 
-		local s_baz = s_world:entity()
-		s_world:set(s_baz, s_components[1], "baz")
+		local s_baz = s_world.entity()
+		s_world.set(s_baz, s_components[1], "baz")
 
 		server:set_custom(s_baz, custom)
 		server:set_reliable(s_baz, s_components[1])
@@ -1240,7 +1240,7 @@ TEST("custom ids", function()
 		local c_tags = create_test_tags(c_world)
 
 		local custom = replecs.create_custom_id("custom", function()
-			created_entity = c_world:entity()
+			created_entity = c_world.entity()
 			return created_entity
 		end)
 
@@ -1255,12 +1255,12 @@ TEST("custom ids", function()
 		server.masking:register_client(plr)
 		server.masking:activate_client(plr)
 
-		local s_target = s_world:entity()
+		local s_target = s_world.entity()
 		server:set_custom(s_target, custom)
 		server:set_networked(s_target)
 
-		local s_entity = s_world:entity()
-		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		local s_entity = s_world.entity()
+		s_world.add(s_entity, pepecs.pair(s_tags[1], s_target))
 		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
 
@@ -1270,7 +1270,7 @@ TEST("custom ids", function()
 		local c_entity = client:get_client_entity(s_entity :: any) :: Entity
 		CHECK(c_entity ~= nil)
 
-		CHECK(c_world:has(c_entity, jecs.pair(c_tags[1], created_entity)))
+		CHECK(c_world.has(c_entity, pepecs.pair(c_tags[1], created_entity)))
 		POST()
 	end
 	do
@@ -1284,11 +1284,11 @@ TEST("custom ids", function()
 		local c_tags = create_test_tags(c_world)
 
 		local custom = replecs.create_custom_id("custom", function()
-			created_custom = c_world:entity()
+			created_custom = c_world.entity()
 			return created_custom
 		end)
 		local target_custom = replecs.create_custom_id("target_custom", function()
-			created_target = c_world:entity()
+			created_target = c_world.entity()
 			return created_target
 		end)
 
@@ -1305,12 +1305,12 @@ TEST("custom ids", function()
 		server.masking:register_client(plr)
 		server.masking:activate_client(plr)
 
-		local s_target = s_world:entity()
+		local s_target = s_world.entity()
 		server:set_custom(s_target, target_custom)
 		server:set_networked(s_target)
 
-		local s_entity = s_world:entity()
-		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		local s_entity = s_world.entity()
+		s_world.add(s_entity, pepecs.pair(s_tags[1], s_target))
 		server:set_custom(s_entity, custom)
 		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
@@ -1322,7 +1322,7 @@ TEST("custom ids", function()
 		CHECK(c_entity ~= nil)
 
 		CHECK(c_entity == created_custom)
-		CHECK(c_world:target(c_entity, c_tags[1]) == created_target)
+		CHECK(c_world.target(c_entity, c_tags[1]) == created_target)
 		POST()
 	end
 	do
@@ -1340,12 +1340,12 @@ TEST("custom ids", function()
 		server.masking:register_client(plr)
 		server.masking:activate_client(plr)
 
-		local s_target = s_world:entity()
+		local s_target = s_world.entity()
 		server:set_networked(s_target)
 
 		local custom = replecs.create_custom_id("custom", function(ctx: replecs.HandleContext)
 			if ctx.target(c_tags[1]) == client:get_client_entity(s_target :: any) then
-				return c_world:entity()
+				return c_world.entity()
 			else
 				error "invalid target"
 			end
@@ -1354,8 +1354,8 @@ TEST("custom ids", function()
 		client:register_custom_id(custom)
 		server:register_custom_id(custom)
 
-		local s_entity = s_world:entity()
-		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		local s_entity = s_world.entity()
+		s_world.add(s_entity, pepecs.pair(s_tags[1], s_target))
 		server:set_custom(s_entity, custom)
 		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
@@ -1384,7 +1384,7 @@ TEST("custom ids", function()
 
 		local target_custom = replecs.create_custom_id("target_custom", function()
 			table.insert(callstack, 2)
-			target_entity = c_world:entity()
+			target_entity = c_world.entity()
 			return target_entity
 		end)
 
@@ -1392,7 +1392,7 @@ TEST("custom ids", function()
 			table.insert(callstack, 1)
 			if ctx.target(c_tags[1]) == target_entity then
 				table.insert(callstack, 3)
-				return c_world:entity()
+				return c_world.entity()
 			else
 				error "invalid target"
 			end
@@ -1403,12 +1403,12 @@ TEST("custom ids", function()
 		client:register_custom_id(target_custom)
 		server:register_custom_id(target_custom)
 
-		local s_target = s_world:entity()
+		local s_target = s_world.entity()
 		server:set_custom(s_target, target_custom)
 		server:set_networked(s_target)
 
-		local s_entity = s_world:entity()
-		s_world:add(s_entity, jecs.pair(s_tags[1], s_target))
+		local s_entity = s_world.entity()
+		s_world.add(s_entity, pepecs.pair(s_tags[1], s_target))
 		server:set_custom(s_entity, custom)
 		server:set_relation(s_entity, s_tags[1])
 		server:set_networked(s_entity)
@@ -1421,11 +1421,11 @@ TEST("custom ids", function()
 end)
 
 TEST("server -> client replication", function()
-	local world: jecs.World = nil :: any
+	local world: pepecs.World = nil :: any
 	local server: replecs.Server = nil :: any
 
 	local function PRE()
-		world = jecs.world()
+		world = pepecs.world()
 		server = replecs.create_server(world)
 	end
 
@@ -1433,58 +1433,58 @@ TEST("server -> client replication", function()
 		server:destroy()
 	end
 
-	local function client_entity(member: MemberData, server_entity: jecs.Entity): jecs.Entity?
+	local function client_entity(member: MemberData, server_entity: pepecs.Entity): pepecs.Entity?
 		local entity = member.client.server_ids[server_entity :: any]
-		if entity and member.world:contains(entity) then
+		if entity and member.world.exists(entity) then
 			return entity
 		end
 		return nil
 	end
 
-	local function client_component(member: MemberData, server_entity: jecs.Entity, component_index: number)
+	local function client_component(member: MemberData, server_entity: pepecs.Entity, component_index: number)
 		local component = member.components[component_index]
 		local entity = client_entity(member, server_entity)
 		if entity then
-			return member.world:get(entity, component)
+			return member.world.get(entity, component)
 		end
 		return nil
 	end
-	local function client_has_component(member: MemberData, server_entity: jecs.Entity, component_index: number)
+	local function client_has_component(member: MemberData, server_entity: pepecs.Entity, component_index: number)
 		local component = member.components[component_index]
 		local entity = client_entity(member, server_entity)
 		if entity then
-			return member.world:has(entity, component)
+			return member.world.has(entity, component)
 		end
 		return false
 	end
-	local function client_tag(member: MemberData, server_entity: jecs.Entity, tag_index: number): boolean?
+	local function client_tag(member: MemberData, server_entity: pepecs.Entity, tag_index: number): boolean?
 		local tag = member.tags[tag_index]
 		local entity = client_entity(member, server_entity)
 		if entity then
-			return member.world:has(entity, tag)
+			return member.world.has(entity, tag)
 		end
 		return false
 	end
 
 	local function client_relation_value(
 		member: MemberData,
-		server_entity: jecs.Entity,
+		server_entity: pepecs.Entity,
 		relation_index: number,
-		target_server: jecs.Entity
+		target_server: pepecs.Entity
 	): any?
 		local relation = member.components[relation_index]
 		local target = client_entity(member, target_server)
 
 		local entity = client_entity(member, server_entity)
 		if entity and target then
-			return member.world:get(entity, jecs.pair(relation, target))
+			return member.world.get(entity, pepecs.pair(relation, target))
 		end
 		return nil
 	end
 
 	local function client_pair_value(
 		member: MemberData,
-		server_entity: jecs.Entity,
+		server_entity: pepecs.Entity,
 		relation_index: number,
 		target_index: number
 	): any?
@@ -1493,30 +1493,30 @@ TEST("server -> client replication", function()
 
 		local entity = client_entity(member, server_entity)
 		if entity and target then
-			return member.world:get(entity, jecs.pair(relation, target))
+			return member.world.get(entity, pepecs.pair(relation, target))
 		end
 		return nil
 	end
 
 	local function client_relation(
 		member: MemberData,
-		server_entity: jecs.Entity,
+		server_entity: pepecs.Entity,
 		relation_index: number,
-		target_server: jecs.Entity
+		target_server: pepecs.Entity
 	): boolean?
 		local relation = member.tags[relation_index]
 		local target = client_entity(member, target_server)
 
 		local entity = client_entity(member, server_entity)
 		if entity and target then
-			return member.world:has(entity, jecs.pair(relation, target))
+			return member.world.has(entity, pepecs.pair(relation, target))
 		end
 		return false
 	end
 
 	local function client_pair(
 		member: MemberData,
-		server_entity: jecs.Entity,
+		server_entity: pepecs.Entity,
 		relation_index: number,
 		target_index: number
 	): boolean?
@@ -1525,21 +1525,21 @@ TEST("server -> client replication", function()
 
 		local entity = client_entity(member, server_entity)
 		if entity and target then
-			return member.world:has(entity, jecs.pair(relation, target))
+			return member.world.has(entity, pepecs.pair(relation, target))
 		end
 		return nil
 	end
 
 	local function client_global_pair(
 		member: MemberData,
-		server_entity: jecs.Entity,
-		relation: jecs.Entity,
-		target_server: jecs.Entity
+		server_entity: pepecs.Entity,
+		relation: pepecs.Entity,
+		target_server: pepecs.Entity
 	): boolean
 		local target = client_entity(member, target_server)
 		local entity = client_entity(member, server_entity)
 		if entity and target then
-			return member.world:has(entity, jecs.pair(relation, target))
+			return member.world.has(entity, pepecs.pair(relation, target))
 		end
 		return false
 	end
@@ -1552,7 +1552,7 @@ TEST("server -> client replication", function()
 		local c_tags = {}
 
 		for i = 1, (count or 3) do
-			local new_world = jecs.world()
+			local new_world = pepecs.world()
 			local components = create_test_components(new_world)
 			local tags = create_test_tags(new_world)
 			local replicator = replecs.create_client(new_world)
@@ -1598,17 +1598,17 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
 		server:set_networked(entity1)
 
 		server:set_reliable(entity1, components[1])
-		world:set(entity1, components[1], "foo")
+		world.set(entity1, components[1], "foo")
 
 		server:set_networked(entity2)
 		server:set_reliable(entity2, components[2])
-		world:set(entity2, components[2], "bar")
+		world.set(entity2, components[2], "bar")
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1638,16 +1638,16 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
 		server:set_networked(entity1)
 		server:set_reliable(entity1, tags[1])
-		world:add(entity1, tags[1])
+		world.add(entity1, tags[1])
 
 		server:set_networked(entity2)
 		server:set_reliable(entity2, tags[2])
-		world:add(entity2, tags[2])
+		world.add(entity2, tags[2])
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1678,20 +1678,20 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
 		server:set_networked(entity1)
 		server:set_networked(entity2)
 
-		server:set_pair(entity1, jecs.pair(tags[1], tags[2]))
-		world:add(entity1, jecs.pair(tags[1], tags[2]))
-		world:add(entity1, jecs.pair(tags[1], tags[3]))
+		server:set_pair(entity1, pepecs.pair(tags[1], tags[2]))
+		world.add(entity1, pepecs.pair(tags[1], tags[2]))
+		world.add(entity1, pepecs.pair(tags[1], tags[3]))
 
-		server:set_pair(entity2, jecs.pair(tags[2], tags[3]))
-		world:add(entity2, jecs.pair(tags[1], tags[2]))
-		world:add(entity1, jecs.pair(tags[2], tags[1]))
-		world:add(entity2, jecs.pair(tags[2], tags[3]))
+		server:set_pair(entity2, pepecs.pair(tags[2], tags[3]))
+		world.add(entity2, pepecs.pair(tags[1], tags[2]))
+		world.add(entity1, pepecs.pair(tags[2], tags[1]))
+		world.add(entity2, pepecs.pair(tags[2], tags[3]))
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1723,25 +1723,25 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
-		local target1 = world:entity()
-		local target2 = world:entity()
+		local target1 = world.entity()
+		local target2 = world.entity()
 
 		server:set_networked(entity1)
 		server:set_networked(entity2)
 		server:set_networked(target1)
 		server:set_networked(target2)
 
-		world:add(entity1, jecs.pair(tags[1], target1))
-		world:add(entity1, jecs.pair(tags[1], target2))
-		server:set_pair(entity1, jecs.pair(tags[1], target1))
+		world.add(entity1, pepecs.pair(tags[1], target1))
+		world.add(entity1, pepecs.pair(tags[1], target2))
+		server:set_pair(entity1, pepecs.pair(tags[1], target1))
 
-		world:add(entity2, jecs.pair(tags[1], target1))
-		world:add(entity2, jecs.pair(tags[2], target1))
-		world:add(entity2, jecs.pair(tags[2], target2))
-		server:set_pair(entity2, jecs.pair(tags[2], target2))
+		world.add(entity2, pepecs.pair(tags[1], target1))
+		world.add(entity2, pepecs.pair(tags[2], target1))
+		world.add(entity2, pepecs.pair(tags[2], target2))
+		server:set_pair(entity2, pepecs.pair(tags[2], target2))
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1773,20 +1773,20 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
 		server:set_networked(entity1)
 		server:set_networked(entity2)
 
-		world:set(entity1, jecs.pair(components[1], tags[1]), "yes")
-		world:set(entity1, jecs.pair(components[1], tags[2]), "no")
-		server:set_pair(entity1, jecs.pair(components[1], tags[1]))
+		world.set(entity1, pepecs.pair(components[1], tags[1]), "yes")
+		world.set(entity1, pepecs.pair(components[1], tags[2]), "no")
+		server:set_pair(entity1, pepecs.pair(components[1], tags[1]))
 
-		world:set(entity2, jecs.pair(components[1], tags[1]), "no")
-		world:set(entity2, jecs.pair(components[2], tags[1]), "no")
-		world:set(entity2, jecs.pair(components[2], tags[3]), "yes")
-		server:set_pair(entity2, jecs.pair(components[2], tags[3]))
+		world.set(entity2, pepecs.pair(components[1], tags[1]), "no")
+		world.set(entity2, pepecs.pair(components[2], tags[1]), "no")
+		world.set(entity2, pepecs.pair(components[2], tags[3]), "yes")
+		server:set_pair(entity2, pepecs.pair(components[2], tags[3]))
 
 		print("NETWORKED IDS", entity1, entity2)
 		print("STORAGE", server.storage)
@@ -1822,32 +1822,32 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
-		local target1 = world:entity()
+		local target1 = world.entity()
 		server:set_networked(target1)
-		local target2 = world:entity()
+		local target2 = world.entity()
 		server:set_networked(target2)
-		local target3 = world:entity()
+		local target3 = world.entity()
 		server:set_networked(target3)
-		local target4 = world:entity()
+		local target4 = world.entity()
 		server:set_networked(target4)
 
 		server:set_networked(entity1)
 		server:set_relation(entity1, tags[1])
-		server:set_relation(entity1, jecs.ChildOf)
+		server:set_relation(entity1, pepecs.ChildOf)
 
 		server:set_networked(entity2)
 		server:set_relation(entity2, tags[2])
 
-		world:add(entity1, jecs.pair(tags[1], target1))
-		world:add(entity1, jecs.pair(tags[1], target2))
-		world:add(entity1, jecs.pair(tags[1], target3))
-		world:add(entity1, jecs.pair(jecs.ChildOf, target3))
+		world.add(entity1, pepecs.pair(tags[1], target1))
+		world.add(entity1, pepecs.pair(tags[1], target2))
+		world.add(entity1, pepecs.pair(tags[1], target3))
+		world.add(entity1, pepecs.pair(pepecs.ChildOf, target3))
 
-		world:add(entity2, jecs.pair(tags[2], target3))
-		world:add(entity2, jecs.pair(tags[2], target4))
+		world.add(entity2, pepecs.pair(tags[2], target3))
+		world.add(entity2, pepecs.pair(tags[2], target4))
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1857,7 +1857,7 @@ TEST("server -> client replication", function()
 			CHECK(client_entity(member, entity2) ~= nil)
 
 			CHECK(client_relation(member, entity1, 1, target1) == true)
-			CHECK(client_global_pair(member, entity1, jecs.ChildOf, target3) == true)
+			CHECK(client_global_pair(member, entity1, pepecs.ChildOf, target3) == true)
 			CHECK(client_relation(member, entity1, 1, target2) == true)
 			CHECK(client_relation(member, entity1, 1, target3) == true)
 			CHECK(client_relation(member, entity2, 2, target3) == true)
@@ -1885,8 +1885,8 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
 		server:set_networked(
 			entity1,
@@ -1897,7 +1897,7 @@ TEST("server -> client replication", function()
 		)
 
 		server:set_reliable(entity1, components[1])
-		world:set(entity1, components[1], "foo")
+		world.set(entity1, components[1], "foo")
 
 		server:set_networked(
 			entity2,
@@ -1908,7 +1908,7 @@ TEST("server -> client replication", function()
 		)
 
 		server:set_reliable(entity2, components[2])
-		world:set(entity2, components[2], "bar")
+		world.set(entity2, components[2], "bar")
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -1944,8 +1944,8 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		local entity2 = world:entity()
+		local entity1 = world.entity()
+		local entity2 = world.entity()
 
 		server:set_networked(entity1)
 		server:set_reliable(
@@ -1957,7 +1957,7 @@ TEST("server -> client replication", function()
 				[members[3]] = true,
 			}
 		)
-		world:set(entity1, components[1], "foo")
+		world.set(entity1, components[1], "foo")
 
 		server:set_networked(entity2)
 		server:set_reliable(
@@ -1968,7 +1968,7 @@ TEST("server -> client replication", function()
 				[members[4]] = true,
 			}
 		)
-		world:set(entity2, components[2], "bar")
+		world.set(entity2, components[2], "bar")
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -2001,10 +2001,10 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
-		world:set(entity1, components[1], nil)
+		local entity1 = world.entity()
+		world.add(entity1, server.components.networked)
+		world.add(entity1, pepecs.pair(server.components.reliable, components[1]))
+		world.set(entity1, components[1], nil)
 
 		local buf, variants = server:get_full(members[1] :: any)
 		members[1].client:apply_full(buf, variants)
@@ -2034,21 +2034,21 @@ TEST("server -> client replication", function()
 		}
 
 		local components = create_test_components(world)
-		world:set(components[1], replecs.serdes, serdes)
-		--world:set(components[1], replecs.bytespan, 3)
+		world.set(components[1], replecs.serdes, serdes)
+		--world.set(components[1], replecs.bytespan, 3)
 		create_test_tags(world)
 		server:init()
 
 		local members = create_members_data(1)
-		members[1].world:set(members[1].components[1], replecs.serdes, serdes)
-		--members[1].world:set(members[1].components[1], replecs.bytespan, 3)
+		members[1].world.set(members[1].components[1], replecs.serdes, serdes)
+		--members[1].world.set(members[1].components[1], replecs.bytespan, 3)
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
-		world:set(entity1, components[1], vector.create(10, 20, 30))
+		local entity1 = world.entity()
+		world.add(entity1, server.components.networked)
+		world.add(entity1, pepecs.pair(server.components.reliable, components[1]))
+		world.set(entity1, components[1], vector.create(10, 20, 30))
 
 		local buf, variants = server:get_full(members[1] :: any)
 		members[1].client:apply_full(buf, variants)
@@ -2070,24 +2070,24 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
-		world:set(entity1, components[1], "one")
+		local entity1 = world.entity()
+		world.add(entity1, server.components.networked)
+		world.add(entity1, pepecs.pair(server.components.reliable, components[1]))
+		world.set(entity1, components[1], "one")
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
 			member.client:apply_full(buf, variants)
 		end
 
-		world:set(entity1, components[1], "two")
+		world.set(entity1, components[1], "two")
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
 			CHECK(client_component(member, entity1, 1) == "two")
 		end
-		world:set(entity1, components[1], "three")
-		world:set(entity1, components[1], "four")
+		world.set(entity1, components[1], "three")
+		world.set(entity1, components[1], "four")
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2109,25 +2109,25 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[1]), nil)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[2]), nil)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[3]), nil)
+		local entity1 = world.entity()
+		world.add(entity1, server.components.networked)
+		world.set(entity1, pepecs.pair(server.components.reliable, tags[1]), nil)
+		world.set(entity1, pepecs.pair(server.components.reliable, tags[2]), nil)
+		world.set(entity1, pepecs.pair(server.components.reliable, tags[3]), nil)
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
 			member.client:apply_full(buf, variants)
 		end
 
-		world:add(entity1, tags[1])
+		world.add(entity1, tags[1])
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
 			CHECK(client_tag(member, entity1, 1) == true)
 			CHECK(client_tag(member, entity1, 2) == false)
 		end
-		world:add(entity1, tags[2])
+		world.add(entity1, tags[2])
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2135,7 +2135,7 @@ TEST("server -> client replication", function()
 			CHECK(client_tag(member, entity1, 2) == true)
 		end
 
-		world:remove(entity1, tags[1])
+		world.remove(entity1, tags[1])
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2143,9 +2143,9 @@ TEST("server -> client replication", function()
 			CHECK(client_tag(member, entity1, 2) == true)
 		end
 
-		world:remove(entity1, tags[2])
+		world.remove(entity1, tags[2])
 
-		world:add(entity1, tags[3])
+		world.add(entity1, tags[3])
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2167,8 +2167,8 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity = world:entity()
-		world:add(entity, server.components.networked)
+		local entity = world.entity()
+		world.add(entity, server.components.networked)
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -2181,10 +2181,10 @@ TEST("server -> client replication", function()
 		end
 
 		for _ = 1, 10 do
-			local target = world:entity()
-			world:add(target, server.components.networked)
-			world:add(target, jecs.pair(replecs.relation, jecs.ChildOf))
-			world:add(target, jecs.pair(jecs.ChildOf, entity))
+			local target = world.entity()
+			world.add(target, server.components.networked)
+			world.add(target, pepecs.pair(replecs.relation, pepecs.ChildOf))
+			world.add(target, pepecs.pair(pepecs.ChildOf, entity))
 		end
 
 		POST()
@@ -2201,19 +2201,19 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
+		local entity1 = world.entity()
 
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.relation, tags[1]))
-		world:add(entity1, jecs.pair(server.components.relation, jecs.ChildOf))
+		world.add(entity1, server.components.networked)
+		world.add(entity1, pepecs.pair(server.components.relation, tags[1]))
+		world.add(entity1, pepecs.pair(server.components.relation, pepecs.ChildOf))
 
-		local r1 = world:entity()
-		local r2 = world:entity()
-		local r3 = world:entity()
-		world:add(r1, server.components.networked)
-		world:add(r2, server.components.networked)
-		world:add(r3, server.components.networked)
-		world:add(entity1, jecs.pair(tags[1], r1))
+		local r1 = world.entity()
+		local r2 = world.entity()
+		local r3 = world.entity()
+		world.add(r1, server.components.networked)
+		world.add(r2, server.components.networked)
+		world.add(r3, server.components.networked)
+		world.add(entity1, pepecs.pair(tags[1], r1))
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -2227,8 +2227,8 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 1, r2) == false)
 			CHECK(client_relation(member, entity1, 1, r2) == false)
 		end
-		world:add(entity1, jecs.pair(tags[1], r2))
-		world:add(entity1, jecs.pair(jecs.ChildOf, r2))
+		world.add(entity1, pepecs.pair(tags[1], r2))
+		world.add(entity1, pepecs.pair(pepecs.ChildOf, r2))
 
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
@@ -2236,10 +2236,10 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 1, r1) == true)
 			CHECK(client_relation(member, entity1, 1, r2) == true)
 			CHECK(client_relation(member, entity1, 1, r3) == false)
-			CHECK(client_global_pair(member, entity1, jecs.ChildOf, r2) == true)
+			CHECK(client_global_pair(member, entity1, pepecs.ChildOf, r2) == true)
 		end
-		world:remove(entity1, jecs.pair(tags[1], r1))
-		world:add(entity1, jecs.pair(tags[1], r3))
+		world.remove(entity1, pepecs.pair(tags[1], r1))
+		world.add(entity1, pepecs.pair(tags[1], r3))
 
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
@@ -2264,24 +2264,24 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
-		world:set(entity1, components[1], "foo")
+		local entity1 = world.entity()
+		world.add(entity1, server.components.networked)
+		world.add(entity1, pepecs.pair(server.components.reliable, components[1]))
+		world.set(entity1, components[1], "foo")
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
 			member.client:apply_full(buf, variants)
 		end
-		world:remove(entity1, server.components.networked)
+		world.remove(entity1, server.components.networked)
 
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
 			CHECK(client_entity(member, entity1) == nil)
 		end
-		world:add(entity1, server.components.networked)
-		world:remove(entity1, server.components.networked)
+		world.add(entity1, server.components.networked)
+		world.remove(entity1, server.components.networked)
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2303,21 +2303,21 @@ TEST("server -> client replication", function()
 		activate_members(members)
 		init_member_clients(members)
 
-		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
-		world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
-		world:add(entity1, jecs.pair(server.components.relation, tags[2]))
+		local entity1 = world.entity()
+		world.add(entity1, server.components.networked)
+		world.add(entity1, pepecs.pair(server.components.reliable, components[1]))
+		world.add(entity1, pepecs.pair(server.components.reliable, tags[1]))
+		world.add(entity1, pepecs.pair(server.components.relation, tags[2]))
 
-		local r1 = world:entity()
-		local r2 = world:entity()
-		world:add(r1, server.components.networked)
-		world:add(r2, server.components.networked)
+		local r1 = world.entity()
+		local r2 = world.entity()
+		world.add(r1, server.components.networked)
+		world.add(r2, server.components.networked)
 
-		world:set(entity1, components[1], "foo")
-		world:add(entity1, tags[1])
-		world:add(entity1, jecs.pair(tags[2], r1))
-		world:add(entity1, jecs.pair(tags[2], r2))
+		world.set(entity1, components[1], "foo")
+		world.add(entity1, tags[1])
+		world.add(entity1, pepecs.pair(tags[2], r1))
+		world.add(entity1, pepecs.pair(tags[2], r2))
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -2328,7 +2328,7 @@ TEST("server -> client replication", function()
 			member.client:apply_updates(buf, changes)
 		end
 
-		world:remove(entity1, jecs.pair(server.components.reliable, components[1]))
+		world.remove(entity1, pepecs.pair(server.components.reliable, components[1]))
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2339,7 +2339,7 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 2, r2) == true)
 		end
 
-		world:remove(entity1, jecs.pair(server.components.reliable, tags[1]))
+		world.remove(entity1, pepecs.pair(server.components.reliable, tags[1]))
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)
@@ -2350,7 +2350,7 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 2, r2) == true)
 		end
 
-		world:remove(entity1, jecs.pair(server.components.relation, tags[2]))
+		world.remove(entity1, pepecs.pair(server.components.relation, tags[2]))
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
 			member.client:apply_updates(buf, changes)

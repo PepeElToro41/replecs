@@ -1,4 +1,4 @@
-local jecs = require "./jecs"
+local pepecs = require "./pepecs"
 local common = require "@self/common"
 local types = require "@self/types"
 local utils = require "@self/utils"
@@ -49,8 +49,8 @@ if PREREGISTRATION then
 	utils.create_components(common.preregister_tag, common.preregister_component, components)
 	utils.add_component_names(components, common.add_preregistered_name)
 
-	jecs.meta(components.custom, jecs.Exclusive)
-	jecs.meta(components.global, jecs.Exclusive)
+	pepecs.meta(components.custom, pepecs.Exclusive)
+	pepecs.meta(components.global, pepecs.Exclusive)
 end
 
 local COMPONENTS = if PREREGISTRATION then replecs :: Replecs else nil

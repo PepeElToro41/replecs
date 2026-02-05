@@ -9,7 +9,7 @@ roblox.toml
 **/luau_packages
 **/roblox_packages
 Packages/
-.pesde
+**/.pesde
 
 **/sourcemap.json
 **/darklua-sourcemap.json
