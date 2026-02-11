@@ -81,6 +81,14 @@ jobs:
       - name: Install Rokit
         uses: CompeyDev/setup-rokit@v0.1.2
 
+      - name: Setup Pesde
+        uses: lumin-org/setup-pesde@v0.4.1
+        with:
+          version: v0.7.0-rc.7+registry.0.2.3-rc.3
+
+      - name: Install Packages
+        run: pesde install
+
       - name: Darklua Process
         run: lune run .lune/ts-process.luau ${{ github.ref_name }}
 
