@@ -116,9 +116,13 @@ function format_value(value: any, depth: number, indent: number, visited: any): 
 					table.insert(parts, indent_str .. val_str)
 				end
 			else
-				local key_str = k
+				local key_str: any = k
 				if is_valid_identifier(k :: any) then
 					key_str = "[" .. format_value(k, depth, indent + 1, visited) .. "]"
+				else
+					if typeof(key_str) ~= "string" then
+						key_str = "[" .. color.magenta(tostring(key_str)) .. "]"
+					end
 				end
 				if is_single then
 					if val_t == "table" then

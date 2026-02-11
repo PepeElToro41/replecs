@@ -1,9 +1,10 @@
 local replecs = require "@replecs"
 local player_masking = require "@replecs/masking"
 local utils = require "@replecs/utils"
+local testutils = require "./utils"
 
 local pepecs = require "@pkg/pepecs"
-local testkit = require "./testkit"
+local testlib = require "./testlib"
 
 type Entity<T = any> = pepecs.Entity<T>
 
@@ -14,47 +15,45 @@ type MemberData = {
 	tags: { pepecs.Entity },
 }
 
-local it = testkit.test()
-local TEST, CASE = it.TEST, it.CASE
-local CHECK, FINISH = it.CHECK, it.FINISH
-local SKIP, FOCUS = it.SKIP, it.FOCUS
-local CHECK_EXPECT_ERR = it.CHECK_EXPECT_ERR
+local plan = testlib.plan()
+local expect = testlib.expect
 
-local deep_eq = testkit.deq
+local TEST, CASE = plan.TEST, plan.CASE
+local SKIP, FOCUS = plan.SKIP, plan.FOCUS
+local BEFORE_EACH, AFTER_EACH = plan.BEFORE_EACH, plan.AFTER_EACH
+local CHECK = assert
 
 TEST("bitmasking", function()
-	do
-		CASE "should automatically expand"
+	CASE("should automatically expand", function()
 		local mask = utils.bitmask.create(10)
 		mask:set(5)
 
-		CHECK(mask:get(5) == true)
+		expect(mask:get(5)).to.be.ok()
 		mask:set(100)
-		CHECK(mask:get(100) == true)
-		CHECK(mask:get(32) == false)
-		CHECK(mask:get(5) == true)
-	end
+		expect(mask:get(100)).to.be.ok()
+		expect(mask:get(32)).never.to.be.ok()
+		expect(mask:get(5)).to.be.ok()
+	end)
 
-	do
-		CASE "should get and set bits"
+	CASE("should get and set bits", function()
 		local mask = utils.bitmask.create(100)
 		mask:set(5)
 		mask:set(33)
 		mask:set(65)
 
-		CHECK(mask:get(5) == true)
-		CHECK(mask:get(33) == true)
-		CHECK(mask:get(65) == true)
-		CHECK(mask:get(10) == false)
+		expect(mask:get(5)).to.be.ok()
+		expect(mask:get(33)).to.be.ok()
+		expect(mask:get(65)).to.be.ok()
+		expect(mask:get(10)).never.to.be.ok()
 
 		mask:clear(33)
-		CHECK(mask:get(5) == true)
-		CHECK(mask:get(33) == false)
-		CHECK(mask:get(65) == true)
-	end
 
-	do
-		CASE "should correctly shift bits"
+		expect(mask:get(5)).to.be.ok()
+		expect(mask:get(33)).never.to.be.ok()
+		expect(mask:get(65)).to.be.ok()
+	end)
+
+	CASE("should correctly shift bits", function()
 		local mask = utils.bitmask.create(100)
 		mask:set(5)
 		mask:set(40)
@@ -63,19 +62,18 @@ TEST("bitmasking", function()
 		local left = mask:lshift(3)
 		local right = mask:rshift(2)
 
-		CHECK(left:get(5 + 3) == true)
-		CHECK(left:get(40 + 3) == true)
-		CHECK(left:get(65 + 3) == true)
-		CHECK(left:get(65) == false)
+		expect(left:get(5 + 3)).to.be.ok()
+		expect(left:get(40 + 3)).to.be.ok()
+		expect(left:get(65 + 3)).to.be.ok()
+		expect(left:get(65)).never.to.be.ok()
 
-		CHECK(right:get(5 - 2) == true)
-		CHECK(right:get(40 - 2) == true)
-		CHECK(right:get(65 - 2) == true)
-		CHECK(right:get(65) == false)
-	end
+		expect(right:get(5 - 2)).to.be.ok()
+		expect(right:get(40 - 2)).to.be.ok()
+		expect(right:get(65 - 2)).to.be.ok()
+		expect(right:get(65)).never.to.be.ok()
+	end)
 
-	do
-		CASE "should correctly perform bitwise operations"
+	CASE("should correctly perform bitwise operations", function()
 		local mask1 = utils.bitmask.create(100)
 		local mask2 = utils.bitmask.create(100)
 
@@ -114,10 +112,9 @@ TEST("bitmasking", function()
 		CHECK(bxor:get(50) == true)
 		CHECK(bxor:get(65) == true)
 		CHECK(bxor:get(100) == false)
-	end
+	end)
 
-	do
-		CASE "should return same string, independant of buffer capacity"
+	CASE("should return same string, independant of buffer capacity", function()
 		local small = utils.bitmask.create(32)
 		local medium = utils.bitmask.create(128)
 		local big = utils.bitmask.create(1024)
@@ -134,7 +131,7 @@ TEST("bitmasking", function()
 		CHECK(small:tostring() == big:tostring())
 		CHECK(medium:tostring() == big:tostring())
 		CHECK(empty:tostring() == "")
-	end
+	end)
 end)
 
 local function register_members(masking: player_masking.MaskingController)
@@ -167,14 +164,11 @@ end
 TEST("mask generators", function()
 	local masking: player_masking.MaskingController = nil :: any
 
-	local function PRE()
+	BEFORE_EACH(function()
 		masking = player_masking.create()
-	end
+	end)
 
-	do
-		CASE "should compute an include generator"
-		PRE()
-
+	CASE("should compute an include generator", function()
 		local m0, m1, m2, m3 = register_members(masking)
 		local generator = masking:create_include_generator {
 			[m0] = true,
@@ -194,12 +188,9 @@ TEST("mask generators", function()
 		masking:activate_client(m0)
 		check_mask = mask_hash { 0, 3 }
 		masking:activate_client(m3)
-	end
+	end)
 
-	do
-		CASE "should compute an exclude generator"
-		PRE()
-
+	CASE("should compute an exclude generator", function()
 		local m0, m1, m2, m3 = register_members(masking)
 		local generator = masking:create_exclude_generator {
 			[m2] = true,
@@ -219,12 +210,9 @@ TEST("mask generators", function()
 		masking:activate_client(m2)
 		masking:activate_client(m1)
 		CHECK(called == 4)
-	end
+	end)
 
-	do
-		CASE "should destroy a generator"
-		PRE()
-
+	CASE("should destroy a generator", function()
 		local m0, m1, m2, m3 = register_members(masking)
 
 		local generator = masking:create_exclude_generator {
@@ -240,19 +228,19 @@ TEST("mask generators", function()
 		masking:activate_client(m2)
 		masking:activate_client(m3)
 		CHECK(called == 1)
-	end
+	end)
 end)
 
 TEST("member bitmasking", function()
 	local masking: player_masking.MaskingController = nil :: any
 	local world: pepecs.World = nil :: any
 
-	local function PRE()
+	BEFORE_EACH(function()
 		masking = player_masking.create() :: player_masking.MaskingController
 		world = pepecs.world()
-	end
+	end)
 
-	local function POST()
+	local function SANITY_CHECKS()
 		-- heuristic sanity checks
 		local entity_masks: { [pepecs.Entity]: boolean } = {}
 
@@ -318,6 +306,7 @@ TEST("member bitmasking", function()
 			end
 		end
 	end
+
 	local function check_component_mask(entity: pepecs.Entity, component: pepecs.Entity, hash: string)
 		local storage = masking.storages[hash]
 		local lookup = masking.lookups.entities[entity].filtered_components[1][component]
@@ -403,10 +392,7 @@ TEST("member bitmasking", function()
 		end
 	end
 
-	do
-		CASE "should use an entity filter"
-		PRE()
-
+	CASE("should use an entity filter", function()
 		local member0, member1, member2 = register_members(masking)
 		local entity = world.entity()
 		masking:start_entity(entity, {
@@ -424,13 +410,11 @@ TEST("member bitmasking", function()
 		})
 		check_entity_mask(entity2, mask_hash { 1, 3 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 	--FOCUS()
-	do
-		CASE "should change an entity filter"
-		PRE()
 
+	CASE("should change an entity filter", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -448,13 +432,10 @@ TEST("member bitmasking", function()
 		masking:set_entity(entity, nil)
 		check_entity_mask(entity, mask_hash { 0, 1, 2, 3 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should use the replicated filter with no explicit filter"
-		PRE()
-
+	CASE("should use the replicated filter with no explicit filter", function()
 		local member0, member1, member2, member3 = register_members(masking)
 		local entity = world.entity()
 		masking:start_entity(entity, nil)
@@ -466,13 +447,10 @@ TEST("member bitmasking", function()
 		masking:activate_client(member3)
 		check_entity_mask(entity, mask_hash { 0, 1, 3 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should use a component filter"
-		PRE()
-
+	CASE("should use a component filter", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -489,11 +467,10 @@ TEST("member bitmasking", function()
 		})
 		check_component_mask(entity, component, mask_hash { 0, 1 })
 
-		POST()
-	end
-	do
-		CASE "should use a single member filter for entity"
-		PRE()
+		SANITY_CHECKS()
+	end)
+
+	CASE("should use a single member filter for entity", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -507,11 +484,10 @@ TEST("member bitmasking", function()
 		})
 		check_entity_mask(entity, mask_hash { 0, 1 })
 
-		POST()
-	end
-	do
-		CASE "should a single member filter for component"
-		PRE()
+		SANITY_CHECKS()
+	end)
+
+	CASE("should a single member filter for component", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -527,12 +503,10 @@ TEST("member bitmasking", function()
 		check_component_mask(entity, component, mask_hash { 1 })
 		masking:set_entity(entity, member2)
 		check_component_mask(entity, component, "")
-		POST()
-	end
-	do
-		CASE "should change a component filter"
-		PRE()
+		SANITY_CHECKS()
+	end)
 
+	CASE("should change a component filter", function()
 		local member0, member1, member2, member3 = register_members(masking)
 		active_all_members(masking)
 
@@ -558,11 +532,10 @@ TEST("member bitmasking", function()
 		})
 		check_component_mask(entity, component, mask_hash { 0, 1, 3 })
 
-		POST()
-	end
-	do
-		CASE "should use the entity filter if no component filter is given"
-		PRE()
+		SANITY_CHECKS()
+	end)
+
+	CASE("should use the entity filter if no component filter is given", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -582,13 +555,10 @@ TEST("member bitmasking", function()
 		masking:set_entity(entity, nil)
 		check_component_is_merged(entity, component, mask_hash { 0, 1, 2, 3 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should run band in the entity bitmask for a component filter"
-		PRE()
-
+	CASE("should run band in the entity bitmask for a component filter", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -611,13 +581,10 @@ TEST("member bitmasking", function()
 		})
 		check_component_mask(entity, component, mask_hash { 0, 1 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should postpone a component if entity is not active"
-		PRE()
-
+	CASE("should postpone a component if entity is not active", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -640,14 +607,8 @@ TEST("member bitmasking", function()
 			[member2] = true,
 		})
 		check_component_mask(entity, component, mask_hash { 0 })
-
-		POST()
-	end
-
-	do
-		CASE "should merge component with entity when the filter gets removed"
-		PRE()
-
+	end)
+	CASE("should merge component with entity when the filter gets removed", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -667,13 +628,10 @@ TEST("member bitmasking", function()
 		masking:set_component(entity, component, 1, nil)
 		check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should separate a component when a filter gets added when it wasnt added"
-		PRE()
-
+	CASE("should separate a component when a filter gets added when it wasnt added", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -701,14 +659,9 @@ TEST("member bitmasking", function()
 			[member2] = true,
 		})
 		check_component_mask(entity, component, mask_hash { 0, 1, 2 })
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should merge components and entities when they share same mask"
-		PRE()
-
+	CASE("should merge components and entities when they share same mask", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -733,13 +686,10 @@ TEST("member bitmasking", function()
 		check_entity_mask(entity, mask_hash { 0, 1, 2 })
 		check_component_mask(entity, component, mask_hash { 0, 1, 2 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should dissect components from entities when they no longer share same mask"
-		PRE()
-
+	CASE("should dissect components from entities when they no longer share same mask", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -781,13 +731,10 @@ TEST("member bitmasking", function()
 		check_entity_mask(entity, mask_hash { 0, 1, 2 })
 		check_component_mask(entity, component, mask_hash { 0, 1 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should stop an entity"
-		PRE()
-
+	CASE("should stop an entity", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -808,13 +755,10 @@ TEST("member bitmasking", function()
 		check_component_is_not_active(entity, component)
 		check_entity_is_not_active(entity)
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should stop a component"
-		PRE()
-
+	CASE("should stop a component", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 		local entity = world.entity()
@@ -844,13 +788,10 @@ TEST("member bitmasking", function()
 		check_component_is_not_active(entity, component)
 		check_entity_mask(entity, mask_hash { 0, 1, 2 })
 
-		POST()
-	end
+		SANITY_CHECKS(SANITY_CHECKS)
+	end)
 
-	do
-		CASE "should postpone a component with no filter"
-		PRE()
-
+	CASE("should postpone a component with no filter", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -869,13 +810,10 @@ TEST("member bitmasking", function()
 		check_component_is_merged(entity, component1, mask_hash { 0, 1, 2 })
 		check_component_is_merged(entity, component2, mask_hash { 0, 1, 2 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should be able to apply the same filter to an entity"
-		PRE()
-
+	CASE("should be able to apply the same filter to an entity", function()
 		local member0, member1 = register_members(masking)
 		active_all_members(masking)
 
@@ -897,13 +835,10 @@ TEST("member bitmasking", function()
 		check_entity_mask(entity, mask_hash { 0, 1 })
 		check_component_mask(entity, component, mask_hash { 0, 1 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 
-	do
-		CASE "should be able to apply the same filter to a component"
-		PRE()
-
+	CASE("should be able to apply the same filter to a component", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -929,11 +864,9 @@ TEST("member bitmasking", function()
 		masking:set_component(entity, component, 1, nil)
 		check_component_is_merged(entity, component, mask_hash { 0, 1, 2 })
 
-		POST()
-	end
-	do
-		CASE "should merge two masks correctly"
-		PRE()
+		SANITY_CHECKS()
+	end)
+	CASE("should merge two masks correctly", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -978,12 +911,9 @@ TEST("member bitmasking", function()
 		check_component_mask(entity2, component1, compacted_hash2)
 		check_component_mask(entity1, component2, compacted_hash2)
 
-		POST()
-	end
-	--FOCUS()
-	do
-		CASE "should postpone all components when an entity stops"
-		PRE()
+		SANITY_CHECKS()
+	end)
+	CASE("should postpone all components when an entity stops", function()
 		local member0, member1, member2, member3 = register_members(masking)
 		active_all_members(masking)
 		local entity = world.entity()
@@ -1023,11 +953,9 @@ TEST("member bitmasking", function()
 		check_component_mask(entity, component3, mask_hash { 0, 1, 2 })
 		check_component_mask(entity, component4, mask_hash { 0 })
 
-		POST()
-	end
-	do
-		CASE "it should allow aliases to be used"
-		PRE()
+		SANITY_CHECKS()
+	end)
+	CASE("it should allow aliases to be used", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 		local entity = world.entity()
@@ -1052,38 +980,28 @@ TEST("member bitmasking", function()
 		check_entity_mask(entity, mask_hash { 0, 2, 3 })
 		check_component_mask(entity, component, mask_hash { 2, 3 })
 
-		POST()
-	end
+		SANITY_CHECKS()
+	end)
 end)
 
 TEST("storage moving", function()
-	do
-		CASE "it should move component additions"
-	end
-	do
-		CASE "it should move component changes"
-	end
-	do
-		CASE "it should move component removals"
-	end
-	do
-		CASE "it should move tag changes"
-	end
-	do
-		CASE "it should move tag removals"
-	end
-	do
-		CASE "it should move relation changes"
-	end
-	do
-		CASE "it should move relation removals"
-	end
-	do
-		CASE "it should move relation value changes"
-	end
-	do
-		CASE "it should move relation value removals"
-	end
+	CASE("it should move component additions", function() end)
+
+	CASE("it should move component changes", function() end)
+
+	CASE("it should move component removals", function() end)
+
+	CASE("it should move tag changes", function() end)
+
+	CASE("it should move tag removals", function() end)
+
+	CASE("it should move relation changes", function() end)
+
+	CASE("it should move relation removals", function() end)
+
+	CASE("it should move relation value changes", function() end)
+
+	CASE("it should move relation value removals", function() end)
 end)
 
 TEST("bitmask deltas", function() end)
@@ -1128,21 +1046,18 @@ TEST("custom ids", function()
 	local server: replecs.Server = nil :: any
 	local client: replecs.Client = nil :: any
 
-	local function PRE()
+	BEFORE_EACH(function()
 		s_world = pepecs.world()
 		c_world = pepecs.world()
 		server = replecs.create_server(s_world)
 		client = replecs.create_client(c_world)
-	end
-	local function POST()
+	end)
+	AFTER_EACH(function()
 		server:destroy()
 		client:destroy()
-	end
+	end)
 
-	do
-		CASE "should use custom ids"
-		PRE()
-
+	CASE("should use custom ids", function()
 		local created_entity: pepecs.Entity? = nil
 		local called = 0
 
@@ -1174,13 +1089,9 @@ TEST("custom ids", function()
 		CHECK(called == 1)
 		CHECK(client:get_client_entity(e1 :: any) == created_entity)
 		CHECK(client:get_client_entity(e2 :: any) ~= created_entity)
+	end)
 
-		POST()
-	end
-	do
-		CASE "should find component in buffer"
-		PRE()
-
+	CASE("should find component in buffer", function()
 		local foo_entity: Entity? = nil
 		local baz_entity: Entity? = nil
 
@@ -1228,12 +1139,9 @@ TEST("custom ids", function()
 
 		CHECK(client:get_client_entity(s_foo :: any) == foo_entity)
 		CHECK(client:get_client_entity(s_baz :: any) == baz_entity)
-		POST()
-	end
-	do
-		CASE "should add targets of customids to buffers"
-		PRE()
+	end)
 
+	CASE("should add targets of customids to buffers", function()
 		local created_entity: Entity
 
 		local s_tags = create_test_tags(s_world)
@@ -1268,15 +1176,12 @@ TEST("custom ids", function()
 		client:apply_full(buf, variants)
 
 		local c_entity = client:get_client_entity(s_entity :: any) :: Entity
-		CHECK(c_entity ~= nil)
+		expect(c_entity).to.be.ok()
 
 		CHECK(c_world.has(c_entity, pepecs.pair(c_tags[1], created_entity)))
-		POST()
-	end
-	do
-		CASE "should recursively process custom id targets when applying buffers"
-		PRE()
+	end)
 
+	CASE("should recursively process custom id targets when applying buffers", function()
 		local created_target: Entity
 		local created_custom: Entity
 
@@ -1323,12 +1228,9 @@ TEST("custom ids", function()
 
 		CHECK(c_entity == created_custom)
 		CHECK(c_world.target(c_entity, c_tags[1]) == created_target)
-		POST()
-	end
-	do
-		CASE "should get target from context"
-		PRE()
+	end)
 
+	CASE("should get target from context", function()
 		local s_tags = create_test_tags(s_world)
 		local c_tags = create_test_tags(c_world)
 
@@ -1362,12 +1264,9 @@ TEST("custom ids", function()
 
 		local buf, variants = server:get_full(plr)
 		client:apply_full(buf, variants)
-		POST()
-	end
-	do
-		CASE "should get unprocessed customid target from context"
-		PRE()
+	end)
 
+	CASE("should get unprocessed customid target from context", function()
 		local s_tags = create_test_tags(s_world)
 		local c_tags = create_test_tags(c_world)
 
@@ -1415,23 +1314,22 @@ TEST("custom ids", function()
 
 		local buf, variants = server:get_full(plr)
 		client:apply_full(buf, variants)
-		CHECK(deep_eq(callstack, { 1, 2, 3 }))
-		POST()
-	end
+		expect(callstack).to.equal { 1, 2, 3 }
+	end)
 end)
 
 TEST("server -> client replication", function()
 	local world: pepecs.World = nil :: any
 	local server: replecs.Server = nil :: any
 
-	local function PRE()
+	BEFORE_EACH(function()
 		world = pepecs.world()
 		server = replecs.create_server(world)
-	end
+	end)
 
-	local function POST()
+	AFTER_EACH(function()
 		server:destroy()
-	end
+	end)
 
 	local function client_entity(member: MemberData, server_entity: pepecs.Entity): pepecs.Entity?
 		local entity = member.client.server_ids[server_entity :: any]
@@ -1587,10 +1485,7 @@ TEST("server -> client replication", function()
 		end
 	end
 
-	do
-		CASE "should send full components to all players"
-		PRE()
-
+	CASE("should send full components to all players", function()
 		local components = create_test_components(world)
 		server:init()
 
@@ -1622,14 +1517,9 @@ TEST("server -> client replication", function()
 			CHECK(client_component(member, entity1, 2) == nil)
 			CHECK(client_component(member, entity2, 1) == nil)
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should send full tags to all players"
-		PRE()
-
+	CASE("should send full tags to all players", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -1662,14 +1552,9 @@ TEST("server -> client replication", function()
 			CHECK(client_tag(member, entity1, 2) == false)
 			CHECK(client_tag(member, entity2, 1) == false)
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should send full pairs with shared targets to all players"
-		PRE()
-
+	CASE("should send full pairs with shared targets to all players", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -1707,14 +1592,9 @@ TEST("server -> client replication", function()
 			CHECK(client_pair(member, entity2, 2, 1) == false)
 			CHECK(client_pair(member, entity2, 2, 3) == true)
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should send full pairs with networked targets to all players"
-		PRE()
-
+	CASE("should send full pairs with networked targets to all players", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -1757,14 +1637,9 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity2, 2, target1) == false)
 			CHECK(client_relation(member, entity2, 2, target2) == true)
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should send full pairs with values to all players"
-		PRE()
-
+	CASE("should send full pairs with values to all players", function()
 		local components = create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -1788,12 +1663,8 @@ TEST("server -> client replication", function()
 		world.set(entity2, pepecs.pair(components[2], tags[3]), "yes")
 		server:set_pair(entity2, pepecs.pair(components[2], tags[3]))
 
-		print("NETWORKED IDS", entity1, entity2)
-		print("STORAGE", server.storage)
-
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
-			print "GOT FULL"
 			member.client:apply_full(buf, variants)
 
 			print(client_entity(member, entity1) ~= nil)
@@ -1806,14 +1677,9 @@ TEST("server -> client replication", function()
 			print(client_pair_value(member, entity2, 2, 1) == nil)
 			print(client_pair_value(member, entity2, 2, 3) == "yes")
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should send full relations to all players"
-		PRE()
-
+	CASE("should send full relations to all players", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -1869,14 +1735,8 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity2, 1, target2) == false)
 			CHECK(client_relation(member, entity2, 1, target3) == false)
 		end
-
-		POST()
-	end
-
-	do
-		CASE "should send full entity to players in filter"
-		PRE()
-
+	end)
+	CASE("should send full entity to players in filter", function()
 		local components = create_test_components(world)
 		create_test_tags(world)
 		server:init()
@@ -1929,13 +1789,9 @@ TEST("server -> client replication", function()
 		CHECK(client_component(members[2], entity1, 1) == "foo")
 		CHECK(client_component(members[3], entity2, 2) == "bar")
 		CHECK(client_component(members[4], entity2, 2) == "bar")
+	end)
 
-		POST()
-	end
-	do
-		CASE "should send full entity with component filters"
-		PRE()
-
+	CASE("should send full entity with component filters", function()
 		local components = create_test_components(world)
 		create_test_tags(world)
 		server:init()
@@ -1986,13 +1842,9 @@ TEST("server -> client replication", function()
 
 		CHECK(client_component(members[3], entity2, 2) == "bar")
 		CHECK(client_component(members[4], entity2, 2) == "bar")
+	end)
 
-		POST()
-	end
-	do
-		CASE "should correctly send nil values in components"
-		PRE()
-
+	CASE("should correctly send nil values in components", function()
 		local components = create_test_components(world)
 		create_test_tags(world)
 		server:init()
@@ -2011,14 +1863,9 @@ TEST("server -> client replication", function()
 
 		CHECK(client_component(members[1], entity1, 1) == nil)
 		CHECK(client_has_component(members[1], entity1, 1) == true)
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should allow custom serdes for component values"
-		PRE()
-
+	CASE("should allow custom serdes for component values", function()
 		local serdes: replecs.Serdes = {
 			serialize = function(value: vector)
 				local buf = buffer.create(3)
@@ -2054,14 +1901,9 @@ TEST("server -> client replication", function()
 		members[1].client:apply_full(buf, variants)
 
 		CHECK(client_component(members[1], entity1, 1) == vector.create(30, 20, 10))
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should send component changes to all players"
-		PRE()
-
+	CASE("should send component changes to all players", function()
 		local components = create_test_components(world)
 		create_test_tags(world)
 		server:init()
@@ -2093,14 +1935,9 @@ TEST("server -> client replication", function()
 			member.client:apply_updates(buf, changes)
 			CHECK(client_component(member, entity1, 1) == "four")
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "shoud send tag changes to all players"
-		PRE()
-
+	CASE("should send tag changes to all players", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -2153,12 +1990,9 @@ TEST("server -> client replication", function()
 			CHECK(client_tag(member, entity1, 2) == false)
 			CHECK(client_tag(member, entity1, 3) == true)
 		end
+	end)
 
-		POST()
-	end
-	do
-		CASE "should send relation changes"
-		PRE()
+	CASE("should send relation changes", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -2186,13 +2020,9 @@ TEST("server -> client replication", function()
 			world.add(target, pepecs.pair(replecs.relation, pepecs.ChildOf))
 			world.add(target, pepecs.pair(pepecs.ChildOf, entity))
 		end
+	end)
 
-		POST()
-	end
-	do
-		CASE "should send relation changes to all players"
-		PRE()
-
+	CASE("should send relation changes to all players", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -2248,14 +2078,9 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 1, r2) == true)
 			CHECK(client_relation(member, entity1, 1, r3) == true)
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should remove entity when networked component is removed"
-		PRE()
-
+	CASE("should remove entity when networked component is removed", function()
 		local components = create_test_components(world)
 		create_test_tags(world)
 		server:init()
@@ -2287,14 +2112,9 @@ TEST("server -> client replication", function()
 			member.client:apply_updates(buf, changes)
 			CHECK(client_entity(member, entity1) == nil)
 		end
+	end)
 
-		POST()
-	end
-
-	do
-		CASE "should remove all data when component stops"
-		PRE()
-
+	CASE("should remove all data when component stops", function()
 		local components = create_test_components(world)
 		local tags = create_test_tags(world)
 		server:init()
@@ -2360,7 +2180,9 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 2, r1) == false)
 			CHECK(client_relation(member, entity1, 2, r2) == false)
 		end
-	end
+	end)
 end)
 
-return FINISH()
+local report = testlib.run(plan)
+
+testlib.report(report)

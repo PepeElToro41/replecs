@@ -411,7 +411,7 @@ local function cleanup_entity(server: Server, entity: Entity)
 	end
 end
 
-local function track_pair(server: Server, pair_id: Component)
+local function hook_pair(server: Server, pair_id: Component)
 	local world = server.world
 
 	if server.track_info.pairs[pair_id] then
@@ -461,7 +461,7 @@ local function track_pair(server: Server, pair_id: Component)
 	return info
 end
 
-local function track_component(server: Server, component: Component)
+local function hook_component(server: Server, component: Component, hooked: Component)
 	local world = server.world
 
 	if server.track_info.components[component] then
@@ -475,7 +475,7 @@ local function track_component(server: Server, component: Component)
 		table.insert(server.hooked, unhook)
 	end
 
-	hook(HOOK_ADDED(world, component, function(entity, id, value)
+	hook(HOOK_ADDED(world, hooked, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -497,7 +497,7 @@ local function track_component(server: Server, component: Component)
 			allocate_relation_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
-	hook(HOOK_CHANGED(world, component, function(entity, id, value)
+	hook(HOOK_CHANGED(world, hooked, function(entity, id, value)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -511,7 +511,7 @@ local function track_component(server: Server, component: Component)
 			allocate_relation_value_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
-	hook(HOOK_REMOVED(world, component, function(entity, id)
+	hook(HOOK_REMOVED(world, hooked, function(entity, id)
 		local track_type = info[entity]
 		if not track_type then
 			return
@@ -581,7 +581,7 @@ local function track_entity_component(server: Server, entity: Entity, component:
 	local world = server.world
 	local info = server.track_info.components[component]
 	if not info then
-		info = track_component(server, component)
+		info = hook_component(server, component, component)
 	end
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
@@ -617,7 +617,7 @@ local function track_entity_pair(server: Server, entity: Entity, id: Component)
 	local world = server.world
 	local info = server.track_info.pairs[id]
 	if not info then
-		info = track_pair(server, id)
+		info = hook_pair(server, id)
 	end
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
@@ -653,7 +653,7 @@ local function track_entity_relation(server: Server, entity: Entity, relation: C
 	local world = server.world
 	local info = server.track_info.components[relation]
 	if not info then
-		info = track_component(server, relation)
+		info = hook_component(server, relation, LISTEN_RELATION(relation))
 	end
 
 	local entity_storage = get_or_set_entity_storage(server, entity)
