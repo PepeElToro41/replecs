@@ -70,8 +70,8 @@ type DeletedHookEntry = {
 type CustomIdMap = { [Entity]: CustomId | Entity }
 
 export type ClientImp = {
-	set_serdes: <T>(client: Client, id: Component<T>, serdes: types.Serdes<T>) -> (),
-	remove_serdes: (client: Client, id: Component) -> (),
+	set_serdes: <T>(self: Client, id: Component<T>, serdes: types.Serdes<T>) -> (),
+	remove_serdes: (self: Client, id: Component) -> (),
 }
 
 export type Client = ClientImp & {
@@ -158,6 +158,7 @@ local WORLD_ADD = common.world_add
 local WORLD_SET = common.world_set
 local WORLD_REMOVE = common.world_remove
 local WORLD_GET = common.world_get
+local WORLD_HAS = common.world_has
 local WORLD_DELETE = common.world_delete
 
 local HOOK_ADDED = common.hook_added
@@ -269,7 +270,9 @@ function client_replicator.entity_set_unreliable(
 		local command_buffer = get_or_create_command_buffer(client, entity)
 		command_buffer.unreliable_components[id] = { value = value }
 	else
-		client_replicator.entity_set(client, entity, id, value, changed_hooks)
+		if WORLD_HAS(client.world, entity, id) then
+			client_replicator.entity_set(client, entity, id, value, changed_hooks)
+		end
 	end
 end
 
@@ -1371,6 +1374,7 @@ function client_replicator.apply_unreliable(client: Client, buf: buffer, all_var
 				for _ = 1, total_unreliable do
 					local component = client_replicator.read_component_id(client, c)
 					local value = client_replicator.read_component_value(client, component, c, variants)
+
 					local unreliable_hooks = changed_hooks[PAIR(components.unreliable, component)]
 					client_replicator.entity_set_unreliable(client, entity, component, value, unreliable_hooks)
 				end

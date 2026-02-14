@@ -13,6 +13,7 @@ export type Client = client.Client
 
 type Entity = common.Entity
 type World = common.World
+type Component<T = any> = common.Component<T>
 
 export type HandleContext = customid.HandleContext
 export type CustomId = customid.CustomId
@@ -26,6 +27,9 @@ export type ReplecsLib = {
 
 	after_replication: (self: ReplecsLib, callback: () -> ()) -> (),
 	register_custom_id: (self: ReplecsLib, custom_id: CustomId) -> (),
+
+	set_serdes: <T>(self: ReplecsLib, id: Component<T>, serdes: types.Serdes<T>) -> (),
+	remove_serdes: (self: ReplecsLib, id: Component) -> (),
 }
 
 type Replecs = types.Components & {
@@ -106,6 +110,24 @@ function replecs.register_custom_id(lib: ReplecsLib, custom_id: CustomId)
 	end
 	if lib.client then
 		lib.client:register_custom_id(custom_id)
+	end
+end
+
+function replecs.set_serdes(lib: ReplecsLib, id: Component, serdes: Serdes)
+	if lib.server then
+		lib.server:set_serdes(id, serdes)
+	end
+	if lib.client then
+		lib.client:set_serdes(id, serdes)
+	end
+end
+
+function replecs.remove_serdes(lib: ReplecsLib, id: Component)
+	if lib.server then
+		lib.server:remove_serdes(id)
+	end
+	if lib.client then
+		lib.client:remove_serdes(id)
 	end
 end
 

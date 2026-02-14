@@ -1,18 +1,18 @@
-import type { Entity, Id, Pair, Tag, World } from "@rbxts/jecs";
+import type { Entity, Id, InferComponent, Pair, Tag, World } from "@rbxts/jecs";
 
 declare namespace Replecs {
-  export type SerdesTable =
+  export type SerdesTable<T = any> =
     | {
         bytespan?: number;
         includes_variants?: false;
-        serialize: (value: any) => buffer;
-        deserialize: (buffer: buffer) => any;
+        serialize: (value: T) => buffer;
+        deserialize: (buffer: buffer) => T;
       }
     | {
         bytespan?: number;
         includes_variants: true;
-        serialize: (value: any) => LuaTuple<[buffer, defined[] | undefined]>;
-        deserialize: (buffer: buffer, blobs: defined[] | undefined) => any;
+        serialize: (value: T) => LuaTuple<[buffer, defined[] | undefined]>;
+        deserialize: (buffer: buffer, blobs: defined[] | undefined) => T;
       };
 
   type MemberFilterMap = Map<Player, boolean>;
@@ -80,6 +80,14 @@ declare namespace Replecs {
     Global: Entity<number>;
   }
 
+  export interface ClientImp {
+    set_serdes<T extends Id>(
+      component: InferComponent<T>,
+      serdes: SerdesTable<T>,
+    ): void;
+    remove_serdes(component: Id): void;
+  }
+
   export interface Client {
     world: World;
     inited?: boolean;
@@ -91,9 +99,7 @@ declare namespace Replecs {
 
     init(world?: World): void;
     destroy(): void;
-
     handle_global(handler: (id: number) => Entity): void;
-
     get_server_entity(client_entity: Entity): number | undefined;
     get_client_entity(server_entity: number): Entity | undefined;
 
@@ -137,6 +143,8 @@ declare namespace Replecs {
 
     encode_component(component: Entity): number;
     decode_component(encoded: number): Entity;
+    get_shared_count(): number;
+
     register_custom_id(custom_id: CustomId): void;
 
     apply_updates(buf: buffer, all_variants?: defined[][]): void;
@@ -161,15 +169,23 @@ declare namespace Replecs {
       component: Entity,
       filter?: MemberFilter,
     ): void;
+    set_pair(entity: Entity, id: Pair, filter?: MemberFilter): void;
     set_relation(entity: Entity, relation: Entity, filter?: MemberFilter): void;
 
     stop_networked(entity: Entity, keep?: boolean): void;
     stop_reliable(entity: Entity, component: Entity, keep?: boolean): void;
     stop_unreliable(entity: Entity, component: Entity, keep?: boolean): void;
+    stop_pair(entity: Entity, id: Pair): void;
     stop_relation(entity: Entity, relation: Entity, keep?: boolean): void;
 
     set_custom(entity: Entity, handler: Entity | CustomId): void;
     remove_custom(entity: Entity): void;
+
+    set_serdes<T extends Id>(
+      component: InferComponent<T>,
+      serdes: SerdesTable<T>,
+    ): void;
+    remove_serdes(component: Id): void;
   }
 
   export interface Server extends ServerImp {
@@ -180,10 +196,15 @@ declare namespace Replecs {
     destroy(): void;
 
     encode_component(component: Entity): number;
-    decode_component(encoded: number): Entity;
+    decode_component(encoded: number): Entity | undefined;
+    get_shared_count(): number;
+
     register_custom_id(custom_id: CustomId): void;
 
     get_full(player: Player): LuaTuple<[buffer, defined[][]?]>;
+    collect_entity(
+      entity: Entity,
+    ): IterableFunction<LuaTuple<[Player, buffer, defined[][]?]>>;
     collect_updates(): IterableFunction<
       LuaTuple<[Player, buffer, defined[][]?]>
     >;
@@ -209,6 +230,12 @@ declare namespace Replecs {
 
     after_replication(callback: () => void): void;
     register_custom_id(custom_id: CustomId): void;
+
+    set_serdes<T extends Id>(
+      component: InferComponent<T>,
+      serdes: SerdesTable<T>,
+    ): void;
+    remove_serdes(component: Id): void;
   }
 
   export interface Replecs extends Components {
