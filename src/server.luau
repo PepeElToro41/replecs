@@ -296,27 +296,27 @@ local function allocate_tag_addition(server: Server, entity: Entity, tag: Compon
 	end
 end
 
-local function allocate_pair_addition(server: Server, entity: Entity, id: Component)
+local function allocate_pair_tag_addition(server: Server, entity: Entity, id: Component)
 	local storage = get_or_set_entity_storage(server, entity)
 	storage.pair_tags[id] = true
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_pair_addition(entity, id)
+		server.masking:allocate_pair_tag_addition(entity, id)
 	end
 end
 
-local function allocate_pair_change(server: Server, entity: Entity, id: Component, value: any)
+local function allocate_pair_component_change(server: Server, entity: Entity, id: Component, value: any)
 	local storage = get_or_set_entity_storage(server, entity)
 
 	local non_nil = if value == nil then NIL_COMPONENT_VALUE else value
 	storage.pair_components[id] = non_nil
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_pair_change(entity, id, non_nil)
+		server.masking:allocate_pair_component_change(entity, id, non_nil)
 	end
 end
 
-local function allocate_relation_value_change(
+local function allocate_relation_component_change(
 	server: Server,
 	entity: Entity,
 	relation: Component,
@@ -335,11 +335,11 @@ local function allocate_relation_value_change(
 	values[target] = non_nil
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_relation_value_change(entity, relation, target, non_nil)
+		server.masking:allocate_relation_component_change(entity, relation, target, non_nil)
 	end
 end
 
-local function allocate_relation_addition(server: Server, entity: Entity, relation: Component, target: Entity)
+local function allocate_relation_tag_addition(server: Server, entity: Entity, relation: Component, target: Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	local targets = storage.relations[relation]
 	if targets == nil then
@@ -349,7 +349,7 @@ local function allocate_relation_addition(server: Server, entity: Entity, relati
 	targets[target] = true
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_relation_addition(entity, relation, target)
+		server.masking:allocate_relation_tag_addition(entity, relation, target)
 	end
 end
 
@@ -407,7 +407,7 @@ local function allocate_relation_component_removal(server: Server, entity: Entit
 	end
 end
 
-local function allocate_relation_removal(server: Server, entity: Entity, relation: Component, target: Entity)
+local function allocate_relation_tag_removal(server: Server, entity: Entity, relation: Component, target: Entity)
 	local storage = get_or_set_entity_storage(server, entity)
 	local targets = storage.relations[relation]
 	if targets then
@@ -415,7 +415,7 @@ local function allocate_relation_removal(server: Server, entity: Entity, relatio
 	end
 
 	if not server.additions[entity] and server.track_info.networked[entity] then
-		server.masking:allocate_relation_removal(entity, relation, target)
+		server.masking:allocate_relation_tag_removal(entity, relation, target)
 	end
 end
 
@@ -466,9 +466,9 @@ local function hook_pair(server: Server, pair_id: Component)
 		end
 
 		if track_type == COMPONENT_TYPES.pair_component then
-			allocate_pair_change(server, entity, id, value)
+			allocate_pair_component_change(server, entity, id, value)
 		else
-			allocate_pair_addition(server, entity, id)
+			allocate_pair_tag_addition(server, entity, id)
 		end
 	end))
 	hook(HOOK_PAIR_CHANGED(world, pair_id, function(entity, id, value)
@@ -477,7 +477,7 @@ local function hook_pair(server: Server, pair_id: Component)
 			return
 		end
 
-		allocate_pair_change(server, entity, id, value)
+		allocate_pair_component_change(server, entity, id, value)
 	end))
 	hook(HOOK_PAIR_REMOVED(world, pair_id, function(entity, id)
 		local track_type = info[entity]
@@ -523,12 +523,12 @@ local function hook_component(server: Server, component: Component)
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_relation_addition(server, entity, component, PAIR_SECOND(world, id))
+			allocate_relation_tag_addition(server, entity, component, PAIR_SECOND(world, id))
 		elseif track_type == COMPONENT_TYPES.relation_component then
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_relation_value_change(server, entity, component, PAIR_SECOND(world, id), value)
+			allocate_relation_component_change(server, entity, component, PAIR_SECOND(world, id), value)
 		elseif track_type == COMPONENT_TYPES.unreliable then
 			allocate_unreliable_addition(server, entity, component)
 		end
@@ -544,7 +544,7 @@ local function hook_component(server: Server, component: Component)
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_relation_value_change(server, entity, component, PAIR_SECOND(world, id), value)
+			allocate_relation_component_change(server, entity, component, PAIR_SECOND(world, id), value)
 		end
 	end))
 	hook(HOOK_REMOVED(world, component, function(entity, id)
@@ -561,7 +561,7 @@ local function hook_component(server: Server, component: Component)
 			if not IS_PAIR(id) then
 				return
 			end
-			allocate_relation_removal(server, entity, component, PAIR_SECOND(world, id))
+			allocate_relation_tag_removal(server, entity, component, PAIR_SECOND(world, id))
 		elseif track_type == COMPONENT_TYPES.relation_component then
 			if not IS_PAIR(id) then
 				return
@@ -1352,7 +1352,7 @@ function server_replicator.collect_updates(server: Server)
 			-- relations remove
 
 			local total_relations_removed = 0
-			for relation, targets in changes.relation_removed.component do
+			for relation, targets in changes.relation_component_removed do
 				local total_targets = 0
 
 				for target in targets do
@@ -1363,7 +1363,7 @@ function server_replicator.collect_updates(server: Server)
 				server_replicator.write_component_id(server, c, relation)
 				total_relations_removed += 1
 			end
-			for relation, targets in changes.relation_removed.tag do
+			for relation, targets in changes.relation_tag_removed do
 				local total_targets = 0
 
 				for target in targets do
@@ -1382,8 +1382,8 @@ function server_replicator.collect_updates(server: Server)
 
 			-- relations add/set
 
-			local total_relation_values = 0
-			for relation, targets in changes.relation_changed do
+			local total_relation_components = 0
+			for relation, targets in changes.relation_component_changed do
 				local total_targets = 0
 
 				for target, value in targets do
@@ -1393,12 +1393,12 @@ function server_replicator.collect_updates(server: Server)
 				end
 				cursor.write_vlq(c, total_targets)
 				server_replicator.write_component_id(server, c, relation)
-				total_relation_values += 1
+				total_relation_components += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_relation_values, changed_mask, 7)
+			changed_mask = write_vlq_bitmask(c, total_relation_components, changed_mask, 7)
 
-			local total_relations_added = 0
-			for relation, targets in changes.relation_added do
+			local total_relation_tags = 0
+			for relation, targets in changes.relation_tag_added do
 				local total_targets = 0
 
 				for target in targets do
@@ -1407,18 +1407,18 @@ function server_replicator.collect_updates(server: Server)
 				end
 				cursor.write_vlq(c, total_targets)
 				server_replicator.write_component_id(server, c, relation)
-				total_relations_added += 1
+				total_relation_tags += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_relations_added, changed_mask, 6)
+			changed_mask = write_vlq_bitmask(c, total_relation_tags, changed_mask, 6)
 
 			-- pairs removed
 
 			local total_pairs_removed = 0
-			for id in changes.pair_removed.component do
+			for id in changes.pair_component_removed do
 				server_replicator.write_entity_pair(server, world, c, id)
 				total_pairs_removed += 1
 			end
-			for id in changes.pair_removed.tag do
+			for id in changes.pair_tag_removed do
 				server_replicator.write_entity_pair(server, world, c, id)
 				total_pairs_removed += 1
 			end
@@ -1426,32 +1426,32 @@ function server_replicator.collect_updates(server: Server)
 
 			-- pairs add/set
 
-			local total_pairs_set = 0
-			for id, value in changes.pair_changed do
+			local total_pair_components = 0
+			for id, value in changes.pair_component_changed do
 				server_replicator.write_entity_pair_value(server, world, c, id, value, variants)
-				total_pairs_set += 1
+				total_pair_components += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_pairs_set, changed_mask, 4)
+			changed_mask = write_vlq_bitmask(c, total_pair_components, changed_mask, 4)
 
-			local total_pairs_added = 0
-			for id in changes.pair_added do
+			local total_pair_tags = 0
+			for id in changes.pair_tag_added do
 				server_replicator.write_entity_pair(server, world, c, id)
-				total_pairs_added += 1
+				total_pair_tags += 1
 			end
-			changed_mask = write_vlq_bitmask(c, total_pairs_added, changed_mask, 3)
+			changed_mask = write_vlq_bitmask(c, total_pair_tags, changed_mask, 3)
 
 			-- tags/components removed
 
 			local total_removed = 0
-			for component in changes.removed.component do
+			for component in changes.component_removed do
 				server_replicator.write_component_id(server, c, component)
 				total_removed += 1
 			end
-			for component in changes.removed.unreliable do
+			for component in changes.unreliable_removed do
 				server_replicator.write_component_id(server, c, component)
 				total_removed += 1
 			end
-			for component in changes.removed.tag do
+			for component in changes.tag_removed do
 				server_replicator.write_component_id(server, c, component)
 				total_removed += 1
 			end
@@ -1460,12 +1460,12 @@ function server_replicator.collect_updates(server: Server)
 			-- tags/components set
 
 			local total_components = 0
-			for component, value in changes.component do
+			for component, value in changes.component_changed do
 				server_replicator.write_component_value(server, c, component, value, variants)
 				server_replicator.write_component_id(server, c, component)
 				total_components += 1
 			end
-			for component in changes.unreliable_added.component do
+			for component in changes.unreliable_added do
 				local value = WORLD_GET(world, entity, component)
 
 				server_replicator.write_component_value(server, c, component, value, variants)
@@ -1475,7 +1475,7 @@ function server_replicator.collect_updates(server: Server)
 			changed_mask = write_vlq_bitmask(c, total_components, changed_mask, 1)
 
 			local total_tagged = 0
-			for tag in changes.tagged do
+			for tag in changes.tag_added do
 				server_replicator.write_component_id(server, c, tag)
 				total_tagged += 1
 			end

@@ -47,33 +47,28 @@ export type EntityLookup = Lookup & {
 }
 
 export type EntityChanges = {
-	tagged: Set<Component>,
-	component: Map<Component, any>,
-	removed: {
-		component: Set<Component>,
-		unreliable: Set<Component>,
-		tag: Set<Component>,
-	},
+	changed: ComponentIndex<any>,
+	removed: ComponentIndex<any>,
 
-	unreliable_added: {
-		pair: Set<Component>,
-		component: Set<Component>,
-	},
+	-- these are just aliases for changes.changed, and changes.removed
+	-- changes need specific types, so you access these if you need the types, as the other ones are just arrays
+	tag_removed: Set<Component>,
+	component_removed: Set<Component>,
+	unreliable_removed: Set<Component>,
+	unreliable_pair_removed: Set<Component>,
+	pair_tag_removed: Set<Component>,
+	pair_component_removed: Set<Component>,
+	relation_tag_removed: { [Component]: Set<Entity> },
+	relation_component_removed: { [Component]: Set<Entity> },
 
-	pair_changed: Map<Component, any>,
-	pair_added: Set<Component>,
-	pair_removed: {
-		component: Set<Component>,
-		unreliable: Set<Component>,
-		tag: Set<Component>,
-	},
-
-	relation_added: { [Component]: Set<Entity> },
-	relation_changed: { [Component]: Map<Entity, any> },
-	relation_removed: {
-		component: { [Component]: Set<Entity> },
-		tag: { [Component]: Set<Entity> },
-	},
+	tag_added: Set<Component>,
+	component_changed: Map<Component, any>,
+	unreliable_added: Set<Component>,
+	unreliable_pair_added: Set<Component>,
+	pair_tag_added: Set<Component>,
+	pair_component_changed: Map<Component, any>,
+	relation_tag_added: { [Component]: Set<Entity> },
+	relation_component_changed: { [Component]: Map<Entity, any> },
 }
 
 type PostponedList = ComponentIndex<{ filter: MemberFilter? }>
@@ -197,34 +192,72 @@ local function create_component_indexes<T>(): ComponentIndex<T>
 end
 
 local function create_entity_changes(): EntityChanges
+	local tag_removed = {}
+	local component_removed = {}
+	local unreliable_removed = {}
+	local unreliable_pair_removed = {}
+	local pair_tag_removed = {}
+	local pair_component_removed = {}
+	local relation_tag_removed = {}
+	local relation_component_removed = {}
+
+	local tag_added = {}
+	local component_changed = {}
+	local unreliable_added = {}
+	local unreliable_pair_added = {}
+	local pair_tag_added = {}
+	local pair_component_changed = {}
+	local relation_tag_added = {}
+	local relation_component_changed = {}
+
+	local changed_changes = create_component_indexes() :: ComponentIndex<any>
+	local removed_changes = create_component_indexes() :: ComponentIndex<any>
+
+	changed_changes[COMPONENT_TYPES.tag] = tag_added
+	changed_changes[COMPONENT_TYPES.component] = component_changed
+
+	changed_changes[COMPONENT_TYPES.unreliable] = unreliable_added
+	changed_changes[COMPONENT_TYPES.unreliable_pair] = unreliable_pair_added
+
+	changed_changes[COMPONENT_TYPES.pair_tag] = pair_tag_added
+	changed_changes[COMPONENT_TYPES.pair_component] = pair_component_changed
+
+	changed_changes[COMPONENT_TYPES.relation] = relation_tag_added
+	changed_changes[COMPONENT_TYPES.relation_component] = relation_component_changed
+
+	removed_changes[COMPONENT_TYPES.tag] = tag_removed
+	removed_changes[COMPONENT_TYPES.component] = component_removed
+
+	removed_changes[COMPONENT_TYPES.unreliable] = unreliable_removed
+	removed_changes[COMPONENT_TYPES.unreliable_pair] = unreliable_pair_removed
+
+	removed_changes[COMPONENT_TYPES.pair_tag] = pair_tag_removed
+	removed_changes[COMPONENT_TYPES.pair_component] = pair_component_removed
+
+	removed_changes[COMPONENT_TYPES.relation] = relation_tag_removed
+	removed_changes[COMPONENT_TYPES.relation_component] = relation_component_removed
+
 	return {
-		tagged = {},
-		component = {},
-		removed = {
-			component = {},
-			unreliable = {},
-			tag = {},
-		},
+		removed = removed_changes,
+		changed = changed_changes,
 
-		unreliable_added = {
-			component = {},
-			pair = {},
-		},
+		tag_removed = tag_removed,
+		component_removed = component_removed,
+		unreliable_removed = unreliable_removed,
+		unreliable_pair_removed = unreliable_pair_removed,
+		pair_tag_removed = pair_tag_removed,
+		pair_component_removed = pair_component_removed,
+		relation_tag_removed = relation_tag_removed,
+		relation_component_removed = relation_component_removed,
 
-		pair_added = {},
-		pair_changed = {},
-		pair_removed = {
-			component = {},
-			unreliable = {},
-			tag = {},
-		},
-
-		relation_added = {},
-		relation_changed = {},
-		relation_removed = {
-			component = {},
-			tag = {},
-		},
+		tag_added = tag_added,
+		component_changed = component_changed,
+		unreliable_added = unreliable_added,
+		unreliable_pair_added = unreliable_pair_added,
+		pair_tag_added = pair_tag_added,
+		pair_component_changed = pair_component_changed,
+		relation_tag_added = relation_tag_added,
+		relation_component_changed = relation_component_changed,
 	}
 end
 
@@ -386,7 +419,7 @@ local function remove_active(storage: StorageGroup, entity: Entity): ActiveEntit
 	return common.log_error "attempted to remove an entity that wasn't active"
 end
 
-local function get_or_set_component_active(active: ActiveEntity, component: Component, component_type: number)
+local function set_component_active(active: ActiveEntity, component: Component, component_type: number)
 	local components = active.components[component_type]
 	if components[component] == nil then
 		components[component] = true
@@ -455,7 +488,7 @@ local function dissect_component_actives(
 			if is_shared then
 				new_active = new_active or create_new_active()
 
-				get_or_set_component_active(new_active, component, component_type)
+				set_component_active(new_active, component, component_type)
 				remove_component_active(storage, entity, component, component_type)
 			end
 		end
@@ -479,140 +512,56 @@ local function dissect_component_additions(added: ComponentIndex<boolean>, share
 	return new_added
 end
 
-local function dissect_component_changes(changes: EntityChanges, shared_index: ComponentIndex<boolean>)
-	local new_changes: EntityChanges
+local function dissect_component_changes(
+	entity_changes: EntityChanges,
+	shared_index: ComponentIndex<boolean>
+): EntityChanges
+	local new_entity_changes: EntityChanges = nil :: any
+	local new_removed: ComponentIndex<boolean> = nil :: any
+	local new_changed: ComponentIndex<any> = nil :: any
 
-	-- COMPONENTS
-
-	local shared_component = shared_index[COMPONENT_TYPES.component]
-	local shared_tag = shared_index[COMPONENT_TYPES.tag]
-
-	for component, change in changes.component do
-		local is_shared = shared_component and shared_component[component]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.component[component] = change
-			changes.component[component] = nil
-		end
-	end
-	for tag in changes.tagged do
-		local is_shared = shared_tag and shared_tag[tag]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.tagged[tag] = true
-			changes.tagged[tag] = nil
-		end
-	end
-
-	local removed_changes = changes.removed
-	for component in removed_changes.component do
-		local is_shared = shared_component and shared_component[component]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.removed.component[component] = true
-			removed_changes.component[component] = nil
-		end
-	end
-	for component in removed_changes.tag do
-		local is_shared = shared_tag and shared_tag[component]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.removed.tag[component] = true
-			removed_changes.tag[component] = nil
+	for component_type, components_changed in entity_changes.changed do
+		local shared_set = shared_index[component_type]
+		for component, change in components_changed do
+			local is_shared = shared_set and shared_set[component]
+			if is_shared then
+				if new_changed then
+					new_changed[component_type][component] = change
+					components_changed[component] = nil
+				else
+					new_entity_changes = create_entity_changes()
+					new_changed = new_entity_changes.changed
+					new_removed = new_entity_changes.removed
+				end
+			end
 		end
 	end
 
-	-- PAIRS
+	for component_type, components_removed in entity_changes.removed do
+		local shared_set = shared_index[component_type]
+		for component in components_removed do
+			local is_shared = shared_set and shared_set[component]
 
-	local shared_pair_component = shared_index[COMPONENT_TYPES.pair_component]
-	local shared_pair_tag = shared_index[COMPONENT_TYPES.pair_tag]
-
-	for id, changes in changes.pair_changed do
-		local is_shared = shared_pair_component and shared_pair_component[id]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.pair_changed[id] = changes
-			changes.pair_changed[id] = nil
-		end
-	end
-	for id in changes.pair_added do
-		local is_shared = shared_pair_tag and shared_pair_tag[id]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.pair_added[id] = true
-			changes.pair_added[id] = nil
+			if is_shared then
+				if new_removed then
+					new_removed[component_type][component] = true
+					components_removed[component] = nil
+				else
+					new_entity_changes = create_entity_changes()
+					new_changed = new_entity_changes.changed
+					new_removed = new_entity_changes.removed
+				end
+			end
 		end
 	end
 
-	local removed_pairs = changes.pair_removed
-	for id in removed_pairs.component do
-		local is_shared = shared_pair_component and shared_pair_component[id]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.pair_removed.component[id] = true
-			removed_pairs.component[id] = nil
-		end
-	end
-	for id in removed_pairs.tag do
-		local is_shared = shared_pair_tag and shared_pair_tag[id]
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.pair_removed.tag[id] = true
-			removed_pairs.tag[id] = nil
-		end
-	end
-
-	-- RELATIONS
-
-	local shared_relation_changed = shared_index[COMPONENT_TYPES.relation_component]
-	local shared_relation = shared_index[COMPONENT_TYPES.relation]
-
-	for relation, target_changes in changes.relation_changed do
-		local is_shared = shared_relation_changed and shared_relation_changed[relation]
-
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.relation_changed[relation] = target_changes
-			changes.relation_changed[relation] = nil
-		end
-	end
-	for relation, targets_added in changes.relation_added do
-		local is_shared = shared_relation and shared_relation[relation]
-
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.relation_added[relation] = targets_added
-			changes.relation_added[relation] = nil
-		end
-	end
-
-	local removed_relations = changes.relation_removed
-	for relation, targets_removed in removed_relations.component do
-		local is_shared = shared_relation and shared_relation[relation]
-
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.relation_removed.component[relation] = targets_removed
-			removed_relations.component[relation] = nil
-		end
-	end
-	for relation, targets_removed in removed_relations.tag do
-		local is_shared = shared_relation and shared_relation[relation]
-
-		if is_shared then
-			new_changes = new_changes or create_entity_changes()
-			new_changes.relation_removed.tag[relation] = targets_removed
-			removed_relations.tag[relation] = nil
-		end
-	end
-
-	return new_changes
+	return new_entity_changes
 end
 
 local function merge_component_actives(current: ActiveEntity, target: ActiveEntity)
 	for component_type, components in current.components do
 		for component in components do
-			get_or_set_component_active(target, component, component_type)
+			set_component_active(target, component, component_type)
 		end
 	end
 end
@@ -627,54 +576,21 @@ end
 
 local function merge_component_changes(current: EntityChanges, destination: EntityChanges)
 	-- COMPONENTS/TAGS
+	local destination_changed = destination.changed
+	local destination_removed = destination.removed
 
-	for component, change in current.component do
-		destination.component[component] = change
-	end
-	for tag in current.tagged do
-		destination.tagged[tag] = true
-	end
-
-	local components_removed = current.removed
-	for tag in components_removed.component do
-		destination.removed.component[tag] = true
-	end
-	for tag in components_removed.tag do
-		destination.removed.tag[tag] = true
+	for component_type, components_changed in current.changed do
+		local destination_components = destination_changed[component_type]
+		for component, change in components_changed do
+			destination_components[component] = change
+		end
 	end
 
-	-- PAIRS
-
-	for id, change in current.pair_changed do
-		destination.pair_changed[id] = change
-	end
-	for id in current.pair_added do
-		destination.pair_added[id] = true
-	end
-
-	local pairs_removed = current.pair_removed
-	for id in pairs_removed.component do
-		destination.pair_removed.component[id] = true
-	end
-	for id in pairs_removed.tag do
-		destination.pair_removed.tag[id] = true
-	end
-
-	-- RELATIONS
-
-	for relation, target_changes in current.relation_changed do
-		destination.relation_changed[relation] = target_changes
-	end
-	for relation, added_targets in current.relation_added do
-		destination.relation_added[relation] = added_targets
-	end
-
-	local relation_removed = current.relation_removed
-	for relation, removed_targets in relation_removed.component do
-		destination.relation_removed.component[relation] = removed_targets
-	end
-	for relation, removed_targets in relation_removed.tag do
-		destination.relation_removed.tag[relation] = removed_targets
+	for component_type, components_removed in current.removed do
+		local destination_components = destination_removed[component_type]
+		for component, change in components_removed do
+			destination_components[component] = change
+		end
 	end
 end
 
@@ -700,7 +616,7 @@ function masking_controller.merge_component_filter(
 		entity_lookup.filtered_components[component_type][component] = nil
 		remove_component_index_entry(new_storage.shared_with, entity, component, component_type)
 	else
-		get_or_set_component_active(entity_lookup.storage_group.active[entity], component, component_type)
+		set_component_active(entity_lookup.storage_group.active[entity], component, component_type)
 	end
 	entity_lookup.components[component_type][component] = true
 end
@@ -797,7 +713,7 @@ function masking_controller.move_component_storage(
 	local new_active = get_or_set_active(destination_storage, entity)
 
 	remove_component_active(storage, entity, component, component_type)
-	get_or_set_component_active(new_active, component, component_type)
+	set_component_active(new_active, component, component_type)
 
 	set_component_index_entry(destination_storage.shared_with, entity, component, component_type, true)
 	remove_component_index_entry(storage.shared_with, entity, component, component_type)
@@ -812,43 +728,11 @@ function masking_controller.move_component_storage(
 	local changes = storage.changes.changed[entity]
 	if changes then
 		local destination_changes = get_or_set_changed(destination_storage, entity)
-		if component_type == COMPONENT_TYPES.tag then
-			destination_changes.tagged[component] = changes.tagged[component]
-			destination_changes.removed.tag[component] = changes.removed.tag[component]
+		destination_changes.changed[component_type][component] = changes.changed[component_type][component]
+		destination_changes.removed[component_type][component] = changes.removed[component_type][component]
 
-			changes.tagged[component] = nil
-			changes.removed.tag[component] = nil
-		elseif component_type == COMPONENT_TYPES.component then
-			destination_changes.component[component] = changes.component[component]
-			destination_changes.removed.component[component] = changes.removed.component[component]
-
-			changes.component[component] = nil
-			changes.removed.component[component] = nil
-		elseif component_type == COMPONENT_TYPES.pair_tag then
-			destination_changes.pair_added[component] = changes.pair_added[component]
-			destination_changes.pair_removed.tag[component] = changes.pair_removed.tag[component]
-
-			changes.pair_added[component] = nil
-			changes.pair_removed.tag[component] = nil
-		elseif component_type == COMPONENT_TYPES.pair_component then
-			destination_changes.pair_changed[component] = changes.pair_changed[component]
-			destination_changes.pair_removed.component[component] = changes.pair_removed.component[component]
-
-			changes.pair_changed[component] = nil
-			changes.pair_removed.component[component] = nil
-		elseif component_type == COMPONENT_TYPES.relation then
-			destination_changes.relation_added[component] = changes.relation_added[component]
-			destination_changes.relation_removed.tag[component] = changes.relation_removed.tag[component]
-
-			changes.relation_added[component] = nil
-			changes.relation_removed.tag[component] = nil
-		elseif component_type == COMPONENT_TYPES.relation_component then
-			destination_changes.relation_changed[component] = changes.relation_changed[component]
-			destination_changes.relation_removed.component[component] = changes.relation_removed.component[component]
-
-			changes.relation_changed[component] = nil
-			changes.relation_removed.component[component] = nil
-		end
+		changes.changed[component_type][component] = nil
+		changes.removed[component_type][component] = nil
 	end
 
 	return destination_storage
@@ -1074,7 +958,7 @@ function masking_controller.start_component(
 
 	if filter == nil then
 		lookup.components[component_type][component] = true
-		get_or_set_component_active(lookup.storage_group.active[entity], component, component_type)
+		set_component_active(lookup.storage_group.active[entity], component, component_type)
 		return
 	end
 
@@ -1082,7 +966,7 @@ function masking_controller.start_component(
 	local storage_group = masking:get_or_create_storage_group(band_generator.result)
 	local active = get_or_set_active(storage_group, entity)
 
-	get_or_set_component_active(active, component, component_type)
+	set_component_active(active, component, component_type)
 	set_component_index_entry(storage_group.shared_with, entity, component, component_type, true)
 
 	local component_lookup: ComponentLookup = {
@@ -1267,19 +1151,6 @@ function masking_controller.allocate_component_stop(
 	end
 end
 
-function masking_controller.deallocate_component_start(
-	masking: MaskingController,
-	entity: Entity,
-	component: Component,
-	component_type: number
-)
-	local storage: StorageGroup = masking:get_component_storage_group(entity, component, component_type)
-	local additions = storage.changes.added_components[entity]
-	if additions then
-		additions[component_type][component] = nil
-	end
-end
-
 function masking_controller.deallocate_entity_stop(masking: MaskingController, entity: Entity)
 	local deletion_lookup = masking.lookups.deletions.entities[entity]
 	if not deletion_lookup then
@@ -1290,6 +1161,19 @@ function masking_controller.deallocate_entity_stop(masking: MaskingController, e
 	if storage.deletions.entities[entity] then
 		storage.deletions.entities[entity] = nil
 		storage.deletions_count -= 1
+	end
+end
+
+function masking_controller.deallocate_component_start(
+	masking: MaskingController,
+	entity: Entity,
+	component: Component,
+	component_type: number
+)
+	local storage: StorageGroup = masking:get_component_storage_group(entity, component, component_type)
+	local additions = storage.changes.added_components[entity]
+	if additions then
+		additions[component_type][component] = nil
 	end
 end
 
@@ -1314,6 +1198,14 @@ function masking_controller.deallocate_component_stop(
 	end
 end
 
+function masking_controller.allocate_tag_addition(masking: MaskingController, entity: Entity, tag: Component)
+	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.tag_added[tag] = true
+	changes.tag_removed[tag] = nil
+end
+
 function masking_controller.allocate_component_change(
 	masking: MaskingController,
 	entity: Entity,
@@ -1323,8 +1215,8 @@ function masking_controller.allocate_component_change(
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.component[component] = value
-	changes.removed.component[component] = nil
+	changes.component_changed[component] = value
+	changes.component_removed[component] = nil
 end
 
 function masking_controller.allocate_unreliable_addition(
@@ -1335,35 +1227,32 @@ function masking_controller.allocate_unreliable_addition(
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.unreliable)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.unreliable_added.component[component] = true
-	changes.removed.unreliable[component] = nil
+	changes.unreliable_added[component] = true
+	changes.unreliable_removed[component] = nil
 end
 
-function masking_controller.allocate_tag_addition(masking: MaskingController, entity: Entity, tag: Component)
-	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
-	local changes = get_or_set_changed(storage, entity)
-
-	changes.tagged[tag] = true
-	changes.removed.tag[tag] = nil
-end
-
-function masking_controller.allocate_pair_change(masking: MaskingController, entity: Entity, id: Component, value: any)
-	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_component)
-	local changes = get_or_set_changed(storage, entity)
-
-	changes.pair_removed.component[id] = nil
-	changes.pair_changed[id] = value
-end
-
-function masking_controller.allocate_pair_addition(masking: MaskingController, entity: Entity, id: Component)
+function masking_controller.allocate_pair_tag_addition(masking: MaskingController, entity: Entity, id: Component)
 	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_tag)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.pair_removed.tag[id] = nil
-	changes.pair_added[id] = true
+	changes.pair_tag_added[id] = true
+	changes.pair_tag_removed[id] = nil
 end
 
-function masking_controller.allocate_relation_value_change(
+function masking_controller.allocate_pair_component_change(
+	masking: MaskingController,
+	entity: Entity,
+	id: Component,
+	value: any
+)
+	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_component)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.pair_component_changed[id] = value
+	changes.pair_component_removed[id] = nil
+end
+
+function masking_controller.allocate_relation_component_change(
 	masking: MaskingController,
 	entity: Entity,
 	relation: Component,
@@ -1372,20 +1261,20 @@ function masking_controller.allocate_relation_value_change(
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.relation_component)
 	local changes = get_or_set_changed(storage, entity)
-	local values = changes.relation_changed[relation]
+	local values = changes.relation_component_changed[relation]
 	if values == nil then
 		values = {}
-		changes.relation_changed[relation] = values
+		changes.relation_component_changed[relation] = values
 	end
 	values[target] = value
 
-	local removed = changes.relation_removed.component[relation]
+	local removed = changes.relation_component_removed[relation]
 	if removed ~= nil then
 		removed[target] = nil
 	end
 end
 
-function masking_controller.allocate_relation_addition(
+function masking_controller.allocate_relation_tag_addition(
 	masking: MaskingController,
 	entity: Entity,
 	relation: Component,
@@ -1393,25 +1282,33 @@ function masking_controller.allocate_relation_addition(
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.relation)
 	local changes = get_or_set_changed(storage, entity)
-	local targets = changes.relation_added[relation]
+	local targets = changes.relation_tag_added[relation]
 	if targets == nil then
 		targets = {}
-		changes.relation_added[relation] = targets
+		changes.relation_tag_added[relation] = targets
 	end
 	targets[target] = true
 
-	local removed = changes.relation_removed.tag[relation]
+	local removed = changes.relation_tag_removed[relation]
 	if removed then
 		removed[target] = nil
 	end
+end
+
+function masking_controller.allocate_tag_removal(masking: MaskingController, entity: Entity, tag: Component)
+	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
+	local changes = get_or_set_changed(storage, entity)
+
+	changes.tag_added[tag] = nil
+	changes.tag_removed[tag] = true
 end
 
 function masking_controller.allocate_component_removal(masking: MaskingController, entity: Entity, component: Component)
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.component)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.component[component] = nil
-	changes.removed.component[component] = true
+	changes.component_changed[component] = nil
+	changes.component_removed[component] = true
 end
 
 function masking_controller.allocate_unreliable_removal(
@@ -1422,32 +1319,45 @@ function masking_controller.allocate_unreliable_removal(
 	local storage = masking:get_component_storage_group(entity, component, COMPONENT_TYPES.unreliable)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.unreliable_added.component[component] = nil
-	changes.removed.unreliable[component] = true
-end
-
-function masking_controller.allocate_tag_removal(masking: MaskingController, entity: Entity, tag: Component)
-	local storage = masking:get_component_storage_group(entity, tag, COMPONENT_TYPES.tag)
-	local changes = get_or_set_changed(storage, entity)
-
-	changes.tagged[tag] = nil
-	changes.removed.tag[tag] = true
+	changes.unreliable_added[component] = nil
+	changes.unreliable_removed[component] = true
 end
 
 function masking_controller.allocate_pair_tag_removal(masking: MaskingController, entity: Entity, id: Component)
 	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_tag)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.pair_added[id] = nil
-	changes.pair_removed.tag[id] = true
+	changes.pair_tag_added[id] = nil
+	changes.pair_tag_removed[id] = true
 end
 
 function masking_controller.allocate_pair_component_removal(masking: MaskingController, entity: Entity, id: Component)
 	local storage = masking:get_component_storage_group(entity, id, COMPONENT_TYPES.pair_component)
 	local changes = get_or_set_changed(storage, entity)
 
-	changes.pair_changed[id] = nil
-	changes.pair_removed.component[id] = true
+	changes.pair_component_changed[id] = nil
+	changes.pair_component_removed[id] = true
+end
+
+function masking_controller.allocate_relation_tag_removal(
+	masking: MaskingController,
+	entity: Entity,
+	relation: Component,
+	target: Entity
+)
+	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.relation)
+	local changes = get_or_set_changed(storage, entity)
+	local targets = changes.relation_tag_removed[relation]
+	if targets == nil then
+		targets = {}
+		changes.relation_tag_removed[relation] = targets
+	end
+	targets[target] = true
+
+	local added = changes.relation_tag_added[relation]
+	if added then
+		added[target] = nil
+	end
 end
 
 function masking_controller.allocate_relation_component_removal(
@@ -1458,37 +1368,16 @@ function masking_controller.allocate_relation_component_removal(
 )
 	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.relation_component)
 	local changes = get_or_set_changed(storage, entity)
-	local targets = changes.relation_removed.component[relation]
+	local targets = changes.relation_component_removed[relation]
 	if targets == nil then
 		targets = {}
-		changes.relation_removed.component[relation] = targets
+		changes.relation_component_removed[relation] = targets
 	end
 	targets[target] = true
 
-	local values = changes.relation_changed[relation]
+	local values = changes.relation_component_changed[relation]
 	if values then
 		values[target] = nil
-	end
-end
-
-function masking_controller.allocate_relation_removal(
-	masking: MaskingController,
-	entity: Entity,
-	relation: Component,
-	target: Entity
-)
-	local storage = masking:get_component_storage_group(entity, relation, COMPONENT_TYPES.relation)
-	local changes = get_or_set_changed(storage, entity)
-	local targets = changes.relation_removed.tag[relation]
-	if targets == nil then
-		targets = {}
-		changes.relation_removed.tag[relation] = targets
-	end
-	targets[target] = true
-
-	local added = changes.relation_added[relation]
-	if added then
-		added[target] = nil
 	end
 end
 
