@@ -73,6 +73,9 @@ jobs:
     needs: [release]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Project
+        uses: actions/checkout@v4
+
       - name: pnpm-setup
         uses: pnpm/action-setup@v2
         with:

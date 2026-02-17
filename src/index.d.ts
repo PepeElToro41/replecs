@@ -201,15 +201,15 @@ declare namespace Replecs {
 
     register_custom_id(custom_id: CustomId): void;
 
-    get_full(player: Player): LuaTuple<[buffer, defined[][]?]>;
+    get_full(player: Player): LuaTuple<[buffer, defined[][] | undefined]>;
     collect_entity(
       entity: Entity,
-    ): IterableFunction<LuaTuple<[Player, buffer, defined[][]?]>>;
+    ): IterableFunction<LuaTuple<[Player, buffer, defined[][] | undefined]>>;
     collect_updates(): IterableFunction<
-      LuaTuple<[Player, buffer, defined[][]?]>
+      LuaTuple<[Player, buffer, defined[][] | undefined]>
     >;
     collect_unreliable(): IterableFunction<
-      LuaTuple<[Player, buffer, defined[][]?]>
+      LuaTuple<[Player, buffer, defined[][] | undefined]>
     >;
 
     mark_player_ready(player: Player): void;
