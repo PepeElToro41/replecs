@@ -5,6 +5,10 @@ on:
     tags: ["v*", "workflow_dispatch"]
   workflow_dispatch:
 
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
 jobs:
   unit-tests:
     uses: ./.github/workflows/unit-tests.yml
