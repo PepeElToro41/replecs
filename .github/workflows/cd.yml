@@ -96,9 +96,18 @@ jobs:
       - name: Install Packages
         run: pesde install
 
+      - name: Setup NPM
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install -g npm@latest
+      - run: npm ci
+
       - name: Darklua Process
         run: lune run .lune/ts-process.luau ${{ github.ref_name }}
 
       - name: Publish to NPM
-        run: pnpm publish --access public --no-git-checks --tag latest
+        run: npm publish
         working-directory: ./dist
