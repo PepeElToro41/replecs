@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*", "workflow_dispatch"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy"
+        required: true
+        type: string
 
 permissions:
   id-token: write # Required for OIDC
