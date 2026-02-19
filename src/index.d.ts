@@ -150,6 +150,7 @@ declare namespace Replecs {
     apply_updates(buf: buffer, all_variants?: defined[][]): void;
     apply_unreliable(buf: buffer, all_variants?: defined[][]): void;
     apply_full(buf: buffer, all_variants?: defined[][]): void;
+    apply_entity(buf: buffer, all_variants?: defined[][]): void;
 
     generate_handshake(): HandshakeInfo;
     verify_handshake(

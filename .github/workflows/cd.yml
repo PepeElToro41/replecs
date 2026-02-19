@@ -64,7 +64,12 @@ jobs:
         run: pesde install
 
       - name: Darklua Process
-        run: lune run .lune/process.luau ${{ github.ref_name }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+          	lune run .lune/process.luau ${{ github.event.inputs.version }}
+          else
+          	lune run .lune/process.luau ${{ github.ref_name }}
+          fi
 
       - name: Wally Login
         run: wally login --token ${{ secrets.WALLY_AUTH }}
@@ -103,10 +108,15 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - run: npm install -g npm@latest
-      - run: npm ci
+      - run: npm install
 
       - name: Darklua Process
-        run: lune run .lune/ts-process.luau ${{ github.ref_name }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+          	lune run .lune/ts-process.luau ${{ github.event.inputs.version }}
+          else
+          	lune run .lune/ts-process.luau ${{ github.ref_name }}
+          fi
 
       - name: Publish to NPM
         run: npm publish
