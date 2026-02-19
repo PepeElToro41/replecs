@@ -52,7 +52,7 @@ jobs:
 
   wally:
     name: Publish to Wally
-    needs: [release]
+    needs: [build, unit-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Project
@@ -85,7 +85,7 @@ jobs:
 
   rbxts:
     name: Publish to npm
-    needs: [release]
+    needs: [build, unit-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Project
