@@ -26,6 +26,7 @@ jobs:
   release:
     name: Release
     needs: [build, unit-tests]
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
