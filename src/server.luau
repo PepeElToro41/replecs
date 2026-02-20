@@ -1270,7 +1270,7 @@ function server_replicator.collect_entity(server: Server, entity: Entity)
 			local variants = {}
 
 			server_replicator.write_entity(server, c, entity, storage.active[entity], variants)
-			server_replicator.write_entity_id(server, c_main, entity)
+			server_replicator.write_entity_id(server, c, entity)
 			append_packet(packets, storage.mask.members, cursor.close(c), variants)
 			processed_storages[storage] = true
 		end
