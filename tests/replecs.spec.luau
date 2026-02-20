@@ -2400,6 +2400,52 @@ TEST("server -> client replication", function()
 
 		POST()
 	end
+
+	do
+		CASE "should send entity with component filters via collect_entity"
+		PRE()
+
+		local components = create_test_components(world)
+		create_test_tags(world)
+		server:init()
+
+		local members = create_members_data(4)
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		world:add(entity1, server.components.networked)
+		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		world:set(entity1, components[1], "all")
+
+		server:set_reliable(
+			entity1,
+			components[2],
+			filter {
+				[members[1]] = true,
+				[members[2]] = true,
+			}
+		)
+		world:set(entity1, components[2], "filtered")
+
+		-- flush additions
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+		end
+
+		for player, buf, changes in server:collect_entity(entity1) do
+			local member: MemberData = player :: any
+			member.client:apply_entity(buf, changes)
+		end
+
+		CHECK(client_component(members[1], entity1, 2) == "filtered")
+		CHECK(client_component(members[2], entity1, 2) == "filtered")
+		CHECK(client_component(members[3], entity1, 2) == nil)
+		CHECK(client_component(members[4], entity1, 2) == nil)
+
+		POST()
+	end
 end)
 
 return FINISH()
