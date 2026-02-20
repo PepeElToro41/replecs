@@ -2361,6 +2361,45 @@ TEST("server -> client replication", function()
 			CHECK(client_relation(member, entity1, 2, r2) == false)
 		end
 	end
+
+	do
+		CASE "should send pair value changes via collect_updates"
+		PRE()
+
+		local components = create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
+
+		local members = create_members_data(2)
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		world:add(entity1, server.components.networked)
+		world:set(entity1, jecs.pair(components[1], tags[1]), "initial")
+		server:set_pair(entity1, jecs.pair(components[1], tags[1]))
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+			CHECK(client_pair_value(member, entity1, 1, 1) == "initial")
+		end
+
+		-- flush additions so subsequent changes are tracked as updates
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+		end
+
+		world:set(entity1, jecs.pair(components[1], tags[1]), "updated")
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+			CHECK(client_pair_value(member, entity1, 1, 1) == "updated")
+		end
+
+		POST()
+	end
 end)
 
 return FINISH()

@@ -1240,7 +1240,7 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 
 				local total_pairs_set = read_vlq_bitmask(c, changed_mask, 4)
 				for _ = 1, total_pairs_set do
-					client_replicator.process_entity_pair(client, entity, c, custom_ids)
+					client_replicator.process_entity_pair_value(client, entity, c, custom_ids, variants)
 				end
 
 				local total_pairs_removed = read_vlq_bitmask(c, changed_mask, 5)
