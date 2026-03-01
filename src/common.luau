@@ -132,6 +132,11 @@ local PREREGISTER_COMPONENT = jecs.component
 local PREREGISTER_TAG = jecs.tag
 
 local function IS_COMPONENT(world: World, id: Component)
+	if IS_PAIR(id) then
+		local relation = jecs.pair_first(world, id)
+		return not jecs.is_tag(world, relation)
+	end
+
 	return not jecs.is_tag(world, id)
 end
 

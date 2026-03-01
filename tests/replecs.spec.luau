@@ -2446,6 +2446,79 @@ TEST("server -> client replication", function()
 
 		POST()
 	end
+
+	do
+		CASE "should replicate pair value when set_pair is called before world:set"
+		PRE()
+
+		local components = create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
+
+		local members = create_members_data(2)
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		world:add(entity1, server.components.networked)
+
+		-- set_pair BEFORE world:set
+		server:set_pair(entity1, jecs.pair(components[1], tags[1]))
+		world:set(entity1, jecs.pair(components[1], tags[1]), "hello")
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+
+			local entity = client_entity(member, entity1)
+			CHECK(entity ~= nil)
+			CHECK(client_pair_value(member, entity1, 1, 1) == "hello")
+		end
+
+		POST()
+	end
+
+	do
+		CASE "should replicate pair value updates when set_pair is called before world:set"
+		PRE()
+
+		local components = create_test_components(world)
+		local tags = create_test_tags(world)
+		server:init()
+
+		local members = create_members_data(2)
+		activate_members(members)
+		init_member_clients(members)
+
+		local entity1 = world:entity()
+		world:add(entity1, server.components.networked)
+
+		-- set_pair BEFORE world:set
+		server:set_pair(entity1, jecs.pair(components[1], tags[1]))
+		world:set(entity1, jecs.pair(components[1], tags[1]), "initial")
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+			CHECK(client_pair_value(member, entity1, 1, 1) == "initial")
+		end
+
+		-- flush additions
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+		end
+
+		-- update the value
+		world:set(entity1, jecs.pair(components[1], tags[1]), "updated")
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+			CHECK(client_pair_value(member, entity1, 1, 1) == "updated")
+		end
+
+		POST()
+	end
 end)
 
 return FINISH()
