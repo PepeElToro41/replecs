@@ -174,42 +174,13 @@ local HOOK_ADDED = common.hook_added
 local HOOK_CHANGED = common.hook_changed
 local HOOK_REMOVED = common.hook_removed
 
-local function HOOK_PAIR_ADDED(world: World, pair_id: Entity, callback: (Entity, Component, any) -> ())
-	local relation = PAIR_FIRST(world, pair_id)
-
-	return HOOK_ADDED(world, relation, function(entity, id, value)
-		if id ~= pair_id then
-			return
-		end
-		callback(entity, id, value)
-	end)
-end
-
-local function HOOK_PAIR_CHANGED(world: World, pair_id: Entity, callback: (Entity, Component, any) -> ())
-	local relation = PAIR_FIRST(world, pair_id)
-
-	return HOOK_CHANGED(world, relation, function(entity, id, value)
-		if id ~= pair_id then
-			return
-		end
-		callback(entity, id, value)
-	end)
-end
-
-local function HOOK_PAIR_REMOVED(world: World, pair_id: Entity, callback: (Entity, Component) -> ())
-	local relation = PAIR_FIRST(world, pair_id)
-
-	return HOOK_REMOVED(world, relation, function(entity, id)
-		if id ~= pair_id then
-			return
-		end
-		callback(entity, id)
-	end)
-end
+local HOOK_PAIR_ADDED = common.hook_added
+local HOOK_PAIR_CHANGED = common.hook_changed
+local HOOK_PAIR_REMOVED = common.hook_removed
 
 local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 	local world = server.world
-	for entity in world:query(PAIR(track_type, WILDCARD)):iter() do
+	for entity in world.query(PAIR(track_type, WILDCARD)):iter() do
 		local index = 0
 		while true do
 			local target = WORLD_TARGET(world, entity, track_type, index)
@@ -223,7 +194,7 @@ local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 end
 
 local function QUERY_CURRENT_NETWORKED(server: Server)
-	for entity, filter in server.world:query(server.components.networked):iter() do
+	for entity, filter in server.world.query(server.components.networked):iter() do
 		server.set_networked(server, entity, filter)
 	end
 
@@ -235,10 +206,10 @@ local function QUERY_CURRENT_NETWORKED(server: Server)
 end
 
 local function QUERY_CURRENT_COMPONENTS(server: Server)
-	for component, serdes in server.world:query(server.components.serdes):iter() do
+	for component, serdes in server.world.query(server.components.serdes):iter() do
 		server.component_serdes[component] = serdes
 	end
-	for entity, id in server.world:query(server.components.global):iter() do
+	for entity, id in server.world.query(server.components.global):iter() do
 		server.global_ids[entity] = id
 	end
 end
