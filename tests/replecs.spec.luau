@@ -1939,8 +1939,8 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], nil)
 
 		local buf, variants = server:get_full(members[1] :: any)
@@ -1982,8 +1982,8 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], vector.create(10, 20, 30))
 
 		local buf, variants = server:get_full(members[1] :: any)
@@ -2006,8 +2006,8 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], "one")
 
 		for _, member in members do
@@ -2044,10 +2044,10 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[1]), nil)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[2]), nil)
-		world:set(entity1, jecs.pair(server.components.reliable, tags[3]), nil)
+		server:set_networked(entity1)
+		server:set_reliable(entity1, tags[1])
+		server:set_reliable(entity1, tags[2])
+		server:set_reliable(entity1, tags[3])
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -2101,7 +2101,7 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity = world:entity()
-		world:add(entity, server.components.networked)
+		server:set_networked(entity)
 
 		for _, member in members do
 			local buf, variants = server:get_full(member :: any)
@@ -2115,7 +2115,7 @@ TEST("server -> client replication", function()
 
 		for _ = 1, 10 do
 			local target = world:entity()
-			world:add(target, server.components.networked)
+			server:set_networked(target)
 			world:add(target, jecs.pair(replecs.relation, jecs.ChildOf))
 			world:add(target, jecs.pair(jecs.ChildOf, entity))
 		end
@@ -2135,16 +2135,16 @@ TEST("server -> client replication", function()
 
 		local entity1 = world:entity()
 
-		world:add(entity1, server.components.networked)
+		server:set_networked(entity1)
 		world:add(entity1, jecs.pair(server.components.relation, tags[1]))
 		world:add(entity1, jecs.pair(server.components.relation, jecs.ChildOf))
 
 		local r1 = world:entity()
 		local r2 = world:entity()
 		local r3 = world:entity()
-		world:add(r1, server.components.networked)
-		world:add(r2, server.components.networked)
-		world:add(r3, server.components.networked)
+		server:set_networked(r1)
+		server:set_networked(r2)
+		server:set_networked(r3)
 		world:add(entity1, jecs.pair(tags[1], r1))
 
 		for _, member in members do
@@ -2196,8 +2196,8 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], "foo")
 
 		for _, member in members do
@@ -2211,7 +2211,7 @@ TEST("server -> client replication", function()
 			member.client:apply_updates(buf, changes)
 			CHECK(client_entity(member, entity1) == nil)
 		end
-		world:add(entity1, server.components.networked)
+		server:set_networked(entity1)
 		world:remove(entity1, server.components.networked)
 		for player, buf, changes in server:collect_updates() do
 			local member: MemberData = player :: any
@@ -2234,15 +2234,15 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
-		world:add(entity1, jecs.pair(server.components.reliable, tags[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, components[1])
+		server:set_reliable(entity1, tags[1])
 		world:add(entity1, jecs.pair(server.components.relation, tags[2]))
 
 		local r1 = world:entity()
 		local r2 = world:entity()
-		world:add(r1, server.components.networked)
-		world:add(r2, server.components.networked)
+		server:set_networked(r1)
+		server:set_networked(r2)
 
 		world:set(entity1, components[1], "foo")
 		world:add(entity1, tags[1])
@@ -2304,7 +2304,7 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
+		server:set_networked(entity1)
 		world:set(entity1, jecs.pair(components[1], tags[1]), "initial")
 		server:set_pair(entity1, jecs.pair(components[1], tags[1]))
 
@@ -2342,8 +2342,8 @@ TEST("server -> client replication", function()
 		init_member_clients(members)
 
 		local entity1 = world:entity()
-		world:add(entity1, server.components.networked)
-		world:add(entity1, jecs.pair(server.components.reliable, components[1]))
+		server:set_networked(entity1)
+		server:set_reliable(entity1, components[1])
 		world:set(entity1, components[1], "all")
 
 		server:set_reliable(
