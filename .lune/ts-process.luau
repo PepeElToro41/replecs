@@ -5,7 +5,7 @@ local OUTPUT = "dist"
 local DARKLUA_CONFIG = ".darklua.json"
 
 local barrel = [[
-import "./jecs"
+import "./pepecs"
 
 import replecs from "./replecs"
 
@@ -30,7 +30,7 @@ local function process_darklua()
 	fs.copy("LICENSE", OUTPUT .. "/LICENSE")
 	fs.copy("README.md", OUTPUT .. "/README.md")
 
-	fs.writeFile(OUTPUT .. "/src/jecs.ts", 'export * from "@rbxts/jecs"\n')
+	fs.writeFile(OUTPUT .. "/src/pepecs.ts", 'export * from "@rbxts/pepecs"\n')
 	fs.writeFile(OUTPUT .. "/src/index.ts", barrel)
 
 	if process.args[1] and type(process.args[1]) == "string" then
