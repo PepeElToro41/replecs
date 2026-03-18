@@ -15,4 +15,4 @@ include = [
 exclude = ["**"]
 
 [dependencies]
-pepecs = "pepeeltoro41/pepecs@0.0.2"
+pepecs = "pepeeltoro41/pepecs@0.0.7"
