@@ -16,7 +16,7 @@ declare namespace Replecs {
       };
 
   type MemberFilterMap = Map<Player, boolean>;
-  type MemberFilter = Player | MemberFilterMap | undefined;
+  type MemberFilter = Player | MemberFilterMap | Record<string, never> | undefined;
   type Member = unknown;
 
   export interface SharedInfo<T> {
