@@ -207,7 +207,11 @@ local function HOOK_PAIR_REMOVED(world: World, pair_id: Entity, callback: (Entit
 	end)
 end
 
-local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
+local function QUERY_TRACKING_TYPE(
+	server: Server,
+	track_type: Component,
+	set_tracking_type: (Server, Entity, Component, AnyFilter?) -> ()
+)
 	local world = server.world
 	for entity in world:query(PAIR(track_type, WILDCARD)):iter() do
 		local index = 0
@@ -216,7 +220,7 @@ local function QUERY_TRACKING_TYPE(server: Server, track_type: Component)
 			if not target then
 				break
 			end
-			server.set_reliable(server, entity, target, WORLD_GET(world, entity, PAIR(track_type, target)))
+			set_tracking_type(server, entity, target, WORLD_GET(world, entity, PAIR(track_type, target)))
 			index += 1
 		end
 	end
@@ -228,9 +232,9 @@ local function QUERY_CURRENT_NETWORKED(server: Server)
 	end
 
 	if RELATIONSHIPS then
-		QUERY_TRACKING_TYPE(server, server.components.reliable)
-		QUERY_TRACKING_TYPE(server, server.components.unreliable)
-		QUERY_TRACKING_TYPE(server, server.components.relation)
+		QUERY_TRACKING_TYPE(server, server.components.reliable, server.set_reliable)
+		QUERY_TRACKING_TYPE(server, server.components.unreliable, server.set_unreliable)
+		QUERY_TRACKING_TYPE(server, server.components.relation, server.set_relation)
 	end
 end
 
