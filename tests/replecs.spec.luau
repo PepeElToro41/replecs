@@ -1980,6 +1980,73 @@ TEST("server -> client replication", function()
 			CHECK(client_tag(member, entity1, 3) == true)
 		end
 	end)
+	CASE("should discover relation markers present before init", function()
+		create_test_components(world)
+		local tags = create_test_tags(world)
+
+		local entity = world:entity()
+		world:add(entity, replecs.Networked)
+		world:add(entity, jecs.pair(replecs.Relation, tags[1]))
+
+		server:init()
+
+		local members = create_members_data(1)
+		activate_members(members)
+		init_member_clients(members)
+
+		local target = world:entity()
+		server:set_networked(target)
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+		end
+
+		world:add(entity, jecs.pair(tags[1], target))
+
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+			CHECK(client_relation(member, entity, 1, target) == true)
+			CHECK(client_tag(member, entity, 1) == false)
+		end
+	end)
+	CASE("should discover unreliable markers present before init", function()
+		local components = create_test_components(world)
+		create_test_tags(world)
+
+		local entity = world:entity()
+		world:add(entity, replecs.Networked)
+		world:add(entity, jecs.pair(replecs.Unreliable, components[1]))
+
+		server:init()
+
+		local members = create_members_data(1)
+		activate_members(members)
+		init_member_clients(members)
+
+		for _, member in members do
+			local buf, variants = server:get_full(member :: any)
+			member.client:apply_full(buf, variants)
+		end
+		for player, buf, changes in server:collect_updates() do
+			local member: MemberData = player :: any
+			member.client:apply_updates(buf, changes)
+		end
+		for _, member in members do
+			local client_entity_id = client_entity(member, entity) :: jecs.Entity
+			member.world:add(client_entity_id, member.components[1])
+		end
+
+		world:set(entity, components[1], "unreliable")
+
+		for player, buf, changes in server:collect_unreliable() do
+			local member: MemberData = player :: any
+			member.client:apply_unreliable(buf, changes)
+		end
+
+		CHECK(client_component(members[1], entity, 1) == "unreliable")
+	end)
 	CASE("should send relation changes", function()
 		create_test_components(world)
 		local tags = create_test_tags(world)
