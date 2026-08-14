@@ -1060,7 +1060,24 @@ function server_replicator.collect_updates(server: Server)
 				server_replicator.write_entity_relations_values(server, entity_storage, c, relation, variants)
 				total_pairs_values += 1
 			end
-			added_mask = write_vlq_bitmask(c, total_pairs_values, added_mask, 3)
+			added_mask = write_vlq_bitmask(c, total_relation_values, added_mask, 5)
+
+			local total_relations = 0
+			for relation in components[COMPONENT_TYPES.relation] do
+				server_replicator.write_entity_relations(server, entity_storage, c, relation)
+				total_relations += 1
+			end
+			added_mask = write_vlq_bitmask(c, total_relations, added_mask, 4)
+
+			local total_pair_values = 0
+			for id in components[COMPONENT_TYPES.pair_component] do
+				local value = entity_storage.pair_components[id]
+				if value then
+					server_replicator.write_entity_pair_value(server, world, c, id, value, variants)
+					total_pair_values += 1
+				end
+			end
+			added_mask = write_vlq_bitmask(c, total_pair_values, added_mask, 3)
 
 			local total_pairs = 0
 			for relation in components[COMPONENT_TYPES.pair] do
@@ -1071,12 +1088,21 @@ function server_replicator.collect_updates(server: Server)
 
 			local total_components = 0
 			for component in components[COMPONENT_TYPES.component] do
-				local value = entity_storage.values[component]
-				if value == nil then
-					continue
+				local value = entity_storage.components[component]
+				if value ~= nil then
+					server_replicator.write_component_value(server, c, component, value, variants)
+					server_replicator.write_component_id(server, c, component)
+					total_components += 1
 				end
-				server_replicator.write_component(server, c, component, value, variants)
-				total_components += 1
+			end
+			for component in components[COMPONENT_TYPES.unreliable] do
+				if WORLD_HAS(world, entity, component) then
+					local value = WORLD_GET(world, entity, component)
+
+					server_replicator.write_component_value(server, c, component, value, variants)
+					server_replicator.write_component_id(server, c, component)
+					total_components += 1
+				end
 			end
 			added_mask = write_vlq_bitmask(c, total_components, added_mask, 1)
 
@@ -1600,7 +1626,7 @@ function server_replicator.destroy(server: Server)
 	end
 end
 
-local function create(world: World?, components: types.Components?): Server
+local function create(world: World?, components: types.Components?, compact_threshold: number?): Server
 	local self = {} :: Server
 
 	if components then
@@ -1627,7 +1653,7 @@ local function create(world: World?, components: types.Components?): Server
 	}
 	self.connections = {}
 	self.inited = false
-	self.masking = masking_controller.create()
+	self.masking = masking_controller.create(compact_threshold or 32)
 	self.alive_tracked = {}
 	self.custom_ids = {}
 	self.registered_custom_ids = {}

@@ -467,6 +467,10 @@ function masking_controller.get_component_lookup(
 	component_type: number
 ): (ComponentLookup, EntityLookup)
 	local entity_lookup = masking.lookups.entities[entity]
+	if not entity_lookup then
+		return nil :: any, nil :: any
+	end
+
 	return entity_lookup.filtered_components[component_type][component], entity_lookup
 end
 
@@ -1336,7 +1340,7 @@ local function remap_bitmask(
 		if old_index then
 			local old_bit = bitmask:get(old_index)
 			if old_bit then
-				result:set(index, old_bit)
+				result:set(index)
 			else
 				result:clear(index)
 			end
@@ -1350,9 +1354,10 @@ local function bitmask_from_set(masking: MaskingInternal, member_set: { [Member]
 	for member: Member in member_set do
 		local index = masking.client_indexes[member]
 		if not index then
-			local alias = masking.client_indexes[masking.client_aliases[member]]
+			local alias_member = masking.client_aliases[member]
+			local alias = alias_member and masking.client_indexes[alias_member]
 			if alias then
-				if utils.is_client_valid(alias) then
+				if utils.is_client_valid(alias_member) then
 					index = alias
 				end
 			elseif utils.is_client_valid(member) then
@@ -1514,8 +1519,7 @@ function masking_controller.create_exclude_generator(masking: MaskingInternal, e
 	return new_generator
 end
 
--- TODO: check for players existing and register them if they don't
-function masking_controller.create_include_generator(masking: MaskingInternal, include: MemberFilter): MaskGenerator
+function masking_controller.create_include_generator(masking: MaskingController, include: MemberFilter): MaskGenerator
 	local bitmask = bitmask_from_set(masking, include)
 	local active_members = masking.active_members_generator
 
@@ -1603,8 +1607,8 @@ function masking_controller.member_is_active(masking: MaskingInternal, member: M
 	return masking.active_members_generator.result:get(index)
 end
 
-local function create(): MaskingController
-	local self = {} :: MaskingInternal
+local function create(compact_count: number): MaskingController
+	local self = {} :: MaskingController
 
 	self.client_indexes = {}
 	self.group_indexes = {}

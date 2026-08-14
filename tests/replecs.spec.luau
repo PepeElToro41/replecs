@@ -424,13 +424,9 @@ TEST("member bitmasking", function()
 		})
 		check_entity_mask(entity2, mask_hash { 1, 3 })
 
-		POST()
-	end
-	--FOCUS()
-	do
-		CASE "should change an entity filter"
-		PRE()
-
+		SANITY_CHECKS()
+	end)
+	CASE("should change an entity filter", function()
 		local member0, member1, member2 = register_members(masking)
 		active_all_members(masking)
 
@@ -978,12 +974,9 @@ TEST("member bitmasking", function()
 		check_component_mask(entity2, component1, compacted_hash2)
 		check_component_mask(entity1, component2, compacted_hash2)
 
-		POST()
-	end
-	--FOCUS()
-	do
-		CASE "should postpone all components when an entity stops"
-		PRE()
+		SANITY_CHECKS()
+	end)
+	CASE("should postpone all components when an entity stops", function()
 		local member0, member1, member2, member3 = register_members(masking)
 		active_all_members(masking)
 		local entity = world:entity()

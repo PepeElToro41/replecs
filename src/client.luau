@@ -449,6 +449,26 @@ function client_replicator.read_entity_id(client: Client, c: Cursor): (Entity?, 
 	end
 end
 
+local function read_vlq_bitmask(c: Cursor, mask: number, bit: number): number
+	if utils.checkbit(mask, bit) then
+		return cursor.read_vlq(c)
+	else
+		return 0
+	end
+end
+
+function client_replicator.find_entity_id(client: Client, c: Cursor): (Entity?, number?)
+	local entity, server_id, id_type = client_replicator.read_entity_id(client, c)
+
+	-- skip customid, keep cursor offset
+	if id_type == ENTITY_ID_TYPES.custom_id then
+		client_replicator.read_component_id(client, c)
+	elseif id_type == ENTITY_ID_TYPES.custom_handler then
+		cursor.readu8(c)
+	end
+	return entity, server_id
+end
+
 function client_replicator.process_entity_id(
 	client: Client,
 	c: Cursor,
@@ -1042,7 +1062,7 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 
 		local total_deleted = read_vlq_bitmask(c, storage_mask, 4)
 		for _ = 1, total_deleted do
-			local entity, server_id = client_replicator.read_entity_id(client, c)
+			local entity, server_id = client_replicator.find_entity_id(client, c)
 			if entity then
 				local deleted_hook = deleted_hooks[entity]
 				if deleted_hook then
@@ -1082,7 +1102,7 @@ function client_replicator.apply_unreliable(client: Client, buf: buffer, all_var
 		local variants = all_variants and all_variants[variant_start - a]
 
 		for _ = 1, total_entities do
-			local entity = client_replicator.read_entity_id(client, c)
+			local entity = client_replicator.find_entity_id(client, c)
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
