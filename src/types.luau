@@ -1,16 +1,16 @@
 local customid = require "./customid"
 local common = require "./common"
 
+export type PlayerFilter = {
+	[Player]: boolean,
+}
+
 export type FunctionFilter = (player: Player) -> boolean
-export type AnyFilter = PlayerFilter | Player | FunctionFilter
+export type AnyFilter = PlayerFilter | Player
 
 type Entity = common.Entity
 type World = common.World
 type Component<T = any> = common.Component<T>
-
-export type PlayerFilter = {
-	[Player]: boolean,
-}
 
 export type SharedInfo<T> = {
 	lookup: { [string]: T },
@@ -27,24 +27,24 @@ export type HandshakeInfo = {
 	} },
 }
 
-export type Serdes = {
+export type Serdes<T = any> = {
 	includes_variants: boolean?,
 	bytespan: number?,
-	serialize: (value: any) -> (buffer, { any }?),
-	deserialize: (buffer, { any }?) -> any,
+	serialize: (value: T) -> (buffer, ...{ any }),
+	deserialize: (buffer, ...{ any }) -> T,
 }
 
 export type Components = {
 	shared: Entity,
 	Shared: Entity,
-	networked: Component<AnyFilter?>,
+	networked: Component<any?>,
 	Networked: Component<AnyFilter?>,
 	reliable: Component<AnyFilter?>,
 	Reliable: Component<AnyFilter?>,
 	unreliable: Component<AnyFilter?>,
 	Unreliable: Component<AnyFilter?>,
-	pair: Component<AnyFilter?>,
-	Pair: Component<AnyFilter?>,
+	relation: Component<AnyFilter?>,
+	Relation: Component<AnyFilter?>,
 
 	serdes: Component<Serdes>,
 	Serdes: Component<Serdes>,
@@ -61,7 +61,7 @@ export type Shared = {
 	components: SharedInfo<Entity>,
 	custom_ids: SharedInfo<customid.CustomId>,
 
-	serdes: { [Entity]: Serdes },
+	serdes: { [Component]: Serdes },
 }
 
 return nil

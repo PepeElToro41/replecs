@@ -13,10 +13,12 @@ export type Client = client.Client
 
 type Entity = common.Entity
 type World = common.World
+type Component<T = any> = common.Component<T>
 
 export type HandleContext = customid.HandleContext
 export type CustomId = customid.CustomId
 export type HandshakeInfo = types.HandshakeInfo
+export type Serdes = types.Serdes
 
 export type ReplecsLib = {
 	server: Server,
@@ -25,13 +27,14 @@ export type ReplecsLib = {
 
 	after_replication: (self: ReplecsLib, callback: () -> ()) -> (),
 	register_custom_id: (self: ReplecsLib, custom_id: CustomId) -> (),
+
+	set_serdes: <T>(self: ReplecsLib, id: Component<T>, serdes: types.Serdes<T>) -> (),
+	remove_serdes: (self: ReplecsLib, id: Component) -> (),
 }
 
 type Replecs = types.Components & {
 	__index: any,
 	VERSION: string,
-	BITMASK_COMPACT_THRESHOLD: number,
-
 	create: (world: World?) -> ReplecsLib,
 
 	create_server: (world: World?) -> Server,
@@ -41,8 +44,6 @@ type Replecs = types.Components & {
 
 local replecs = {}
 replecs.VERSION = VERSION
-replecs.BITMASK_COMPACT_THRESHOLD = 128
-
 replecs.__index = replecs
 
 local PREREGISTRATION = common.preregistration
@@ -59,7 +60,7 @@ end
 local COMPONENTS = if PREREGISTRATION then replecs :: Replecs else nil
 
 function replecs.create_server(world: World?): Server
-	return server.create(world, COMPONENTS, replecs.BITMASK_COMPACT_THRESHOLD)
+	return server.create(world, COMPONENTS)
 end
 
 function replecs.create_client(world: World?): Client
@@ -130,4 +131,4 @@ function replecs.remove_serdes(lib: ReplecsLib, id: Component)
 	end
 end
 
-return (replecs :: any) :: Replecs
+return replecs :: Replecs

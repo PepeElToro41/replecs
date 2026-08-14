@@ -34,11 +34,22 @@ local function PAIR(relation: Entity, target: Entity): Entity
 	return jecs.pair(relation, target)
 end
 
+local function PAIR_FIRST(world: World, id: Entity): Entity
+	if not IS_PAIR(id) then
+		LOGERROR(`expected a pair, got: {LOG_COMPONENT(world, id)}`)
+	end
+	return jecs.pair_first(world, id)
+end
+
 local function PAIR_SECOND(world: World, id: Entity): Entity
 	if not IS_PAIR(id) then
 		LOGERROR(`expected a pair, got: {LOG_COMPONENT(world, id)}`)
 	end
 	return jecs.pair_second(world, id)
+end
+
+local function LISTEN_RELATION(relation: Entity)
+	return relation
 end
 
 local function ADD_NAME(world: World, component: Component, name: string)
@@ -95,10 +106,10 @@ local function WORLD_DELETE(world: World, entity: Entity)
 end
 
 local function WORLD_GET<T>(world: World, entity: Entity, id: Component<T>): T
-	return world:get(entity, id)
+	return world:get(entity, id) :: T
 end
 
-local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): jecs.Entity?
+local function WORLD_TARGET(world: World, entity: Entity, rel: Component, index: number?): Entity?
 	return world:target(entity, rel, index)
 end
 
@@ -121,7 +132,7 @@ local PREREGISTER_COMPONENT = jecs.component
 local PREREGISTER_TAG = jecs.tag
 
 local function IS_COMPONENT(world: World, id: Component)
-	return world:has(id, jecs.Component)
+	return not jecs.is_tag(world, id)
 end
 
 local function HOOK_ADDED(world: World, id: Component, callback: (e: Entity, id: Component, value: any) -> ()): () -> ()
@@ -148,6 +159,7 @@ common.implicitly_shared = IMPLICITLY_SHARED
 
 common.is_pair = IS_PAIR
 common.pair = PAIR
+common.pair_first = PAIR_FIRST
 common.pair_second = PAIR_SECOND
 common.add_name = ADD_NAME
 common.add_preregistered_name = ADD_PREREGISTERED_NAME
@@ -169,6 +181,7 @@ common.preregister_component = PREREGISTER_COMPONENT
 common.preregister_tag = PREREGISTER_TAG
 
 common.is_component = IS_COMPONENT
+common.listen_relation = LISTEN_RELATION
 
 common.hook_added = HOOK_ADDED
 common.hook_changed = HOOK_CHANGED
