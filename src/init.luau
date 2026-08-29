@@ -35,6 +35,8 @@ export type ReplecsLib = {
 type Replecs = types.Components & {
 	__index: any,
 	VERSION: string,
+	BITMASK_COMPACT_THRESHOLD: number,
+
 	create: (world: World?) -> ReplecsLib,
 
 	create_server: (world: World?) -> Server,
@@ -44,6 +46,7 @@ type Replecs = types.Components & {
 
 local replecs = {}
 replecs.VERSION = VERSION
+replecs.BITMASK_COMPACT_THRESHOLD = 128
 replecs.__index = replecs
 
 local PREREGISTRATION = common.preregistration
@@ -60,7 +63,7 @@ end
 local COMPONENTS = if PREREGISTRATION then replecs :: Replecs else nil
 
 function replecs.create_server(world: World?): Server
-	return server.create(world, COMPONENTS)
+	return server.create(world, COMPONENTS, replecs.BITMASK_COMPACT_THRESHOLD)
 end
 
 function replecs.create_client(world: World?): Client
@@ -68,7 +71,7 @@ function replecs.create_client(world: World?): Client
 end
 
 function replecs.create(world: World?): ReplecsLib
-	assert(game, "This is a Roblox specific function")
+	assert(game, "This is only for roblox, call create_client or create_server manually depending on your setup")
 	local RunService = game:GetService "RunService"
 	local self = {} :: ReplecsLib
 
@@ -82,7 +85,7 @@ function replecs.create(world: World?): ReplecsLib
 	end
 
 	if RunService:IsServer() then
-		self.server = server.create(world, self.components)
+		self.server = server.create(world, self.components, replecs.BITMASK_COMPACT_THRESHOLD)
 	end
 	if RunService:IsClient() then
 		self.client = client.create(world, self.components)

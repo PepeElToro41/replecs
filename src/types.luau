@@ -43,6 +43,8 @@ export type Components = {
 	Reliable: Component<AnyFilter?>,
 	unreliable: Component<AnyFilter?>,
 	Unreliable: Component<AnyFilter?>,
+	once: Component<AnyFilter?>,
+	Once: Component<AnyFilter?>,
 	relation: Component<AnyFilter?>,
 	Relation: Component<AnyFilter?>,
 

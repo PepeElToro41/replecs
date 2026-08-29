@@ -280,7 +280,9 @@ local function printReport(report: TestReport)
 		print(color.red_highlight(` --- FAIL --- `))
 	end
 
-	print(color.gray(string.format(`{totalPassed}/{totalCases} cases passed in %.3f ms.` :: any, report.duration * 1e3)))
+	print(
+		color.gray(string.format(`{totalPassed}/{totalCases} cases passed in %.3f ms.` :: any, report.duration * 1e3))
+	)
 	print ""
 	print(`{totalPassed} {color.green "passed"}`)
 	print(`{totalFailed} {color.red "failed"}`)

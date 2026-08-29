@@ -186,6 +186,7 @@ function utils.create_components(tag: () -> Component, component: () -> Componen
 	if RELATIONSHPIS then
 		components.reliable = component()
 		components.unreliable = component()
+		components.once = component()
 		components.relation = component()
 
 		components.custom = tag()
@@ -200,6 +201,7 @@ function utils.create_components(tag: () -> Component, component: () -> Componen
 	if RELATIONSHPIS then
 		components.Reliable = components.reliable
 		components.Unreliable = components.unreliable
+		components.Once = components.once
 		components.Relation = components.relation
 
 		components.Custom = components.custom
@@ -216,6 +218,7 @@ function utils.add_component_names(components: types.Components, set: (component
 		set(components.networked, "replecs.networked")
 		set(components.reliable, "replecs.reliable")
 		set(components.unreliable, "replecs.unreliable")
+		set(components.once, "replecs.once")
 		set(components.relation, "replecs.relation")
 
 		set(components.custom, "replecs.custom")
@@ -269,7 +272,11 @@ function cursor.tryalloc(c: Cursor, bytes: number)
 
 	if len < offset + bytes then
 		local exponent = math.ceil(math.log((bytes + offset) / len, 1.5))
-		local new = buffer.create(len * 1.5 ^ exponent)
+		local new_len = math.floor(len * 1.5 ^ exponent)
+		if new_len < offset + bytes then
+			new_len = offset + bytes
+		end
+		local new = buffer.create(new_len)
 		buffer.copy(new, 0, buf, 0)
 		c.buffer = new
 	end

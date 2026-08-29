@@ -545,11 +545,23 @@ local function read_vlq_bitmask(c: Cursor, mask: number, bit: number): number
 	end
 end
 
+function client_replicator.find_entity_id(client: Client, c: Cursor): (Entity?, number?)
+	local entity, server_id, id_type = client_replicator.read_entity_id(client, c)
+
+	-- skip customid, keep cursor offset
+	if id_type == ENTITY_ID_TYPES.custom_id then
+		client_replicator.read_component_id(client, c)
+	elseif id_type == ENTITY_ID_TYPES.custom_handler then
+		cursor.readu8(c)
+	end
+	return entity, server_id
+end
+
 function client_replicator.process_entity_id(
 	client: Client,
 	c: Cursor,
 	custom_ids: CustomIdMap,
-	process: (entity: Entity) -> ()
+	process: ((entity: Entity) -> ())?
 )
 	local entity, server_id, id_type = client_replicator.read_entity_id(client, c)
 
@@ -561,7 +573,10 @@ function client_replicator.process_entity_id(
 			cursor.readu8(c)
 		end
 
-		return process(entity)
+		if process then
+			process(entity)
+		end
+		return
 	else
 		if id_type == ENTITY_ID_TYPES.custom_id or id_type == ENTITY_ID_TYPES.custom_handler then
 			if id_type == ENTITY_ID_TYPES.custom_id then
@@ -577,6 +592,10 @@ function client_replicator.process_entity_id(
 				custom_ids[server_id :: any] = handler
 			end
 
+			if not process then
+				return
+			end
+
 			if client.command_buffers_active then
 				-- negative id means it's a custom id,
 				-- it needs to be translated first
@@ -588,7 +607,9 @@ function client_replicator.process_entity_id(
 			end
 		else
 			local new_entity = get_or_create_entity(client, server_id :: number)
-			process(new_entity)
+			if process then
+				process(new_entity)
+			end
 		end
 	end
 end
@@ -644,9 +665,8 @@ function client_replicator.process_entity_pair_value(
 
 			c.offset = jump_offset
 		else
-			local frozen_cursor = cursor.from_offset(c.buffer, c.offset)
-
 			local pointer_offset = cursor.read_vlq(c)
+			local frozen_cursor = cursor.from_offset(c.buffer, c.offset)
 			c.offset -= pointer_offset
 
 			client_replicator.entity_set_postponed_pair(client, entity, relation, target, frozen_cursor, variants)
@@ -671,6 +691,7 @@ function client_replicator.process_entity(
 )
 	local mask = cursor.readu8(c)
 	local changed_hooks = client.network_hooks.changed
+	local removed_hooks = client.network_hooks.removed
 	local components = client.components
 
 	local total_tags = read_vlq_bitmask(c, mask, 0)
@@ -683,9 +704,16 @@ function client_replicator.process_entity(
 	local total_components = read_vlq_bitmask(c, mask, 1)
 	for _ = 1, total_components do
 		local component = client_replicator.read_component_id(client, c)
-		local value = client_replicator.read_component_value(client, component, c, variants)
-		local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-		client_replicator.entity_set(client, entity, component, value, component_hooks)
+		local has = cursor.readu8(c)
+		if has == 1 then
+			local value = client_replicator.read_component_value(client, component, c, variants)
+			local component_hooks = changed_hooks[PAIR(components.reliable, component)]
+			client_replicator.entity_set(client, entity, component, value, component_hooks)
+		else
+			-- server owns the component and no longer has it, force a removal
+			local component_hooks = removed_hooks[PAIR(components.reliable, component)]
+			client_replicator.entity_remove(client, entity, component, component_hooks)
+		end
 	end
 
 	local total_pairs = read_vlq_bitmask(c, mask, 2)
@@ -767,7 +795,9 @@ function client_replicator.apply_command_buffer(
 	end
 	for component, value in command_buffer.unreliable_components do
 		local component_hooks = client.network_hooks.changed[PAIR(components.unreliable, component)]
-		client_replicator.entity_set(client, entity, component, value.value, component_hooks)
+		if WORLD_HAS(client.world, entity, component) then
+			client_replicator.entity_set(client, entity, component, value.value, component_hooks)
+		end
 	end
 	for component in command_buffer.remove do
 		local component_hooks = client.network_hooks.removed[PAIR(components.reliable, component)]
@@ -955,6 +985,10 @@ function client_replicator.finish_custom_ids(
 		local command_buffer = command_buffers[unprocessed_entity :: any]
 		custom_handler = custom_handler or custom_ids[server_entity]
 
+		if not custom_handler then
+			return nil
+		end
+
 		if type(custom_handler) == "number" then
 			local component: Entity = custom_handler :: any
 
@@ -972,7 +1006,9 @@ function client_replicator.finish_custom_ids(
 				if value then
 					new_entity = handler(value.value)
 				else
-					common.log_warn(`No component found for custom id handler: {common.log_component(world, component)}`)
+					common.log_warn(
+						`No component found for custom id handler: {common.log_component(world, component)}`
+					)
 					new_entity = handler(nil)
 				end
 			else
@@ -1159,9 +1195,7 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 
 		local total_added = read_vlq_bitmask(c, storage_mask, 0)
 		for _ = 1, total_added do
-			client_replicator.process_entity_id(client, c, custom_ids, function(entity)
-				client_replicator.process_entity(client, entity, c, custom_ids, variants)
-			end)
+			client_replicator.process_entity_id(client, c, custom_ids)
 		end
 
 		local total_components_added = read_vlq_bitmask(c, storage_mask, 1)
@@ -1179,9 +1213,16 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 				local total_components = read_vlq_bitmask(c, added_mask, 1)
 				for _ = 1, total_components do
 					local component = client_replicator.read_component_id(client, c)
-					local value = client_replicator.read_component_value(client, component, c, variants)
-					local component_hooks = changed_hooks[PAIR(components.reliable, component)]
-					client_replicator.entity_set(client, entity, component, value, component_hooks)
+					local has = cursor.readu8(c)
+					if has == 1 then
+						local value = client_replicator.read_component_value(client, component, c, variants)
+						local component_hooks = changed_hooks[PAIR(components.reliable, component)]
+						client_replicator.entity_set(client, entity, component, value, component_hooks)
+					else
+						-- server owns the component and no longer has it, force a removal
+						local component_hooks = removed_hooks[PAIR(components.reliable, component)]
+						client_replicator.entity_remove(client, entity, component, component_hooks)
+					end
 				end
 
 				local total_pairs = read_vlq_bitmask(c, added_mask, 2)
@@ -1274,7 +1315,14 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					for _ = 1, total_targets do
 						local value = client_replicator.read_component_value(client, relation, c, variants)
 						client_replicator.process_entity_id(client, c, custom_ids, function(target)
-							client_replicator.entity_set_pair(client, entity, relation, target, value, pair_changed_hooks)
+							client_replicator.entity_set_pair(
+								client,
+								entity,
+								relation,
+								target,
+								value,
+								pair_changed_hooks
+							)
 						end)
 					end
 				end
@@ -1326,7 +1374,7 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 
 		local total_deleted = read_vlq_bitmask(c, storage_mask, 4)
 		for _ = 1, total_deleted do
-			local entity, server_id = client_replicator.read_entity_id(client, c)
+			local entity, server_id = client_replicator.find_entity_id(client, c)
 			if entity then
 				local deleted_hook = deleted_hooks[entity]
 				if deleted_hook then
@@ -1335,6 +1383,8 @@ function client_replicator.apply_updates(client: Client, buf: buffer, all_varian
 					end
 					if not deleted_hook.overrides then
 						WORLD_DELETE(world, entity)
+					else
+						client.client_ids[entity] = nil
 					end
 				else
 					WORLD_DELETE(world, entity)
@@ -1367,7 +1417,7 @@ function client_replicator.apply_unreliable(client: Client, buf: buffer, all_var
 		local variants = all_variants and all_variants[variant_start - a]
 
 		for _ = 1, total_entities do
-			local entity = client_replicator.read_entity_id(client, c)
+			local entity = client_replicator.find_entity_id(client, c)
 			local total_unreliable = cursor.read_vlq(c)
 
 			if entity then
