@@ -131,8 +131,22 @@ end
 local PREREGISTER_COMPONENT = jecs.component
 local PREREGISTER_TAG = jecs.tag
 
-local function IS_COMPONENT(world: World, id: Component)
-	return not jecs.is_tag(world, id)
+local ECS_COMPONENT = jecs.Component
+
+-- jecs.is_tag misreports pairs that have not been used in the world yet, so
+-- component-ness is resolved by hand: a plain id is a component when it has
+-- jecs.Component; a pair takes its data from the relation, or from the
+-- target when the relation is a tag
+local function IS_COMPONENT(world: World, id: Component): boolean
+	if IS_PAIR(id) then
+		local relation = jecs.pair_first(world, id)
+		if world:has(relation, ECS_COMPONENT) then
+			return true
+		end
+		local target = jecs.pair_second(world, id)
+		return world:has(target, ECS_COMPONENT)
+	end
+	return world:has(id, ECS_COMPONENT)
 end
 
 local function HOOK_ADDED(world: World, id: Component, callback: (e: Entity, id: Component, value: any) -> ()): () -> ()

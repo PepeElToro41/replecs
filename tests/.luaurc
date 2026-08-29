@@ -1,8 +1,0 @@
-{
-   "aliases": {
-      "replecs": "../src/",
-      "pkg": "../luau_packages/",
-      "testkit": "./testkit"
-   },
-   "lintErrors": false
-}
