@@ -1,6 +1,6 @@
 name = "pepeeltoro41/replecs"
 authors = ["PepeElToro41"]
-description = "Networking library for Jecs"
+description = "Networking library for Pepecs"
 includes = ["pesde.toml", "README.md", "LICENSE.md", "src"]
 license = "MIT"
 repository = "https://github.com/PepeElToro41/replecs"
@@ -14,4 +14,4 @@ environment = "luau"
 lib = "src/init.luau"
 
 [dependencies]
-pepecs = { name = "pepeeltoro41/pepecs", version = "^0.0.7" }
+pepecs = { name = "pepeeltoro41/pepecs", version = "^0.0.9" }

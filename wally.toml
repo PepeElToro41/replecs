@@ -1,6 +1,6 @@
 [package]
 name = "pepeeltoro41/replecs-pepecs"
-version = "0.0.3"
+version = "0.1.0-rc.1"
 description = "Networking library for Pepecs"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
@@ -15,4 +15,4 @@ include = [
 exclude = ["**"]
 
 [dependencies]
-pepecs = "pepeeltoro41/pepecs@0.0.7"
+pepecs = "pepeeltoro41/pepecs@0.0.9"

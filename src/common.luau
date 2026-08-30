@@ -48,6 +48,7 @@ local function PAIR_SECOND(world: World, id: Entity): Entity
 	return world.pair_second(id)
 end
 
+-- pepecs fires hooks bound to (relation, Wildcard) for every pair of that relation
 local function LISTEN_RELATION(relation: Entity)
 	return pepecs.pair(relation, pepecs.Wildcard)
 end
@@ -99,7 +100,7 @@ local function WORLD_ENTITY(world: World)
 end
 
 local function WORLD_TAG(world: World)
-	return world.entity()
+	return world.tag()
 end
 local function WORLD_COMPONENT(world: World)
 	return world.component()
@@ -108,7 +109,7 @@ end
 local PREREGISTER_COMPONENT = pepecs.component
 local PREREGISTER_TAG = pepecs.tag
 
-local function IS_COMPONENT(world: World, id: Component)
+local function IS_COMPONENT(world: World, id: Component): boolean
 	return world.is_component(id)
 end
 

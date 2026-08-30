@@ -58,6 +58,7 @@ type TestSuite = {
 	focused: boolean,
 	skipped: boolean,
 	hasFocusedCases: boolean,
+	collectError: string?,
 	fn: () -> (),
 }
 
@@ -128,6 +129,7 @@ local function createPlan(): TestPlan
 			focused = state.nextFocused,
 			skipped = state.nextSkipped,
 			hasFocusedCases = false,
+			collectError = nil,
 			fn = fn,
 		}
 
@@ -272,13 +274,19 @@ local function printReport(report: TestReport)
 		totalFailed += totalCasesFailed
 	end
 
+	report.passed = totalPassed
+	report.failed = totalFailed
+	report.skipped = totalSkipped
+
 	if totalFailed == 0 then
 		print(color.green_highlight(` --- PASS --- `))
 	else
 		print(color.red_highlight(` --- FAIL --- `))
 	end
 
-	print(color.gray(string.format(`{totalPassed}/{totalCases} cases passed in %.3f ms.` :: any, report.duration * 1e3)))
+	print(
+		color.gray(string.format(`{totalPassed}/{totalCases} cases passed in %.3f ms.` :: any, report.duration * 1e3))
+	)
 	print ""
 	print(`{totalPassed} {color.green "passed"}`)
 	print(`{totalFailed} {color.red "failed"}`)
@@ -328,6 +336,21 @@ local function runCase(suite: TestSuite, case: TestCase)
 	return testResult
 end
 
+-- Run the suite body to register cases/hooks and discover focused cases
+local function collectSuite(state: PlanState, suite: TestSuite)
+	if suite.skipped then
+		return
+	end
+
+	state.currentSuite = suite
+	local success, err = safeCall(suite.fn)
+	state.currentSuite = nil
+
+	if not success then
+		suite.collectError = err
+	end
+end
+
 local function runSuite(state: PlanState, suite: TestSuite): SuiteResult
 	local suiteResult: SuiteResult = {
 		name = suite.name,
@@ -337,17 +360,14 @@ local function runSuite(state: PlanState, suite: TestSuite): SuiteResult
 	}
 
 	local hasFocusedSuites = state.hasFocusedSuites
-	local suiteShouldSkip = suite.skipped or (hasFocusedSuites and not suite.focused)
+	local suiteFocused = suite.focused or suite.hasFocusedCases
+	local suiteShouldSkip = suite.skipped or (hasFocusedSuites and not suiteFocused)
 	if suiteShouldSkip then
 		suiteResult.status = "skipped"
 		return suiteResult
 	end
 
-	state.currentSuite = suite
-	local success, err = safeCall(suite.fn)
-	state.currentSuite = nil
-
-	if success then
+	if suite.collectError == nil then
 		for _, hook in suite.beforeAll do
 			local success, err = safeCall(hook)
 			if not success then
@@ -381,7 +401,7 @@ local function runSuite(state: PlanState, suite: TestSuite): SuiteResult
 		suiteResult.status = "passed"
 	else
 		suiteResult.status = "failed"
-		suiteResult.error = err
+		suiteResult.error = suite.collectError
 	end
 
 	-- Run AFTER_ALL hooks
@@ -413,6 +433,19 @@ local function runTests(...: TestPlan): TestReport
 	}
 
 	print(color.white_underline "Running Tests")
+
+	-- Collect all suites first so focused cases can focus their whole suite
+	for _, plan in plans do
+		local state: PlanState = plan._state
+
+		for _, suite in state.suites do
+			collectSuite(state, suite)
+
+			if suite.hasFocusedCases then
+				state.hasFocusedSuites = true
+			end
+		end
+	end
 
 	-- Process all plans
 	for _, plan in plans do
