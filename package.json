@@ -1,6 +1,6 @@
 {
   "name": "@rbxts/replecs",
-  "version": "0.4.0-rc.2",
+  "version": "0.4.0-rc.2.ts.1",
   "description": "Replication library for Jecs",
   "main": "out/init.luau",
   "types": "out/index.d.ts",
@@ -21,8 +21,7 @@
     "out",
     "!**/*.spec.lua",
     "!**/*.spec.d.ts",
-    "!**/*.tsbuildinfo",
-    "!out/replecs/index.d.ts"
+    "!**/*.tsbuildinfo"
   ],
   "scripts": {
     "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json"

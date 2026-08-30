@@ -54,6 +54,8 @@ jobs:
   wally:
     name: Publish to Wally
     needs: [build, unit-tests]
+    # workflow_dispatch releases are npm-only
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Project
