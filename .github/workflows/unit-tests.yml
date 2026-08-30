@@ -25,12 +25,5 @@ jobs:
 
             - name: Run Unit Tests
               id: run_tests
-              run: |
-                  output=$(lune run tests/replecs.spec.luau)
-                  echo "$output"
-                  if [[ "$output" == *"0 fails"* ]]; then
-                    echo "Unit Tests Passed"
-                  else
-                    echo "Error: One or More Unit Tests Failed."
-                    exit 1
-                  fi
+              # the spec errors (non-zero exit) when any case fails
+              run: lune run tests/replecs.spec.luau

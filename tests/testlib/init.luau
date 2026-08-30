@@ -274,6 +274,10 @@ local function printReport(report: TestReport)
 		totalFailed += totalCasesFailed
 	end
 
+	report.passed = totalPassed
+	report.failed = totalFailed
+	report.skipped = totalSkipped
+
 	if totalFailed == 0 then
 		print(color.green_highlight(` --- PASS --- `))
 	else

@@ -4980,3 +4980,8 @@ end)
 
 local report = testlib.run(plan)
 testlib.report(report)
+
+-- non-zero exit code for CI, works in both lune and zune
+if report.failed > 0 then
+	error(`{report.failed} test(s) failed`, 0)
+end
