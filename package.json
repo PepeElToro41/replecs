@@ -1,6 +1,6 @@
 {
   "name": "@rbxts/replecs",
-  "version": "0.4.0-rc.1",
+  "version": "0.4.0-rc.2",
   "description": "Replication library for Jecs",
   "main": "out/init.luau",
   "types": "out/index.d.ts",

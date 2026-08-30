@@ -1,6 +1,6 @@
 [package]
 name = "pepeeltoro41/replecs"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 description = "Networking library for Jecs"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
