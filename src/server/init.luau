@@ -216,7 +216,6 @@ export type Server = ServerImp & {
 	last_active_bitmask: Bitmask,
 	newly_active_bitmask: Bitmask,
 	newly_unactive_bitmask: Bitmask,
-	pending_active: Set<Player>,
 
 	entity_bitmask_deltas: BitmaskDeltas,
 	component_bitmask_deltas: BitmaskDeltas,
@@ -2456,15 +2455,6 @@ local function collect_updates_groups(self: Server): Map<MaskHash, SerializeGrou
 	local newly_active = self.newly_active_bitmask
 	local newly_unactive = self.newly_unactive_bitmask
 
-	local client_indexes = self.registry.client_indexes
-	for player in self.pending_active do
-		local index = client_indexes[player]
-		if index then
-			bitmasks.set(active, index)
-		end
-	end
-	table.clear(self.pending_active)
-
 	bitmasks.exclude(active, last_active, newly_active)
 	bitmasks.exclude(last_active, active, newly_unactive)
 
@@ -3596,10 +3586,10 @@ function server.mark_player_ready(self: Server, player: Player)
 	registry:register_client(player)
 
 	local index = registry.client_indexes[player]
-	if index and bitmasks.test(self.client_active_bitmask, index) then
+	if not index then
 		return
 	end
-	self.pending_active[player] = true
+	bitmasks.set(self.client_active_bitmask, index)
 end
 
 function server.is_player_ready(self: Server, player: Player): boolean
@@ -3681,7 +3671,6 @@ function server.remove_player(self: Server, player: Player)
 		end
 	end
 
-	self.pending_active[player] = nil
 	registry:remove_client_aliases(player)
 	registry:unregister_client(player)
 end
@@ -3914,7 +3903,6 @@ function server.create(world: World?, components: types.Components?, max_clients
 	self.last_active_bitmask = buffer.create(self.bitmask_size)
 	self.newly_active_bitmask = buffer.create(self.bitmask_size)
 	self.newly_unactive_bitmask = buffer.create(self.bitmask_size)
-	self.pending_active = {}
 
 	self.entity_bitmask_deltas = {
 		added = buffer.create(self.bitmask_size),
