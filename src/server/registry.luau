@@ -129,7 +129,7 @@ function registry.register_client(self: Registry, member: Client)
 		return
 	end
 	if self.client_count >= self.max_clients then
-		error(`client limit of {self.max_clients} reached, raise BITMASK_COMPACT_THRESHOLD to register more`)
+		error(`client limit of {self.max_clients} reached, raise MAX_CLIENTS to register more`)
 	end
 
 	local reused = table.remove(self.free_indexes)

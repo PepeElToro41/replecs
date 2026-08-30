@@ -73,9 +73,7 @@ function handshake.verify_handshake(
 	for component_name, serdes_info in handshake.serdes do
 		local component = shared.components.lookup[component_name]
 		if not component then
-			common.log_warn(
-				`{handshake_side} registered a serdes for "{component_name}" that {verify_side} doesn't have`
-			)
+			common.log_warn(`{handshake_side} registered a serdes for "{component_name}" that {verify_side} doesn't have`)
 			continue
 		end
 
@@ -100,9 +98,7 @@ function handshake.verify_handshake(
 		end
 
 		if not handshake.serdes[component_name] then
-			common.log_warn(
-				`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`
-			)
+			common.log_warn(`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`)
 		end
 	end
 

@@ -39,7 +39,7 @@ export type ReplecsLib = {
 type Replecs = types.Components & {
 	__index: any,
 	VERSION: string,
-	BITMASK_COMPACT_THRESHOLD: number,
+	MAX_CLIENTS: number,
 
 	create: (world: World?) -> ReplecsLib,
 
@@ -50,7 +50,7 @@ type Replecs = types.Components & {
 
 local replecs = {}
 replecs.VERSION = VERSION
-replecs.BITMASK_COMPACT_THRESHOLD = 128
+replecs.MAX_CLIENTS = 128
 replecs.__index = replecs
 
 local PREREGISTRATION = common.preregistration
@@ -66,7 +66,7 @@ end
 local COMPONENTS: Replecs = if PREREGISTRATION then replecs else nil :: any
 
 function replecs.create_server(world: World?): Server
-	return server.create(world, COMPONENTS, replecs.BITMASK_COMPACT_THRESHOLD)
+	return server.create(world, COMPONENTS, replecs.MAX_CLIENTS)
 end
 
 function replecs.create_client(world: World?): Client
@@ -87,7 +87,7 @@ function replecs.create(world: World?): ReplecsLib
 	local components = COMPONENTS or (if world then utils.create_world_components(world) else nil) :: any
 
 	if RunService:IsServer() then
-		self.server = server.create(world, components, replecs.BITMASK_COMPACT_THRESHOLD)
+		self.server = server.create(world, components, replecs.MAX_CLIENTS)
 		components = self.server.components
 	end
 	if RunService:IsClient() then

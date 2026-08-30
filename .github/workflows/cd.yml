@@ -47,6 +47,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           name: Replecs ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             replecs.rbxm
 
@@ -125,5 +126,11 @@ jobs:
           fi
 
       - name: Publish to NPM
-        run: npm publish --tag latest
+        # prerelease versions (0.4.0-rc.1, 1.0.0-beta.2, ...) go under the
+        # "next" dist-tag so `npm i @rbxts/replecs` keeps resolving to stable
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ "$version" == *-* ]]; then tag=next; else tag=latest; fi
+          echo "publishing $version as $tag"
+          npm publish --tag "$tag"
         working-directory: ./dist

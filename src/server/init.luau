@@ -249,7 +249,7 @@ export type Server = ServerImp & {
 	destroy: (self: Server) -> (),
 }
 
--- matches replecs.BITMASK_COMPACT_THRESHOLD; only reached when server.create
+-- matches replecs.MAX_CLIENTS; only reached when server.create
 -- is called directly without a cap
 local DEFAULT_MAX_CLIENTS = 128
 
