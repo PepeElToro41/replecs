@@ -290,7 +290,12 @@ local function createExpectation(value: any, inverted: boolean): Expectation
 
 		greaterThanOrEqual = function(expected: number)
 			assert(type(value) == "number", "greaterThanOrEqual() requires a number", "number", type(value))
-			assert(value >= expected, `Expected {value} to be greater than or equal to {expected}`, `>= {expected}`, value)
+			assert(
+				value >= expected,
+				`Expected {value} to be greater than or equal to {expected}`,
+				`>= {expected}`,
+				value
+			)
 		end,
 
 		lessThanOrEqual = function(expected: number)

@@ -1,2 +1,3 @@
 [workspace.scripts]
 test = "tests/replecs.spec.luau"
+bench = "tests/bench/server.bench.luau"

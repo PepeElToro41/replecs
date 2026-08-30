@@ -15,14 +15,33 @@ declare namespace Replecs {
         deserialize: (buffer: buffer, blobs: defined[] | undefined) => T;
       };
 
+  export type Serdes<T = any> = SerdesTable<T>;
+
+  export interface Preprocessor<B = any, A = any> {
+    serialize: (value: B) => A;
+    deserialize: (value: A) => B;
+  }
+
+  export interface DeltaSerializer<T = any, D = T> {
+    snapshot?: (value: T) => T;
+    delta: (old: T, curr: T) => D;
+    apply: (curr: T, delta: D) => T;
+  }
+
   type MemberFilterMap = Map<Player, boolean>;
-  type MemberFilter = Player | MemberFilterMap | Record<string, never> | undefined;
+  export type MemberFilterPredicate = (player: Player) => boolean;
+  type MemberFilter =
+    | Player
+    | MemberFilterMap
+    | MemberFilterPredicate
+    | Record<string, never>
+    | undefined;
   type Member = unknown;
 
   export interface SharedInfo<T> {
     lookup: Record<string, T>;
     keys: string[];
-    indexes: [T];
+    indexes: T[];
     members: Map<T, number>;
   }
   export interface HandleContext {
@@ -44,6 +63,7 @@ declare namespace Replecs {
   export interface Shared {
     components: SharedInfo<Entity>;
     custom_ids: SharedInfo<CustomId>;
+    serdes: Map<Id, SerdesTable>;
   }
   interface HandshakeSerdesInfo {
     includes_variants?: boolean;
@@ -61,41 +81,56 @@ declare namespace Replecs {
     networked: Entity<MemberFilter>;
     reliable: Entity<MemberFilter>;
     unreliable: Entity<MemberFilter>;
+    once: Entity<MemberFilter>;
     relation: Entity<MemberFilter>;
 
     serdes: Entity<SerdesTable>;
     custom: Entity;
     custom_handler: Entity<(value: any) => Entity>;
-    global: Entity<number>;
 
     Shared: Tag;
     Networked: Entity<MemberFilter>;
     Reliable: Entity<MemberFilter>;
     Unreliable: Entity<MemberFilter>;
+    Once: Entity<MemberFilter>;
     Relation: Entity<MemberFilter>;
 
     Serdes: Entity<SerdesTable>;
     Custom: Entity;
     CustomHandler: Entity<(value: any) => Entity>;
-    Global: Entity<number>;
   }
 
-  export interface ClientImp {
+  interface SerializationOptions {
     set_serdes<T extends Id>(
       component: InferComponent<T>,
       serdes: SerdesTable<T>,
     ): void;
     remove_serdes(component: Id): void;
+
+    set_preprocessor<T extends Id, A = any>(
+      component: T,
+      preprocessor: Preprocessor<InferComponent<T>, A>,
+    ): void;
+    remove_preprocessor(component: Id): void;
+
+    set_delta_serializer<T extends Id, D = InferComponent<T>>(
+      component: T,
+      delta: DeltaSerializer<InferComponent<T>, D>,
+    ): void;
+    remove_delta_serializer(component: Id): void;
   }
 
-  export interface Client {
+  export interface ClientImp extends SerializationOptions {}
+
+  export interface Client extends ClientImp {
     world: World;
     inited?: boolean;
 
-    is_relicating: boolean;
-    after_relication_callbacks: [() => void];
+    is_replicating: boolean;
+    after_replication_callbacks: (() => void)[];
 
     components: Components;
+    shared: Shared;
 
     init(world?: World): void;
     destroy(): void;
@@ -128,7 +163,7 @@ declare namespace Replecs {
     override<T>(
       action: "changed",
       relation: Pair<MemberFilter, T>,
-      callback: (entity: Entity, id: Id<T>, value: any) => void,
+      callback: (entity: Entity, id: Id<T>, value: T) => void,
     ): () => void;
     override<T>(
       action: "removed",
@@ -142,14 +177,14 @@ declare namespace Replecs {
     ): () => void;
 
     encode_component(component: Entity): number;
-    decode_component(encoded: number): Entity;
+    decode_component(encoded: number): Entity | undefined;
     get_shared_count(): number;
 
     register_custom_id(custom_id: CustomId): void;
 
     apply_updates(buf: buffer, all_variants?: defined[][]): void;
     apply_unreliable(buf: buffer, all_variants?: defined[][]): void;
-    apply_full(buf: buffer, all_variants?: defined[][]): void;
+    apply_full(buf: buffer, variants?: defined[]): void;
     apply_entity(buf: buffer, all_variants?: defined[][]): void;
 
     generate_handshake(): HandshakeInfo;
@@ -158,7 +193,7 @@ declare namespace Replecs {
     ): LuaTuple<[true]> | LuaTuple<[false, string]>;
   }
 
-  export interface ServerImp {
+  export interface ServerImp extends SerializationOptions {
     set_networked(entity: Entity, filter?: MemberFilter): void;
     set_reliable(
       entity: Entity,
@@ -170,28 +205,34 @@ declare namespace Replecs {
       component: Entity,
       filter?: MemberFilter,
     ): void;
+    set_once(entity: Entity, component: Entity, filter?: MemberFilter): void;
     set_pair(entity: Entity, id: Pair, filter?: MemberFilter): void;
+    set_unreliable_pair(entity: Entity, id: Pair, filter?: MemberFilter): void;
     set_relation(entity: Entity, relation: Entity, filter?: MemberFilter): void;
 
-    stop_networked(entity: Entity, keep?: boolean): void;
-    stop_reliable(entity: Entity, component: Entity, keep?: boolean): void;
-    stop_unreliable(entity: Entity, component: Entity, keep?: boolean): void;
+    stop_networked(entity: Entity): void;
+    stop_reliable(entity: Entity, component: Entity): void;
+    stop_unreliable(entity: Entity, component: Entity): void;
+    stop_once(entity: Entity, component: Entity): void;
     stop_pair(entity: Entity, id: Pair): void;
-    stop_relation(entity: Entity, relation: Entity, keep?: boolean): void;
+    stop_unreliable_pair(entity: Entity, id: Pair): void;
+    stop_relation(entity: Entity, relation: Entity): void;
 
+    /** Marks a reliable/once component dirty so its current value replicates again. */
+    force_change(entity: Entity, component: Entity): void;
+
+    set_global(entity: Entity, global_id: number): void;
+    remove_global(entity: Entity): void;
     set_custom(entity: Entity, handler: Entity | CustomId): void;
     remove_custom(entity: Entity): void;
-
-    set_serdes<T extends Id>(
-      component: InferComponent<T>,
-      serdes: SerdesTable<T>,
-    ): void;
-    remove_serdes(component: Id): void;
   }
 
   export interface Server extends ServerImp {
     world: World;
     inited?: boolean;
+
+    components: Components;
+    shared: Shared;
 
     init(world?: World): void;
     destroy(): void;
@@ -202,7 +243,7 @@ declare namespace Replecs {
 
     register_custom_id(custom_id: CustomId): void;
 
-    get_full(player: Player): LuaTuple<[buffer, defined[][] | undefined]>;
+    get_full(player: Player): LuaTuple<[buffer, defined[]]>;
     collect_entity(
       entity: Entity,
     ): IterableFunction<LuaTuple<[Player, buffer, defined[][] | undefined]>>;
@@ -213,6 +254,8 @@ declare namespace Replecs {
       LuaTuple<[Player, buffer, defined[][] | undefined]>
     >;
 
+    register_player(player: Player): void;
+    remove_player(player: Player): void;
     mark_player_ready(player: Player): void;
     is_player_ready(player: Player): boolean;
 
@@ -225,22 +268,19 @@ declare namespace Replecs {
     ): LuaTuple<[true]> | LuaTuple<[false, string]>;
   }
 
-  export interface ReplecsLib {
+  export interface ReplecsLib extends SerializationOptions {
     client: Client;
     server: Server;
+    components: Components;
 
     after_replication(callback: () => void): void;
     register_custom_id(custom_id: CustomId): void;
-
-    set_serdes<T extends Id>(
-      component: T,
-      serdes: SerdesTable<InferComponent<T>>,
-    ): void;
-    remove_serdes(component: Id): void;
   }
 
   export interface Replecs extends Components {
     VERSION: string;
+    /** Client cap used to size the server bitmasks. Read at `create` / `create_server`. */
+    MAX_CLIENTS: number;
 
     create: (world?: World) => ReplecsLib;
     create_server: (world?: World) => Server;

@@ -1,16 +1,19 @@
 local customid = require "./customid"
 local common = require "./common"
 
-export type PlayerFilter = {
-	[Player]: boolean,
-}
-
-export type FunctionFilter = (player: Player) -> boolean
-export type AnyFilter = PlayerFilter | Player
-
 type Entity = common.Entity
 type World = common.World
 type Component<T = any> = common.Component<T>
+
+type Player = any
+
+export type FilterSet = {
+	[Player]: boolean,
+}
+export type FilterPlayer = Player
+export type FilterPredicator = (Player) -> boolean
+export type FilterAny = FilterPlayer | FilterSet | FilterPredicator
+export type FilterSimple = FilterPlayer | FilterSet
 
 export type SharedInfo<T> = {
 	lookup: { [string]: T },
@@ -18,6 +21,7 @@ export type SharedInfo<T> = {
 	indexes: { [number]: T },
 	members: { [T]: number },
 }
+
 export type HandshakeInfo = {
 	components: { [string]: boolean },
 	custom_ids: { [string]: boolean },
@@ -34,17 +38,30 @@ export type Serdes<T = any> = {
 	deserialize: (buffer, ...{ any }) -> T,
 }
 
+export type Preprocessor<B = any, A = any> = {
+	serialize: (B) -> A,
+	deserialize: (A) -> B,
+}
+
+export type DeltaSerializer<T = any, D = T> = {
+	snapshot: ((value: T) -> T)?,
+	delta: (old: T, curr: T) -> D,
+	apply: (curr: T, delta: D) -> T,
+}
+
 export type Components = {
 	shared: Entity,
 	Shared: Entity,
 	networked: Component<any?>,
-	Networked: Component<AnyFilter?>,
-	reliable: Component<AnyFilter?>,
-	Reliable: Component<AnyFilter?>,
-	unreliable: Component<AnyFilter?>,
-	Unreliable: Component<AnyFilter?>,
-	relation: Component<AnyFilter?>,
-	Relation: Component<AnyFilter?>,
+	Networked: Component<FilterAny?>,
+	reliable: Component<FilterAny?>,
+	Reliable: Component<FilterAny?>,
+	unreliable: Component<FilterAny?>,
+	Unreliable: Component<FilterAny?>,
+	once: Component<FilterAny?>,
+	Once: Component<FilterAny?>,
+	relation: Component<FilterAny?>,
+	Relation: Component<FilterAny?>,
 
 	serdes: Component<Serdes>,
 	Serdes: Component<Serdes>,
@@ -52,8 +69,6 @@ export type Components = {
 	Custom: Entity,
 	custom_handler: Component<(val: any) -> Entity?>,
 	CustomHandler: Component<(val: any) -> Entity?>,
-	global: Component<number>,
-	Global: Component<number>,
 	__alive_tracking__: Entity,
 }
 
