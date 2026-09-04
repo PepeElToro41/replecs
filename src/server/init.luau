@@ -2263,7 +2263,6 @@ end
 
 -- layout (read order is the reverse of write order):
 --   u16 group mask                         GROUP_BITS, vlq count per set bit
---   deleted entities                       entity ids
 --   added entities                         entity ids
 --   updates                                per entity:
 --     entity id
@@ -2276,12 +2275,20 @@ end
 --                                          changed / added / removed, each vlq counted
 --     full relations                       components then tags, each vlq counted
 --     relations removed                    relation ids, vlq
+--   deleted entities                       entity ids
 local function serialize_update_group(self: Server, group: SerializeGroup): (buffer, Array<any>)
 	local c = cursor.new()
 	local variants: Array<any> = {}
 	local group_mask = 0
 
 	local total = 0
+	for _, entity in group.deleted_entities do
+		write_entity_id(self, c, entity)
+		total += 1
+	end
+	group_mask = write_vlq_bitmask(c, total, group_mask, GROUP_BITS.deleted_entities)
+
+	total = 0
 	for entity, entry in group.updates do
 		serialize_entity_updates(self, c, entity, entry, variants)
 		total += 1
@@ -2294,13 +2301,6 @@ local function serialize_update_group(self: Server, group: SerializeGroup): (buf
 		total += 1
 	end
 	group_mask = write_vlq_bitmask(c, total, group_mask, GROUP_BITS.added_entities)
-
-	total = 0
-	for _, entity in group.deleted_entities do
-		write_entity_id(self, c, entity)
-		total += 1
-	end
-	group_mask = write_vlq_bitmask(c, total, group_mask, GROUP_BITS.deleted_entities)
 
 	cursor.writeu16(c, group_mask)
 
