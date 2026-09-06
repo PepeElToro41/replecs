@@ -891,19 +891,10 @@ local function process_entity_updates(
 	end
 end
 
--- one update group: [u16 group mask, deleted ids, added ids, per entity
--- blocks] in read order. deletions come first so a server id reused by an
--- addition in the same group starts from a fresh entity
+-- one update group: [u16 group mask, added ids, per entity blocks, deleted
+-- ids] in read order. creations, then updates, then deletions
 local function process_update_group(self: Client, c: Cursor, custom_ids: CustomIdMap, variants: Array<any>?)
 	local mask = cursor.readu16(c)
-
-	local total_deleted = read_vlq_bitmask(c, mask, UPDATE_GROUP_BITS.deleted_entities)
-	for _ = 1, total_deleted do
-		local entity, server_id = find_entity(self, c)
-		if entity then
-			delete_entity(self, entity, server_id)
-		end
-	end
 
 	local total_added = read_vlq_bitmask(c, mask, UPDATE_GROUP_BITS.added_entities)
 	for _ = 1, total_added do
@@ -915,6 +906,14 @@ local function process_update_group(self: Client, c: Cursor, custom_ids: CustomI
 		process_entity(self, c, custom_ids, function(entity)
 			process_entity_updates(self, entity, c, custom_ids, variants)
 		end)
+	end
+
+	local total_deleted = read_vlq_bitmask(c, mask, UPDATE_GROUP_BITS.deleted_entities)
+	for _ = 1, total_deleted do
+		local entity, server_id = find_entity(self, c)
+		if entity then
+			delete_entity(self, entity, server_id)
+		end
 	end
 end
 
