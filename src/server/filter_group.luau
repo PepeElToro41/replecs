@@ -30,7 +30,6 @@ export type FilterNodeClass = {
 	input_versions: Array<number>,
 	dependents: Set<FilterNode>,
 
-
 	value: Bitmask?,
 	scratch: Bitmask?,
 	version: number,
@@ -173,7 +172,6 @@ local function resolve_computed(node: FilterNode, scratch: Bitmask): boolean
 	return true
 end
 
-
 function filter_node.resolve(node: FilterNode): Bitmask
 	local reg = node.registry
 	if not reg then
@@ -263,7 +261,6 @@ function filter_node.clear(self: FilterNode)
 	mark_dirty(self)
 end
 
-
 function filter_node.create_source(reg: Registry?, initial: FilterSimple?): FilterNode
 	local node = create_node(KINDS.source, reg)
 	node.member_set = {}
@@ -330,7 +327,6 @@ end
 function filter_node.exclude(self: FilterNode, ...: FilterOperand): FilterNode
 	return create_computed(KINDS.exclude, self, { ... })
 end
-
 
 function filter_node.members(self: FilterNode): Set<Player>
 	local value = filter_node.resolve(self)

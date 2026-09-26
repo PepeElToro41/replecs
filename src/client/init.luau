@@ -1595,8 +1595,7 @@ function client.resolve_dirty(self: Client)
 		end
 	end
 
-	self.shared =
-		shared.resolve_shared(self.world, self.components, self.registered_custom_ids, serdes, preprocessors)
+	self.shared = shared.resolve_shared(self.world, self.components, self.registered_custom_ids, serdes, preprocessors)
 	self.is_shared_dirty = false
 end
 
