@@ -24,7 +24,8 @@
     "!**/*.tsbuildinfo"
   ],
   "scripts": {
-    "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json"
+    "serve": "rojo sourcemap serve.project.json -o sourcemap.json --watch && rojo serve serve.project.json",
+    "docs:dev": "npm run dev --prefix docs"
   },
   "repository": {
     "type": "git",

@@ -4,21 +4,24 @@ sidebar:
     order: 2
 ---
 
+import { Code, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
 ## Filtering Entities
 
 By default, entities will replicate to all active players. You can decide to which players you want to replicate certain entities.
 
-This can be done by setting a filter in the `replecs.networked` component. This filter can be a set of players or a single player.
+This can be done by passing a filter to `set_networked`. This filter can be a set of players or a single player.
 
 ```luau
+local replicator = require("@server/replicator")
 
 local entity1 = world:entity()
 local entity2 = world:entity()
 local entity3 = world:entity()
 
-world:add(entity1, replecs.networked) -- replicate to all players
-world:set(entity3, replecs.networked, Player3) -- replicate to player3 only
-world:set(entity2, replecs.networked, { -- replicate to player1 and player2
+replicator:set_networked(entity1) -- replicate to all players
+replicator:set_networked(entity3, Player3) -- replicate to player3 only
+replicator:set_networked(entity2, { -- replicate to player1 and player2
     [Player1] = true,
     [Player2] = true,
 })
@@ -30,17 +33,18 @@ You can also convert this filter to a blacklist by setting it to `false`.
 ```luau
 local entity = world:entity()
 
-world:set(entity, replecs.networked, { -- replicate to all players except player3
+replicator:set_networked(entity, { -- replicate to all players except player3
     [Player3] = false,
 })
 ```
 
-You can add a [non-ready](/replecs/started/starting-replication#activating-players) player to the filter, but it wont replicate until the player is marked as ready. 
+You can add a [non-ready](/replecs/started/replication#activating-players) player to the filter, but it wont replicate until the player is marked as ready.
+Non-ready players are always excluded, both from updates and from `get_full`, no matter what the filter says. 
 
 ```luau
 local entity = world:entity()
 
-world:set(entity, replecs.networked, { -- replicates to no players
+replicator:set_networked(entity, { -- replicates to no players
     [Player1] = true,
 })
 
@@ -54,18 +58,18 @@ replicator:mark_player_ready(Player1) -- finally will replicate to player1
 By default, components will be replicated to the same players that the entity is replicated to.
 Components can also have player filters. This will make a specific component replicate to certain players, while the rest of the entity will replicate to all other players.
 
-You can set a filter to the component pair. Filters can be set to any type of replication.
+You can pass a filter as the last argument of any `set_*` call. Filters can be set to any type of replication.
 
 ```luau
 local entity = world:entity()
 
-world:set(entity, jecs.pair(replecs.reliable, component), {
+replicator:set_reliable(entity, component, {
     [Player1] = true,
 })
-world:set(entity, jecs.pair(replecs.pair, relation), {
+replicator:set_relation(entity, relation, {
     [Player2] = true,
 })
-world:set(entity, jecs.pair(replecs.unreliable, component), {
+replicator:set_unreliable(entity, component, {
     [Player3] = true,
 })
 ```
@@ -77,14 +81,14 @@ local entity = world:entity()
 local position = world:component() :: Entity<Vector3>
 local password = world:component() :: Entity<string>
 
-world:set(entity, replecs.networked, {
+replicator:set_networked(entity, {
     [Player1] = true,
     [Player2] = true,
 })
 -- position will replicate to player1 and player2
-world:add(entity, jecs.pair(replecs.reliable, position))
+replicator:set_reliable(entity, position)
 -- password will replicate only to player1
-world:set(entity, jecs.pair(replecs.reliable, password), {
+replicator:set_reliable(entity, password, {
     [Player1] = true,
 })
 
@@ -97,34 +101,78 @@ This means that if you set a filter that includes a player that the entity does 
 local entity = world:entity()
 local password = world:component() :: Entity<string>
 
-world:set(entity, replecs.networked, {
+replicator:set_networked(entity, {
     [Player1] = true,
     [Player2] = true,
 })
-world:set(entity, jecs.pair(replecs.reliable, password), {
+replicator:set_reliable(entity, password, {
     [Player1] = true, -- only player1 will be able to see the password
     [Player3] = true,
 })
 ```
 
-
 ## Modifying Filters
 
-Filters can be modified at any time, but you need to call `world:set` again to apply the changes.
+Filters can be modified at any time, but you need to call the `set_*` function again to apply the changes.
 
 ```luau
 local entity = world:entity()
 
-world:set(entity, replecs.networked, {
+replicator:set_networked(entity, {
     [Player1] = true,
     [Player2] = true,
 })
 
 -- now it only replicates to player1
-world:set(entity, replecs.networked, {
+replicator:set_networked(entity, {
     [Player1] = true,
 })
 ```
+
+Modifying a filter will send deletions/additions to the difference between both filters. So removing a player from the filter will cause that player's entity to get deleted. This also works for components, removing a player from the filter will cause that player to remove the component.  
+
+```luau
+local entity = world:entity()
+
+replicator:set_networked(entity, {
+    [Player1] = true,
+    [Player2] = true,
+})
+
+-- now it only replicates to player1
+replicator:set_networked(entity, {
+    [Player1] = true,
+    [Player3] = true, -- Player3 gets a create event.
+    -- Player2 gets a deletion event,
+})
+```
+
+## Filter Predicators
+
+You can use predicators as filters. Filter functions are recomputed every `collect_updates` cycle. 
+
+These are convenient because you dont need to update anything, as changes get picked up automatically the next cycle, allowing you to use them in an immediate-mode.
+
+Because these filters are called every frame, they scale worse, and they have a O(n) per-entity complexity, so you should use them sparringly
+
+```luau
+local server_info = world:entity()
+local banned_list = world:component()
+
+replicator:set_networked(server_info)
+replicator:set_reliable(server_info, banned_list, function(player) 
+		return get_rank(player) > 200
+end)
+```
+
+<Aside type="caution">
+	These predicator functions cannot yield.
+	```luau
+	replicator:set_reliable(server_info, banned_list, function(player) 
+			return player:GetRankInGroupAsync(player) -- bad!
+	end)
+	```
+</Aside>
 
 
 ## Player Aliasing
@@ -145,10 +193,10 @@ replicator:add_player_alias(player, player_entity)
 
 local entity = world:entity()
 
-world:set(entity, replecs.networked, {
+replicator:set_networked(entity, {
     [player] = true, -- works as normal
 })
-world:set(entity, replecs.networked, {
+replicator:set_networked(entity, {
     [player_entity] = true, -- works too :D
 })
 
@@ -170,23 +218,28 @@ end)
 
 ## Filter Groups
 
-The filters above are resolved once, when you set them. Filter groups are reactive:
-you mutate a **source** and every entity or component bound to it, or to any filter
-derived from it, updates on the next `collect_updates()`.
-
-A source is a mutable player set created with `server:filter()`:
+The filters are groups of players that can behave reactively, these are useful to create a single filter that represents something (your friends, your team, your faction), and combine it with other filters. There are created with `replicator:filter(initial?)`
 
 ```luau
-local match = server:filter({ [Player1] = true, [Player2] = true })
-local shared_with = server:filter()
+-- initial filter can be provided, optional, defaults to an empty filter
+local match = replicator:filter({ ... })
 
-world:set(entity, replecs.networked, match)   -- or server:set_networked(entity, match)
+-- use it like a normal filter
+replicator:set_networked(entity, match)
 
-shared_with:add(Player2)
-match:remove(Player1)   -- the entity leaves Player1 on the next collect
-match:set(Player3)      -- replaces the whole set
-match:clear()
-```
+-- you can use add/remove to incrementally add more players 
+
+match:add(player2) -- player2 is added to match filter
+match:remove(player1) -- player1 is removed from match filter.
+
+match:set({ -- replaces the whole filter
+	[player4] = true,
+	[player5] = true
+})
+
+match:set(player2) -- single player filters work too.
+match:clear() -- removes all players (empty filter now)
+````
 
 ### Deriving filters
 
@@ -194,53 +247,57 @@ Combinators return a **new** filter whose value follows its inputs. The graph is
 when you build it; only the values change.
 
 ```luau
--- players in match AND in shared_with
-local can_see_inventory = match:filter(shared_with)
+-- who can see your inventory, starts as only your player.
+local inventory_filter = replicator:filter(player)
+local admins_filter = replicator:filter()
 
 -- ... plus admins
-local with_admins = can_see_inventory:extend(admins)
+local with_admins = inventory_filter:extend(admins_filter)
 
--- ... minus muted players
-local final = with_admins:exclude(muted)
-
-world:set(chest, jecs.pair(replecs.reliable, Inventory), final)
+replicator:set_reliable(player, Inventory, with_admins)
 ```
 
 | Method | Result |
 |---|---|
-| `a:filter(b, ...)` | players in `a` and in every operand |
-| `a:extend(b, ...)` | players in `a` or in any operand |
-| `a:exclude(b, ...)` | players in `a` and in no operand |
+| `a:filter(b, ...)` | further limits the filter, `a & b` |
+| `a:extend(b, ...)` | adds more players to filter, `a \| b` |
+| `a:exclude(b, ...)` | excludes the player, `a & !b` |
 
-Operands can be other filters, a single player or a `{ [Player]: boolean }` set.
+Operands can be other filter groups, a derived filter, a single player or a `{ [Player]: boolean }` set.
 Only sources can be mutated; calling `set`/`add`/`remove`/`clear` on a derived filter errors.
 
-Nothing is recomputed when you mutate a source. Filters are resolved once per collect,
-only the ones whose inputs actually moved are recomputed, and an entity is only re-sent
-when its final player set really changed. Any number of mutations in a frame cost one
-delta.
+Nothing is recomputed when you mutate a source. Filters are only marked as dirty, and get resolved in the next `collect_updates` cycle.
 
 ### Reading a filter
 
+You can read the final resolved filter. Both force the filter to resolve right away, so they reflect the latest mutations to sources.
+Predicate filters are the exception, they are only re-evaluated once per collect, so reading them between collects gives the result of the last collect. 
+
 ```luau
 local players = final:members()      -- { [Player]: true }
-if final:contains(Player1) then ... end
+if final:contains(Player1) then 
+	...
+end
 ```
-
-Both force the filter to resolve right away, so they always reflect the latest mutations.
 
 ### Blacklists, everyone and predicates
 
-A set of `false` values makes a blacklist source: every registered player except its members.
+A set of `false` values makes a blacklist source: every registered player except its members. 
+
+Note that, to exclude players from a filter, you should use `filter:exclude()` with an **include filter**, `[Player] = false` only derives from all the players in the server
+
 Players that join later are included automatically.
 
+You can also use `filter_predicator` to use a function filter, this function recalculates and updates filters once per `collect_updates` cycle, force-updating **every single entity** that depends on it, so use this carefully if you need performance.
+
+
 ```luau
-local not_banned = server:filter({ [Player3] = false })
-local everyone = server:everyone()          -- same as an empty blacklist
+local not_banned = replicator:filter({ [Player3] = false })
+local everyone = replicator:everyone()          -- same as an empty blacklist, includes all players
 
 -- re-evaluated over the registered players once per collect
-local admins = server:filter_where(function(player)
-    return player:GetRankInGroup(GROUP_ID) >= 200
+local admins = replicator:filter_predicator(function(player)
+    return get_rank(player) > 200
 end)
 ```
 
@@ -258,6 +315,34 @@ servers.
 -- filters.luau
 return {
     match = replecs.filter(),
-    shared_with = replecs.filter(),
+    admins = replecs.filter(),
 }
+```
+
+---
+
+## Pair API
+
+Every filter in this guide can also be set declaratively. The filter is the value of the `replecs.networked` component,
+or the value of the replication pair. Calling `world:set` again updates the filter, just like calling `set_*` again.
+
+```luau
+local entity = world:entity()
+
+-- same as replicator:set_networked(entity, { [Player1] = true, [Player2] = true })
+world:set(entity, replecs.networked, {
+    [Player1] = true,
+    [Player2] = true,
+})
+
+-- same as replicator:set_reliable(entity, password, Player1)
+world:set(entity, jecs.pair(replecs.reliable, password), Player1)
+
+-- same as replicator:set_relation(entity, relation, match)
+world:set(entity, jecs.pair(replecs.relation, relation), match)
+
+-- same as replicator:set_reliable(entity, banned_list, function(player) ... end)
+world:set(entity, jecs.pair(replecs.reliable, banned_list), function(player)
+    return get_rank(player) > 200
+end)
 ```

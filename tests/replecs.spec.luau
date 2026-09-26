@@ -4162,27 +4162,63 @@ TEST("client serialization options", function()
 		expect(client.component_serialization[component]).to.beNil()
 	end)
 
-	CASE("only serdes reach the shared lookups and flag them dirty", function()
+	CASE("serdes and preprocessors reach the shared lookups and flag them dirty", function()
 		local client, world = create_client()
 		local component = shared_component(world)
+		local name = world:get(component, jecs.Name) :: any
 		client:resolve_dirty()
 
-		client:set_preprocessor(component, preprocessor)
+		-- delta serializers are local to each side and never touch shared
 		client:set_delta_serializer(component, delta_serializer)
 		expect(client.is_shared_dirty).to.equal(false)
+
+		client:set_preprocessor(component, preprocessor)
+		expect(client.is_shared_dirty).to.equal(true)
+		client:resolve_dirty()
+		expect(client.shared.preprocessors[component]).to.equal(true)
+		expect(client:generate_handshake().preprocessors[name]).to.equal(true)
 
 		client:set_serdes(component, serdes)
 		expect(client.is_shared_dirty).to.equal(true)
 		client:resolve_dirty()
 		expect(client.shared.serdes[component]).to.equal(serdes)
-		expect(client:generate_handshake().serdes[world:get(component, jecs.Name) :: any]).to.exist()
+		expect(client:generate_handshake().serdes[name]).to.exist()
 
 		client:remove_serdes(component)
 		expect(client.is_shared_dirty).to.equal(true)
 		client:resolve_dirty()
 		expect(client.shared.serdes[component]).to.beNil()
 		-- preprocessor and delta survive the serdes removal
+		expect(client.shared.preprocessors[component]).to.equal(true)
 		expect(client.component_serialization[component]).to.exist()
+
+		client:remove_preprocessor(component)
+		expect(client.is_shared_dirty).to.equal(true)
+		client:resolve_dirty()
+		expect(client.shared.preprocessors[component]).to.beNil()
+		expect(client:generate_handshake().preprocessors[name]).to.beNil()
+
+		client:remove_delta_serializer(component)
+		expect(client.is_shared_dirty).to.equal(false)
+	end)
+
+	CASE("server preprocessors flag shared dirty, delta serializers do not", function()
+		local server, world = create_server()
+		local component = shared_component(world)
+		server:resolve_dirty()
+
+		server:set_delta_serializer(component, delta_serializer)
+		expect(server.is_shared_dirty).to.equal(false)
+
+		server:set_preprocessor(component, preprocessor)
+		expect(server.is_shared_dirty).to.equal(true)
+		server:resolve_dirty()
+		expect(server.shared.preprocessors[component]).to.equal(true)
+
+		server:remove_preprocessor(component)
+		expect(server.is_shared_dirty).to.equal(true)
+		server:resolve_dirty()
+		expect(server.shared.preprocessors[component]).to.beNil()
 	end)
 end)
 
@@ -4352,6 +4388,144 @@ local function named_component(world: jecs.World, name: string, is_tag: boolean?
 	world:set(component, jecs.Name, name)
 	return component
 end
+
+-- preprocessors are functions, so the handshake only carries their presence;
+-- a preprocessor set on one side and not the other must fail verification
+TEST("handshake preprocessors", function()
+	local preprocessor = {
+		serialize = function(value)
+			return value
+		end,
+		deserialize = function(value)
+			return value
+		end,
+	}
+
+	type Pair = {
+		server: Server,
+		server_world: jecs.World,
+		server_component: jecs.Entity,
+		client: replecs.Client,
+		client_world: jecs.World,
+		client_component: jecs.Entity,
+		name: string,
+	}
+
+	-- one shared component created under the same name on both sides
+	local function create_pair(): Pair
+		local server, server_world = create_server()
+		local client, client_world = create_client()
+		shared_counter += 1
+		local name = "handshake_component_" .. shared_counter
+		return {
+			server = server,
+			server_world = server_world,
+			server_component = named_component(server_world, name),
+			client = client,
+			client_world = client_world,
+			client_component = named_component(client_world, name),
+			name = name,
+		}
+	end
+
+	CASE("generate_handshake lists a preprocessor under the component name", function()
+		local pair = create_pair()
+		local server, client, name = pair.server, pair.client, pair.name
+		local server_component, client_component = pair.server_component, pair.client_component
+
+		expect(server:generate_handshake().preprocessors[name]).to.beNil()
+		expect(client:generate_handshake().preprocessors[name]).to.beNil()
+
+		server:set_preprocessor(server_component, preprocessor)
+		client:set_preprocessor(client_component, preprocessor)
+
+		expect(server:generate_handshake().preprocessors[name]).to.equal(true)
+		expect(client:generate_handshake().preprocessors[name]).to.equal(true)
+		-- presence only, nothing else about the preprocessor leaks into the handshake
+		expect(server:generate_handshake().preprocessors).to.equal({ [name] = true })
+	end)
+
+	CASE("verify fails when only the server has a preprocessor", function()
+		local pair = create_pair()
+		local server, client, name = pair.server, pair.client, pair.name
+		server:set_preprocessor(pair.server_component, preprocessor)
+
+		local ok, err = client:verify_handshake(server:generate_handshake())
+		expect(ok).to.equal(false)
+		expect(err).to.contain(`missing preprocessor for component "{name}"`)
+		expect(err).to.contain "client"
+
+		ok, err = server:verify_handshake(client:generate_handshake())
+		expect(ok).to.equal(false)
+		expect(err).to.contain(`missing preprocessor for component "{name}"`)
+		expect(err).to.contain "client"
+	end)
+
+	CASE("verify fails when only the client has a preprocessor", function()
+		local pair = create_pair()
+		local server, client, name = pair.server, pair.client, pair.name
+		client:set_preprocessor(pair.client_component, preprocessor)
+
+		local ok, err = server:verify_handshake(client:generate_handshake())
+		expect(ok).to.equal(false)
+		expect(err).to.contain(`missing preprocessor for component "{name}"`)
+		expect(err).to.contain "server"
+
+		ok, err = client:verify_handshake(server:generate_handshake())
+		expect(ok).to.equal(false)
+		expect(err).to.contain(`missing preprocessor for component "{name}"`)
+		expect(err).to.contain "server"
+	end)
+
+	CASE("verify passes when both sides have a preprocessor", function()
+		local pair = create_pair()
+		local server, client, name = pair.server, pair.client, pair.name
+		server:set_preprocessor(pair.server_component, preprocessor)
+		client:set_preprocessor(pair.client_component, preprocessor)
+
+		local ok, err = server:verify_handshake(client:generate_handshake())
+		expect(ok).to.equal(true)
+		expect(err).to.beNil()
+
+		ok, err = client:verify_handshake(server:generate_handshake())
+		expect(ok).to.equal(true)
+		expect(err).to.beNil()
+
+		-- removing it on one side breaks the pairing again
+		client:remove_preprocessor(pair.client_component)
+		ok, err = server:verify_handshake(client:generate_handshake())
+		expect(ok).to.equal(false)
+		expect(err).to.contain(`missing preprocessor for component "{name}"`)
+	end)
+
+	CASE("a preprocessor on a non-shared component stays out of the handshake", function()
+		local pair = create_pair()
+		local server, server_world, client, client_world = pair.server, pair.server_world, pair.client, pair.client_world
+		-- named but not tagged shared, so neither side has it in its lookup
+		local server_local = server_world:component()
+		server_world:set(server_local, jecs.Name, "local_component")
+		local client_local = client_world:component()
+		client_world:set(client_local, jecs.Name, "local_component")
+
+		server:set_preprocessor(server_local, preprocessor)
+		expect(server:generate_handshake().preprocessors["local_component"]).to.beNil()
+		expect((next(server:generate_handshake().preprocessors))).to.beNil()
+
+		local ok, err = client:verify_handshake(server:generate_handshake())
+		expect(ok).to.equal(true)
+		expect(err).to.beNil()
+		ok, err = server:verify_handshake(client:generate_handshake())
+		expect(ok).to.equal(true)
+		expect(err).to.beNil()
+
+		-- same for the client side, and a pair id has no shared name either
+		client:set_preprocessor(client_local, preprocessor)
+		local relation = named_component(client_world, "handshake_relation")
+		client:set_preprocessor(jecs.pair(relation, jecs.Wildcard), preprocessor)
+		expect(client:generate_handshake().preprocessors["local_component"]).to.beNil()
+		expect((next(client:generate_handshake().preprocessors))).to.beNil()
+	end)
+end)
 
 TEST("client full entity", function()
 	CASE("a full snapshot round-trips tags, components, pairs and relations", function()

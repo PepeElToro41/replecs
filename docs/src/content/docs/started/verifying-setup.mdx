@@ -1,0 +1,77 @@
+---
+title: Verifying Your Setup
+sidebar:
+    order: 3
+---
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Replecs is very sensitive to how the client and server are set up.
+Shared components are not sent by name, they are sent as their index in the sorted list of shared components.
+If one side is missing a shared component, or has an extra one, every index after it shifts,
+and packets get decoded as the wrong components. This errors catastrophically, or worse, silently applies wrong values.
+
+The server also never sends any information about how a component is serialized (like serdes).
+Replecs relies on that information being exactly the same in the client and server, so any difference in serdes or custom ids breaks reading the packet.
+
+To catch this early, both replicators can describe their setup and compare it with the other side.
+
+## Comparing Both Sides
+
+`replicator:generate_handshake()` returns a plain table describing the setup of that side:
+the names of every shared component, the identifiers of every registered custom id,
+and the `bytespan` and `includes_variants` of every serdes.
+
+`replicator:verify_handshake(info)` compares that table against its own setup and returns whether they match,
+along with an error message describing the first mismatch it finds.
+
+The table is safe to send through a remote, so the usual flow is to have the client send its description
+when it joins, and let the server verify it before doing anything else:
+
+<Tabs>
+    <TabItem label="Server">
+        ```luau
+        local replicator = require("@server/replicator")
+
+        remotes_server.verify_setup:set_callback(function(player, info)
+            local ok, err = replicator:verify_handshake(info)
+            if not ok then
+                player:Kick(`replication setup mismatch: {err}`)
+                return false
+            end
+            return true
+        end)
+        ```
+    </TabItem>
+    <TabItem label="Client">
+        ```luau
+        local replicator = require("@client/replicator")
+
+        local info = replicator:generate_handshake()
+        local ok = remotes_client.verify_setup:invoke_server(info)
+        assert(ok, "replication setup mismatch")
+
+        -- safe to request the full state now
+        remotes_client.request_full:fire()
+        ```
+    </TabItem>
+</Tabs>
+
+It works in both directions, the server can also generate its description and let the client verify it.
+
+## What Is Checked
+
+- Every shared component must exist on both sides, matched by its `jecs.Name`.
+- Every registered custom id must exist on both sides, matched by its identifier.
+- Every serdes must exist on both sides, with the same `bytespan` and `includes_variants`.
+- Every preprocessor must exist on both sides. Only its presence is checked, not what it does.
+
+A serdes or preprocessor set for a component the other side does not share only logs a warning.
+
+<Aside type="caution">
+The description holds raw values like component names, so it can get big in a large projects.
+Send it only once when the player joins, usually together with get_full(), and consider only running the check in development.
+</Aside>
+
+<Aside type="tip">
+A mismatch usually comes from a component that is created or named differently on one side, or when you forgot to require a module that created a component in one side.
+</Aside>

@@ -68,7 +68,7 @@ function Replecs.create_custom_id(
 - **identifier**: A string that will be used to identify the custom id when gets through the network.
 Must be the same in both the server and client.
 - **handler**: A function handler that will pass use the `HandleContext` to create or return the entity. Optionally, 
-the handler can be ommited and set later with `customid:handler(handler)`
+the handler can be omitted and set later with `customid:handle(handler)`
 </div>
 
 ### `Replecs.filter`
@@ -107,6 +107,11 @@ type ReplecsLib = {
 
     after_replication: (self: ReplecsLib, callback: () -> ()) -> (),
     register_custom_id: (self: ReplecsLib, custom_id: CustomId) -> (),
+
+    set_serdes: <T>(self: ReplecsLib, id: Component<T>, serdes: Serdes<T>) -> (),
+    remove_serdes: (self: ReplecsLib, id: Component) -> (),
+    set_preprocessor: <B, A>(self: ReplecsLib, id: Component<B>, preprocessor: Preprocessor<B, A>) -> (),
+    remove_preprocessor: (self: ReplecsLib, id: Component) -> (),
 }
 ```
 
@@ -128,6 +133,28 @@ the callback will always be called immediately.
 - **register_custom_id()**: Calls `register_custom_id` on the server and/or client replicators.
     - **Arguments**
         - **custom_id**: The custom id to register.
+
+<br/>
+- **set_serdes()**: Calls `set_serdes` on the server and/or client replicators.
+    - **Arguments**
+        - **id**: The component or pair to set the serdes to.
+        - **serdes**: The serdes table.
+
+<br/>
+- **remove_serdes()**: Calls `remove_serdes` on the server and/or client replicators.
+    - **Arguments**
+        - **id**: The component or pair to remove the serdes from.
+
+<br/>
+- **set_preprocessor()**: Calls `set_preprocessor` on the server and/or client replicators.
+    - **Arguments**
+        - **id**: The component or pair to set the preprocessor to.
+        - **preprocessor**: The preprocessor table.
+
+<br/>
+- **remove_preprocessor()**: Calls `remove_preprocessor` on the server and/or client replicators.
+    - **Arguments**
+        - **id**: The component or pair to remove the preprocessor from.
 </div>
 
 </div>

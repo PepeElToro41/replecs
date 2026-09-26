@@ -1595,8 +1595,11 @@ function server.remove_serdes(self: Server, component: Component)
 	self.is_shared_dirty = true
 end
 
+-- serdes and preprocessors take part in the handshake and mark shared dirty,
+-- delta serializers are local to each side and never do
 function server.set_preprocessor(self: Server, component: Component, preprocessor: types.Preprocessor)
 	ensure_component_serialization(self, component).preprocessor = preprocessor
+	self.is_shared_dirty = true
 end
 
 function server.remove_preprocessor(self: Server, component: Component)
@@ -1606,6 +1609,7 @@ function server.remove_preprocessor(self: Server, component: Component)
 	end
 	options.preprocessor = nil
 	prune_component_serialization(self, component, options)
+	self.is_shared_dirty = true
 end
 
 function server.set_delta_serializer(self: Server, component: Component, delta_serializer: types.DeltaSerializer)
@@ -2937,21 +2941,26 @@ local function serialize_unreliable_groups(self: Server, groups: Map<MaskHash, U
 	end
 end
 
--- rebuilds the shared lookups (component ids, custom ids, serdes) when
--- flagged; no-op otherwise.
+-- rebuilds the shared lookups (component ids, custom ids, serdes, preprocessors)
+-- when flagged; no-op otherwise.
 function server.resolve_dirty(self: Server)
 	if not self.is_shared_dirty then
 		return
 	end
 
 	local serdes: { [Component]: types.Serdes } = {}
+	local preprocessors: { [Component]: true } = {}
 	for component, options in self.component_serialization do
 		if options.serdes then
 			serdes[component] = options.serdes
 		end
+		if options.preprocessor then
+			preprocessors[component] = true
+		end
 	end
 
-	self.shared = shared.resolve_shared(self.world, self.components, self.registered_custom_ids, serdes)
+	self.shared =
+		shared.resolve_shared(self.world, self.components, self.registered_custom_ids, serdes, preprocessors)
 	self.is_shared_dirty = false
 end
 
@@ -3586,7 +3595,7 @@ function server.filter_predicator(self: Server, predicator: FilterPredicator): F
 	return filter_groups.create_predicate(self.registry, predicator)
 end
 
-function server.filter_everyone(self: Server): FilterNode
+function server.everyone(self: Server): FilterNode
 	return filter_groups.create_everyone(self.registry)
 end
 

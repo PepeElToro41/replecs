@@ -18,6 +18,19 @@ sidebar:
 type Iterator<T...> = () -> (T...)
 ```
 
+### `FilterInput`
+
+What every `set_*` method accepts as a filter. `nil` replicates to every ready player.
+See the [player filtering guide](/replecs/guides/player-filtering).
+
+```ts
+type FilterInput =
+    | Player                        -- a single player
+    | { [Player]: boolean }         -- a whitelist (true) or blacklist (false)
+    | (player: Player) -> boolean   -- a predicate, re-evaluated every collect
+    | FilterNode                    -- a filter group
+```
+
 ### `FilterNode`
 
 One node of the reactive filter graph. Sources hold a player set, derived nodes combine
@@ -40,24 +53,6 @@ type FilterNode = {
 
     members: (self: FilterNode) -> { [Player]: true },
     contains: (self: FilterNode, player: Player) -> boolean,
-}
-```
-
-</div>
-
-## Members
-
---- 
-
-<div class="inner">
-
-### `Server.masking`
-
-The masking controller. This handles player filtering, as well as excluding non-ready players.
-
-```ts
-type Server = {
-    masking: MaskingController
 }
 ```
 
@@ -94,6 +89,232 @@ type Server = {
     destroy: (self: Server) -> ()
 }
 ```
+
+
+### `server:set_networked()`
+
+Marks an entity to be replicated. Calling it again on a networked entity updates its filter.
+Calling it on an entity stopped with `stop_networked` revives it along with the components it had.
+Same as adding `replecs.networked`.
+
+Components marked with a `set_*` method before the entity is networked are kept and start replicating here.
+
+```ts
+type Server = {
+    set_networked: (self: Server, entity: Entity, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The entity to replicate.
+- **filter**: Which players receive the entity. `nil` means every ready player.
+</div>
+
+
+### `server:set_reliable()`
+
+Replicates a component or tag reliably. Additions, changes and removals are sent.
+Same as adding `jecs.pair(replecs.reliable, component)`.
+
+Calling it again updates the filter. Calling it on a component marked with `set_once` turns it back into a reliable component.
+
+```ts
+type Server = {
+    set_reliable: (self: Server, entity: Entity, component: Component, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **component**: The component or tag to replicate.
+- **filter**: Which players receive the component. `nil` means every player that can see the entity.
+</div>
+
+
+### `server:set_unreliable()`
+
+Replicates a component unreliably. The current value is sent on every `collect_unreliable`, whether it changed or not.
+Additions and removals still go through `collect_updates`. Same as adding `jecs.pair(replecs.unreliable, component)`.
+
+Tags cannot be replicated unreliably, doing so throws an error.
+
+```ts
+type Server = {
+    set_unreliable: (self: Server, entity: Entity, component: Component, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **component**: The component to replicate.
+- **filter**: Which players receive the component. `nil` means every player that can see the entity.
+</div>
+
+
+### `server:set_once()`
+
+Replicates a component or tag reliably, but only its addition and removal.
+Value changes are ignored until `force_change` is called. Same as adding `jecs.pair(replecs.once, component)`.
+
+Calling it on a component marked with `set_reliable` turns it into a once component.
+
+```ts
+type Server = {
+    set_once: (self: Server, entity: Entity, component: Component, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **component**: The component or tag to replicate.
+- **filter**: Which players receive the component. `nil` means every player that can see the entity.
+</div>
+
+
+### `server:set_relation()`
+
+Replicates every pair of a relation on the entity. Targets added and removed later are tracked too.
+If a target is an entity, it needs to be networked as well. Same as adding `jecs.pair(replecs.relation, relation)`.
+
+```ts
+type Server = {
+    set_relation: (self: Server, entity: Entity, relation: Component, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **relation**: The relation whose pairs to replicate.
+- **filter**: Which players receive the pairs. `nil` means every player that can see the entity.
+</div>
+
+
+### `server:set_pair()`
+
+Replicates a single pair reliably, instead of every pair of a relation.
+The pair value is replicated if the relation or the target is a component.
+If the target is an entity, it needs to be networked as well.
+
+There is no pair API equivalent, this can only be done with this method.
+
+```ts
+type Server = {
+    set_pair: (self: Server, entity: Entity, id: Pair, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **id**: The full pair id, from `jecs.pair(relation, target)`.
+- **filter**: Which players receive the pair. `nil` means every player that can see the entity.
+</div>
+
+
+### `server:set_unreliable_pair()`
+
+Replicates a single pair unreliably. Like `set_unreliable`, the value is sent on every `collect_unreliable`,
+and the addition and removal go through `collect_updates`.
+
+The pair must have a value, pair tags throw an error. There is no pair API equivalent.
+
+```ts
+type Server = {
+    set_unreliable_pair: (self: Server, entity: Entity, id: Pair, filter: FilterInput?) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **id**: The full pair id, from `jecs.pair(relation, target)`.
+- **filter**: Which players receive the pair. `nil` means every player that can see the entity.
+</div>
+
+
+### `server:stop_networked()`
+
+Stops replicating an entity. The client deletes the entity on the next `collect_updates`.
+The server entity and its components are untouched, and `set_networked` brings it back with the components it had.
+Same as removing `replecs.networked`.
+
+```ts
+type Server = {
+    stop_networked: (self: Server, entity: Entity) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The entity to stop replicating.
+</div>
+
+
+### `server:stop_reliable()`, `server:stop_unreliable()`, `server:stop_once()`
+
+Stops replicating a component marked with the matching `set_*` method. The client removes the component on the next `collect_updates`.
+Same as removing the matching `replecs.*` pair.
+
+A component stopped this way does not come back when a stopped entity is revived with `set_networked`.
+
+```ts
+type Server = {
+    stop_reliable: (self: Server, entity: Entity, component: Component) -> (),
+    stop_unreliable: (self: Server, entity: Entity, component: Component) -> (),
+    stop_once: (self: Server, entity: Entity, component: Component) -> (),
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **component**: The component to stop replicating.
+</div>
+
+
+### `server:stop_relation()`, `server:stop_pair()`, `server:stop_unreliable_pair()`
+
+Stops replicating a relation or a single pair marked with the matching `set_*` method.
+The client removes the pairs on the next `collect_updates`.
+
+```ts
+type Server = {
+    stop_relation: (self: Server, entity: Entity, relation: Component) -> (),
+    stop_pair: (self: Server, entity: Entity, id: Pair) -> (),
+    stop_unreliable_pair: (self: Server, entity: Entity, id: Pair) -> (),
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **relation** / **id**: The relation or full pair id to stop replicating.
+</div>
+
+
+### `server:force_change()`
+
+Marks a component as changed so its current value is sent on the next `collect_updates`.
+This is how you replicate a new value for a component marked with `set_once`.
+
+It only affects components marked with `set_reliable` or `set_once`. It does nothing for unreliable components, pairs or relations.
+
+```ts
+type Server = {
+    force_change: (self: Server, entity: Entity, component: Component) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+- **entity**: The networked entity.
+- **component**: The component to mark as changed.
+</div>
 
 
 ### `server:collect_updates()`
@@ -136,7 +357,7 @@ Gets the full state of the world for the provided player.
 
 ```ts
 type Server = {
-    get_full: (self: Server, player: Player) -> (buffer, {{any}})
+    get_full: (self: Server, player: Player) -> (buffer, {any})
 }
 ```
 
@@ -149,9 +370,10 @@ type Server = {
 </div>
 
 
-### `server:enconde_component()`
+### `server:encode_component()`
 
-Encodes a component for sending through the network. This returns a number between 1 to 255.
+Encodes a component for sending through the network. This returns the index of the component in the shared components list,
+a number from `1` to `get_shared_count()`. Throws an error if the component is not shared.
 
 ```ts
 type Server = {
@@ -173,7 +395,7 @@ Decodes a component from a number.
 
 ```ts
 type Server = {
-    decode_component: (self: Server, encoded: number) -> Entity
+    decode_component: (self: Server, encoded: number) -> Component?
 }
 ```
 
@@ -181,7 +403,7 @@ type Server = {
 #### Arguments
     - **number**: The number to decode, This is number from `encode_component`.
 #### Returns
-    - **component**: The decoded component.
+    - **component**: The decoded component, or `nil` if the number does not match a shared component.
 </div>
 
 ### `server:filter()`
@@ -200,14 +422,14 @@ type Server = {
 - **initial**: The starting member set. A set of `false` values makes a blacklist.
 </div>
 
-### `server:filter_where()`
+### `server:filter_predicator()`
 
 Creates a filter driven by a predicate over the registered players. The predicate is
 re-evaluated once per collect.
 
 ```ts
 type Server = {
-    filter_where: (self: Server, predicate: (player: Player) -> boolean) -> FilterNode
+    filter_predicator: (self: Server, predicate: (player: Player) -> boolean) -> FilterNode
 }
 ```
 
@@ -324,6 +546,23 @@ type Server = {
 </div>
 
 
+### `server:get_shared_count()`
+
+Returns how many shared components there are. Every number returned by `encode_component` is between `1` and this value,
+so you can use it to size buffers or validate a number before calling `decode_component`.
+
+```ts
+type Server = {
+    get_shared_count: (self: Server) -> number
+}
+```
+
+<div class="padded">
+#### Returns
+    - **count**: The number of shared components.
+</div>
+
+
 ### `server:register_custom_id()`
 
 Registers a custom id handler. Custom ids can only be used if they are registered.
@@ -338,6 +577,147 @@ type Server = {
 <div class="padded">
 #### Arguments
     - **custom_id**: The custom id to register.
+</div>
+
+
+### `server:set_global()`
+
+Gives an entity a global id. The entity is then sent as a single byte, and the client resolves it with `client:handle_global()`.
+See the [entity remapping guide](/replecs/guides/entity-remapping#global-ids).
+
+```ts
+type Server = {
+    set_global: (self: Server, entity: Entity, global_id: number) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The entity to identify.
+    - **global_id**: A number from `0` to `245`. Higher values throw an error.
+</div>
+
+
+### `server:remove_global()`
+
+Removes the global id of an entity. It is sent as a normal entity afterwards.
+
+```ts
+type Server = {
+    remove_global: (self: Server, entity: Entity) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The entity to remove the global id from.
+</div>
+
+
+### `server:set_custom()`
+
+Gives an entity a custom id. Same as adding `jecs.pair(replecs.custom, custom)`.
+See the [entity remapping guide](/replecs/guides/entity-remapping#custom-ids).
+
+An entity can only have one custom id, setting a second one is ignored with a warning.
+A `CustomId` must be registered with `register_custom_id` first.
+
+```ts
+type Server = {
+    set_custom: (self: Server, entity: Entity, custom: Component | CustomId) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The entity to identify.
+    - **custom**: A component with a `replecs.custom_handler`, or a `CustomId`.
+</div>
+
+
+### `server:remove_custom()`
+
+Removes the custom id of an entity.
+
+```ts
+type Server = {
+    remove_custom: (self: Server, entity: Entity) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **entity**: The entity to remove the custom id from.
+</div>
+
+
+### `server:set_serdes()`
+
+Sets the [serdes](/replecs/reference/component-serialization#replecsserdes) of a component or pair. This is the same as setting the `replecs.serdes` component.
+Serdes take part in the handshake, so the client must set a matching one.
+
+```ts
+type Server = {
+    set_serdes: <T>(self: Server, id: Component<T>, serdes: Serdes<T>) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to set the serdes to.
+    - **serdes**: The serdes table.
+</div>
+
+
+### `server:remove_serdes()`
+
+Removes the serdes of a component or pair.
+
+```ts
+type Server = {
+    remove_serdes: (self: Server, id: Component) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to remove the serdes from.
+</div>
+
+
+### `server:set_preprocessor()`
+
+Sets the [preprocessor](/replecs/reference/component-serialization#replecspreprocessor) of a component or pair. The preprocessor runs before the serdes when writing a value.
+The handshake checks that the client also has a preprocessor for this component, but not what it does, so make sure it matches.
+
+When set to a pair, the exact pair is used first, then `jecs.pair(relation, jecs.Wildcard)`.
+
+```ts
+type Server = {
+    set_preprocessor: <B, A>(self: Server, id: Component<B>, preprocessor: Preprocessor<B, A>) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to set the preprocessor to.
+    - **preprocessor**: The preprocessor table.
+</div>
+
+
+### `server:remove_preprocessor()`
+
+Removes the preprocessor of a component or pair.
+
+```ts
+type Server = {
+    remove_preprocessor: (self: Server, id: Component) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to remove the preprocessor from.
 </div>
 
 

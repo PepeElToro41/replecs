@@ -96,6 +96,7 @@ declare namespace Replecs {
     components: SharedInfo<Entity>;
     custom_ids: SharedInfo<CustomId>;
     serdes: Map<Id, SerdesTable>;
+    preprocessors: Map<Id, true>;
   }
   interface HandshakeSerdesInfo {
     includes_variants?: boolean;
@@ -106,6 +107,7 @@ declare namespace Replecs {
     components: Record<string, boolean>;
     custom_ids: Record<string, boolean>;
     serdes: Record<string, HandshakeSerdesInfo>;
+    preprocessors: Record<string, boolean>;
   }
 
   export interface Components {
@@ -229,7 +231,7 @@ declare namespace Replecs {
     /** A source filter bound to this server. */
     filter(initial?: Player | MemberFilterMap): FilterNode;
     /** A filter driven by a predicate over registered players, re-evaluated once per collect. */
-    filter_where(predicate: MemberFilterPredicate): FilterNode;
+    filter_predicator(predicate: MemberFilterPredicate): FilterNode;
     /** Every registered player; the base for blacklists. */
     everyone(): FilterNode;
 

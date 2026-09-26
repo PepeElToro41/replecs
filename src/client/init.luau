@@ -1532,8 +1532,8 @@ local function prune_component_serialization(self: Client, component: Component,
 	end
 end
 
--- serdes take part in the handshake, preprocessors and delta serializers are
--- local to each side and never mark shared dirty
+-- serdes and preprocessors take part in the handshake and mark shared dirty,
+-- delta serializers are local to each side and never do
 function client.set_serdes(self: Client, component: Component, serdes: types.Serdes)
 	ensure_component_serialization(self, component).serdes = serdes
 	self.is_shared_dirty = true
@@ -1551,6 +1551,7 @@ end
 
 function client.set_preprocessor(self: Client, component: Component, preprocessor: types.Preprocessor)
 	ensure_component_serialization(self, component).preprocessor = preprocessor
+	self.is_shared_dirty = true
 end
 
 function client.remove_preprocessor(self: Client, component: Component)
@@ -1560,6 +1561,7 @@ function client.remove_preprocessor(self: Client, component: Component)
 	end
 	options.preprocessor = nil
 	prune_component_serialization(self, component, options)
+	self.is_shared_dirty = true
 end
 
 function client.set_delta_serializer(self: Client, component: Component, delta_serializer: types.DeltaSerializer)
@@ -1575,21 +1577,26 @@ function client.remove_delta_serializer(self: Client, component: Component)
 	prune_component_serialization(self, component, options)
 end
 
--- rebuilds the shared lookups (component ids, custom ids, serdes) when
--- flagged; cheap no-op otherwise, so every deserialize entry point calls it
+-- rebuilds the shared lookups (component ids, custom ids, serdes, preprocessors)
+-- when flagged; cheap no-op otherwise, so every deserialize entry point calls it
 function client.resolve_dirty(self: Client)
 	if not self.is_shared_dirty then
 		return
 	end
 
 	local serdes: { [Component]: types.Serdes } = {}
+	local preprocessors: { [Component]: true } = {}
 	for component, options in self.component_serialization do
 		if options.serdes then
 			serdes[component] = options.serdes
 		end
+		if options.preprocessor then
+			preprocessors[component] = true
+		end
 	end
 
-	self.shared = shared.resolve_shared(self.world, self.components, self.registered_custom_ids, serdes)
+	self.shared =
+		shared.resolve_shared(self.world, self.components, self.registered_custom_ids, serdes, preprocessors)
 	self.is_shared_dirty = false
 end
 

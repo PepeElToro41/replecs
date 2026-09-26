@@ -1,0 +1,147 @@
+---
+title: Replicating
+sidebar:
+    order: 2
+---
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+import collect_updates from './examples/collect-updates.luau?raw';
+import apply_updates from './examples/apply-updates.luau?raw';
+import start_replication from './examples/start-replication.luau?raw';
+import request_full from './examples/request-full.luau?raw';
+import start_replication_callback from './examples/start-replication-callback.luau?raw';
+import request_full_callback from './examples/request-full-callback.luau?raw';
+import collect_all from './examples/collect-all.luau?raw';
+import apply_all from './examples/apply-all.luau?raw';
+
+Once the replicators are set up, replication has two parts:
+
+- A system running in the server that collects what changed and sends it to every player.
+- Activating each player when they join, by sending them the full state of the world.
+
+Both parts live in the same system. A player is activated right before the updates are collected,
+this page explains why.
+
+## Sending Updates
+
+Changes should be sent inside a system that runs every frame.
+Its recommended that you throttle the updates to a lower interval, a good rate is somewhere around 10-30 times a second.
+
+In the server, you will call `server_replicator:collect_updates()`.
+This will return an iterator that will be executed for every player.
+
+The iterator will give you the following values:
+- player: `Player` <span class="sub-heading" style="white-space: pre;">  -  the player to send the updates to</span>
+- buf: `buffer` <span class="sub-heading" style="white-space: pre;">  -  the buffer containing the updates</span>
+- variants: `{ {any} }` <span class="sub-heading" style="white-space: pre;">  -  the variants tables containing non-serialized values</span>
+
+Updates can then be applied in the client using `client_replicator:apply_updates(buf, variants)`. 
+
+<Aside>
+Collecting consumes the changes immediately. The iterator can only be walked once and should be sent right away,
+anything left over is lost.
+</Aside>
+
+#### Example:
+
+<Tabs>
+    <TabItem label="Server (Collect Updates)">
+        <Code code={collect_updates} lang="luau" title="replecs system" />
+    </TabItem>
+    <TabItem label="Client (Apply Updates)">
+        <Code code={apply_updates} lang="luau" title="replecs system" />
+    </TabItem>
+</Tabs>
+
+## Sending Unreliable Values
+
+Unreliable updates are sent similarly to normal updates. You can call `server_replicator:collect_unreliable()`.
+This will return an iterator that will be executed for every player.
+
+The iterator will give you the same values as normal updates.
+
+Updates can then be applied in the client using `client_replicator:apply_unreliable(buf, variants)`.
+
+Because unreliable values are always sent,
+deciding how often you send them is crucial, making it slower to not overload the network or faster for smoother replication.
+
+<Aside>
+Due to automatic packet splitting, the iterator can be executed multiple times for the same player if the packet was split.
+</Aside>
+
+## Activating Players
+
+Replecs ignores every player that joins the game until you activate them, even if a filter names them explicitly.
+This prevents players from getting updates when they haven't received the full state of the world yet.
+
+Activating a player takes two calls, in this order:
+
+1. `server_replicator:mark_player_ready(player)` activates the player.
+2. `server_replicator:get_full(player)` returns the current state of the world for that player,
+as a `buffer` and a `variants` table with the non-serialized values.
+
+The client applies the result with `client_replicator:apply_full(buf, variants)`.
+You can check if a player has been activated with `server_replicator:is_player_ready(player)`.
+
+### Where to call `get_full`
+
+Both calls must happen in the same frame as `collect_updates()`, right before it, with no world changes in between.
+
+<Aside type="caution" title="Updates between get_full and collect_updates are dropped">
+When a player is activated, the next `collect_updates()` skips every change for that player,
+because the full state is expected to cover them.
+
+Any change made after `get_full()` and before that `collect_updates()` is in neither the full state nor the updates.
+It is silently dropped for that player, and it will not be resent later.
+</Aside>
+
+Remote callbacks run at arbitrary points of the frame, so calling `get_full` directly inside one leaves room
+for your systems to change the world before the updates are collected. Instead, defer the work to the replication system.
+There are two ways to do this:
+
+#### Queueing the player
+
+The client requests the full state with a remote event. The server only queues the player,
+and the replication system activates the queued players right before collecting the updates.
+
+<Tabs>
+    <TabItem label="Server">
+        <Code code={start_replication} lang="luau" title="replecs system" />
+    </TabItem>
+    <TabItem label="Client">
+        <Code code={request_full} lang="luau" title="replecs system" />
+    </TabItem>
+</Tabs>
+
+#### Queueing a coroutine
+
+If you prefer a remote function, the callback can yield its coroutine and let the replication system resume it
+right before collecting the updates. The callback then calls `get_full` from inside the system and returns the result.
+
+<Tabs>
+    <TabItem label="Server">
+        <Code code={start_replication_callback} lang="luau" title="replecs system" />
+    </TabItem>
+    <TabItem label="Client">
+        <Code code={request_full_callback} lang="luau" title="replecs system" />
+    </TabItem>
+</Tabs>
+
+A few things to keep in mind:
+
+- In both cases the full state is sent before the updates of that same frame, so the client receives them in order.
+Make sure the full state is applied before any update packet.
+- Mark the player as ready **before** calling `get_full`. Non-ready players are always excluded from replication so calling it on a player that is not ready logs a warning and returns an empty state.
+- Make sure the player is also marked as ready just right before it gets full.
+
+## Summary
+
+Combining updates, unreliable values and player activation, your client/server systems should look something like this:
+
+<Tabs>
+    <TabItem label="Server (Collect Updates)">
+        <Code code={collect_all} lang="luau" title="replecs system" />
+    </TabItem>
+    <TabItem label="Client (Apply Updates)">
+        <Code code={apply_all} lang="luau" title="replecs system" />
+    </TabItem>
+</Tabs>

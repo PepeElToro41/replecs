@@ -1,0 +1,84 @@
+---
+title: Component Serialization
+description: Component Serialization API Reference
+sidebar:
+    order: 5
+---
+
+## Types
+
+---
+
+<div class="inner">
+
+### `Replecs.Serdes`
+
+Serializes a component value into a buffer. Set with `replicator:set_serdes()` or the `replecs.serdes` component.
+Serdes take part in the handshake, so the server and client must set a matching one.
+See the [component serialization guide](/replecs/guides/component-serialization#adding-a-serializer).
+
+```ts
+type Serdes<T> = {
+    serialize: (value: T) -> (buffer, { any }?),
+    deserialize: (buf: buffer, variants: { any }?) -> T,
+
+    bytespan: number?,
+    includes_variants: boolean?,
+}
+```
+
+<div class="padded">
+
+#### Fields
+- **bytespan**: Fixed length of the serialized buffer. When set, the length is not written into the packet.
+- **includes_variants**: Whether `serialize` returns extra values that can't be written into the buffer.
+
+#### Functions <span class="sub-heading" style="white-space: pre;"> (Not Methods)</span>
+- **serialize()**: Serializes the component value into a buffer.
+    - **Arguments**
+        - **value**: The component value.
+    - **Returns**
+        - **buf**: The serialized buffer.
+        - **variants**: Values to send as is, only if `includes_variants` is `true`.
+
+- **deserialize()**: Rebuilds the component value from the buffer.
+    - **Arguments**
+        - **buf**: The serialized buffer.
+        - **variants**: The values returned by `serialize`, only if `includes_variants` is `true`.
+    - **Returns**
+        - **value**: The component value.
+
+</div>
+
+### `Replecs.Preprocessor`
+
+Transforms a component value before it is serialized, and back after it is deserialized.
+Set with `replicator:set_preprocessor()`. In the server it runs before the serdes, in the client it runs after.
+
+The handshake only checks that both sides have a preprocessor for the same components, not what they do, so make sure the server and client set a matching one.
+See the [component serialization guide](/replecs/guides/component-serialization#preprocessing-values).
+
+```ts
+type Preprocessor<B, A> = {
+    serialize: (value: B) -> A,
+    deserialize: (value: A) -> B,
+}
+```
+
+<div class="padded">
+
+#### Functions <span class="sub-heading" style="white-space: pre;"> (Not Methods)</span>
+- **serialize()**: Transforms the component value into the value to replicate.
+    - **Arguments**
+        - **value**: The component value.
+    - **Returns**
+        - **value**: The value to replicate.
+
+- **deserialize()**: Transforms the replicated value back into the component value.
+    - **Arguments**
+        - **value**: The replicated value.
+    - **Returns**
+        - **value**: The component value.
+
+</div>
+</div>

@@ -111,8 +111,8 @@ The shared replicator has a method that will call `replicator:register_custom_id
 ```luau
 local new_custom = replecs.create_custom_id("identifier")
 
-new_custom:handler(function(ctx)
-    -- do something (called in server)
+new_custom:handle(function(ctx)
+    -- do something (called in the client)
     print(ctx.component(c.foo))
     print(ctx.target(c.bar))
     print(ctx.entity(some_server_entity))
@@ -166,7 +166,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
             local building_custom = replecs.create_custom_id("building-prediction")
             replicator:register_custom_id(building_custom)
 
-            building_custom:handler(function(ctx)
+            building_custom:handle(function(ctx)
                 for building, building_uuid in world:query(c.building_uuid):with(c.predicted) do
                     if building_uuid == ctx.component(c.building_uuid) then
                         -- building is no longer predicted
@@ -267,7 +267,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Global Ids
 
-In essence, global ids are a worse version of custom ids. These are entities that get marked with a single number from `1 - 245`.
+In essence, global ids are a worse version of custom ids. These are entities that get marked with a single number from `0 - 245`.
 There is no extra data associated like a component in Custom Ids. 
 
 The reason why they exist is because they are a lot more bandwidth efficient.
@@ -275,14 +275,19 @@ They can be represented with a single byte rather than `6 bytes` for normal enti
 
 If packet size is not a concern, custom ids should be **always** prefered. Its the responsability of the user to give a meaning to the number
 
-To use global ids you need to set `replecs.global` to the entity with the number you want to use.
+To use global ids you need to call `server_replicator:set_global(entity, id)` with the number you want to use.
+You can remove it later with `server_replicator:remove_global(entity)`, and the entity will be sent as a normal entity again.
 
 ```luau
-local replecs = require("@pkg/replecs")
+local replicator = require("@server/replicator")
 
 local entity = world:entity()
-world:set(entity, replecs.global, 1)
+replicator:set_global(entity, 1)
 ```
+
+<Aside type="note">
+Unlike custom ids, there is no pair API for global ids, they can only be set with `set_global`.
+</Aside>
 
 In the client, you set a handler globally by doing `client_replicator:handle_global(handler)`.
 
