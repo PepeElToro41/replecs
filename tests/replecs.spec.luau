@@ -5,7 +5,6 @@ local replecs = require "../src"
 local server_lib = require "../src/server"
 local client_lib = require "../src/client"
 local bitmasks = require "../src/server/bitmasks"
-local filter_groups = require "../src/server/filter_group"
 local cursor = require "../src/cursor"
 local testlib = require "./testlib"
 
@@ -923,8 +922,8 @@ TEST("filter groups", function()
 		local freed_index = server.registry.client_indexes[players[2]]
 		server:remove_player(players[2])
 
-		-- an unfiltered group is built from every index ever allocated
-		local group = filter_groups.create(server.registry)
+		-- everyone() is built from the registered clients, never from freed indexes
+		local group = server:everyone()
 
 		local entity = world:entity()
 		server:set_networked(entity, group)
@@ -943,7 +942,7 @@ TEST("filter groups", function()
 		local players = ready_players(server, 3)
 		server:remove_player(players[2])
 
-		local group = filter_groups.create(server.registry)
+		local group = server:everyone()
 		local entity = world:entity()
 		server:set_networked(entity, group)
 
@@ -976,30 +975,45 @@ TEST("filter groups", function()
 	CASE("a group recalculated after a removal still excludes the freed index", function()
 		local server, world = create_server()
 		local players = ready_players(server, 3)
-		local freed_index = server.registry.client_indexes[players[2]]
 
-		local group = filter_groups.create(server.registry)
+		local group = server:filter(filter_set(players[1], players[2], players[3]))
 		local entity = world:entity()
 		server:set_networked(entity, group)
 		server_lib.collect_updates_groups(server)
 
+		local freed_index = server.registry.client_indexes[players[2]]
 		server:remove_player(players[2])
-		-- recalculation rebuilds the filter from the filled base
-		group:filter { [players[1]] = true, [players[3]] = true }
-		server:set_networked(entity, group)
+
+		-- the removed player is still named by the source: the recompute must drop it
+		group:remove(players[3])
 		local groups = server_lib.collect_updates_groups(server)
+		expect(count_groups(groups)).to.equal(1)
 
 		for _, serialize_group in groups do
 			expect(bitmasks.test(serialize_group.bitmask, freed_index)).to.equal(false)
 		end
+		expect(server.registry.client_indexes[players[2]]).to.beNil()
+		expect(group:contains(players[2])).to.equal(false)
 	end)
 
-	CASE("set_networked with a filter group uses its calculated bitmask", function()
+	CASE("a departed player is not re-registered by a source that still names it", function()
+		local server = create_server()
+		local players = ready_players(server, 2)
+
+		local group = server:filter(filter_set(players[1], players[2]))
+		server:remove_player(players[2])
+
+		local members = group:members()
+		expect(members[players[1]]).to.equal(true)
+		expect(members[players[2]]).to.beNil()
+		expect(server.registry.client_indexes[players[2]]).to.beNil()
+	end)
+
+	CASE("set_networked with a filter uses its mask", function()
 		local server, world = create_server()
 		local players = ready_players(server, 2)
 
-		local group = filter_groups.create(server.registry)
-		group:filter(players[1])
+		local group = server:filter(players[1])
 
 		local entity = world:entity()
 		server:set_networked(entity, group)
@@ -1013,18 +1027,17 @@ TEST("filter groups", function()
 		expect(#groups_for_player(server, groups, players[2])).to.equal(0)
 	end)
 
-	CASE("changing the group filter deltas like a plain filter change", function()
+	CASE("changing the source deltas like a plain filter change", function()
 		local server, world = create_server()
 		local players = ready_players(server, 2)
 
-		local group = filter_groups.create(server.registry)
-		group:filter(players[1])
+		local group = server:filter(players[1])
 
 		local entity = world:entity()
 		server:set_networked(entity, group)
 		server_lib.collect_updates_groups(server)
 
-		group:filter(players[2])
+		group:set(players[2])
 		local groups = server_lib.collect_updates_groups(server)
 
 		local gained_groups = groups_for_player(server, groups, players[2])
@@ -1038,24 +1051,22 @@ TEST("filter groups", function()
 		expect(#lost_groups[1].added_entities).to.equal(0)
 	end)
 
-	CASE("changing the parent filter propagates through a derived group", function()
+	CASE("narrowing a source propagates through a derived node", function()
 		local server, world = create_server()
 		local players = ready_players(server, 2)
 
-		local parent_filter = filter_groups.create(server.registry)
-		local child = parent_filter:derive()
-		child:filter(filter_set(players[1], players[2]))
+		local parent = server:filter(filter_set(players[1], players[2]))
+		local child = parent:filter(filter_set(players[1], players[2]))
 
 		local entity = world:entity()
 		server:set_networked(entity, child)
 		local groups = server_lib.collect_updates_groups(server)
 
-		-- parent has no filter yet, child includes both players
 		expect(#groups_for_player(server, groups, players[1])).to.equal(1)
 		expect(#groups_for_player(server, groups, players[2])).to.equal(1)
 
 		-- narrowing the parent intersects down into the child
-		parent_filter:filter(players[1])
+		parent:set(players[1])
 		groups = server_lib.collect_updates_groups(server)
 		expect(count_groups(groups)).to.equal(1)
 
@@ -1066,12 +1077,145 @@ TEST("filter groups", function()
 		expect(lost_groups[1].deleted_entities).to.contain(entity)
 	end)
 
-	CASE("swapping to a plain filter disconnects the old group", function()
+	CASE("intersecting two sources reacts to either side", function()
+		local server, world = create_server()
+		local players = ready_players(server, 3)
+
+		local match = server:filter(filter_set(players[1], players[2]))
+		local shared_with = server:filter(filter_set(players[2], players[3]))
+		local visible = match:filter(shared_with)
+
+		local entity = world:entity()
+		server:set_networked(entity, visible)
+		local groups = server_lib.collect_updates_groups(server)
+		expect(count_groups(groups)).to.equal(1)
+		expect(#groups_for_player(server, groups, players[1])).to.equal(0)
+		expect(#groups_for_player(server, groups, players[2])).to.equal(1)
+		expect(#groups_for_player(server, groups, players[3])).to.equal(0)
+
+		shared_with:add(players[1])
+		groups = server_lib.collect_updates_groups(server)
+		local gained_groups = groups_for_player(server, groups, players[1])
+		expect(#gained_groups).to.equal(1)
+		expect(gained_groups[1].added_entities).to.contain(entity)
+
+		match:remove(players[2])
+		groups = server_lib.collect_updates_groups(server)
+		local lost_groups = groups_for_player(server, groups, players[2])
+		expect(#lost_groups).to.equal(1)
+		expect(lost_groups[1].deleted_entities).to.contain(entity)
+		expect(#groups_for_player(server, groups, players[1])).to.equal(0)
+	end)
+
+	CASE("extend and exclude layer on a derived node", function()
+		local server, world = create_server()
+		local players = ready_players(server, 3)
+
+		local base = server:filter(players[1])
+		local extras = server:filter(players[2])
+		local muted = server:filter(players[2])
+		local final = base:extend(extras):exclude(muted)
+
+		local entity = world:entity()
+		server:set_networked(entity, final)
+		local groups = server_lib.collect_updates_groups(server)
+		expect(#groups_for_player(server, groups, players[1])).to.equal(1)
+		expect(#groups_for_player(server, groups, players[2])).to.equal(0)
+
+		muted:clear()
+		groups = server_lib.collect_updates_groups(server)
+		local gained_groups = groups_for_player(server, groups, players[2])
+		expect(#gained_groups).to.equal(1)
+		expect(gained_groups[1].added_entities).to.contain(entity)
+
+		-- raw sets are accepted as operands
+		local narrowed = final:filter(filter_set(players[2]))
+		local members = narrowed:members()
+		expect(members[players[1]]).to.beNil()
+		expect(members[players[2]]).to.equal(true)
+	end)
+
+	CASE("a mutation that leaves the mask unchanged emits nothing", function()
+		local server, world = create_server()
+		local players = ready_players(server, 3)
+
+		local match = server:filter(filter_set(players[1], players[2]))
+		local shared_with = server:filter(players[1])
+		local visible = match:filter(shared_with)
+
+		local entity = world:entity()
+		server:set_networked(entity, visible)
+		server_lib.collect_updates_groups(server)
+		local version = visible.version
+
+		-- player 3 never passes the intersection, nothing downstream may move
+		match:add(players[3])
+		local groups = server_lib.collect_updates_groups(server)
+		expect(count_groups(groups)).to.equal(0)
+		expect(visible.version).to.equal(version)
+
+		match:remove(players[3])
+		groups = server_lib.collect_updates_groups(server)
+		expect(count_groups(groups)).to.equal(0)
+	end)
+
+	CASE("several mutations in one cycle resolve once", function()
+		local server, world = create_server()
+		local players = ready_players(server, 3)
+
+		local group = server:filter(players[1])
+		local entity = world:entity()
+		server:set_networked(entity, group)
+		server_lib.collect_updates_groups(server)
+		local version = group.version
+
+		group:add(players[2])
+		group:remove(players[2])
+		group:add(players[2])
+		group:add(players[3])
+		local groups = server_lib.collect_updates_groups(server)
+
+		expect(group.version).to.equal(version + 1)
+		expect(count_groups(groups)).to.equal(1)
+		for _, serialize_group in groups do
+			expect(serialize_group.added_entities).to.contain(entity)
+		end
+		expect(#groups_for_player(server, groups, players[2])).to.equal(1)
+		expect(#groups_for_player(server, groups, players[3])).to.equal(1)
+	end)
+
+	CASE("a diamond recomputes each node at most once and only bumps what changed", function()
+		local server = create_server()
+		local players = ready_players(server, 3)
+
+		local a = server:filter(filter_set(players[1], players[2]))
+		local b = server:filter(players[1])
+		local c = server:filter(players[2])
+		local ab = a:filter(b)
+		local ac = a:exclude(c)
+		local d = ab:extend(ac)
+
+		local members = d:members()
+		expect(members[players[1]]).to.equal(true)
+		expect(members[players[2]]).to.beNil()
+		local ab_version, ac_version, d_version = ab.version, ac.version, d.version
+
+		-- player 3 passes a - c but not a & b
+		a:add(players[3])
+		members = d:members()
+		expect(members[players[3]]).to.equal(true)
+		expect(ab.version).to.equal(ab_version)
+		expect(ac.version).to.equal(ac_version + 1)
+		expect(d.version).to.equal(d_version + 1)
+		expect(a.dirty).to.equal(false)
+		expect(ab.dirty).to.equal(false)
+	end)
+
+	CASE("swapping to a plain filter detaches the node", function()
 		local server, world = create_server()
 		local players = ready_players(server, 2)
 
-		local group = filter_groups.create(server.registry)
-		group:filter(players[1])
+		local group = server:filter(players[1])
 
 		local entity = world:entity()
 		server:set_networked(entity, group)
@@ -1080,13 +1224,14 @@ TEST("filter groups", function()
 		server:set_networked(entity, players[1])
 		server_lib.collect_updates_groups(server)
 
-		-- the group no longer drives the entity, this must emit nothing
-		group:filter(players[2])
+		-- the node no longer drives the entity, this must emit nothing
+		group:set(players[2])
 		local groups = server_lib.collect_updates_groups(server)
 		expect(count_groups(groups)).to.equal(0)
+		expect((next(server.filter_bindings))).to.beNil()
 	end)
 
-	CASE("a filter group on a reliable component deltas on group changes", function()
+	CASE("a node on a reliable component deltas on changes", function()
 		local server, world = create_server()
 		local players = ready_players(server, 2)
 
@@ -1094,14 +1239,13 @@ TEST("filter groups", function()
 		local entity = world:entity()
 		world:set(entity, component, 1)
 
-		local group = filter_groups.create(server.registry)
-		group:filter(players[1])
+		local group = server:filter(players[1])
 
 		server:set_networked(entity)
 		server:set_reliable(entity, component, group)
 		server_lib.collect_updates_groups(server)
 
-		group:filter(players[2])
+		group:set(players[2])
 		local groups = server_lib.collect_updates_groups(server)
 
 		local gained_groups = groups_for_player(server, groups, players[2])
@@ -1118,6 +1262,106 @@ TEST("filter groups", function()
 		local lost = updates_of(lost_groups[1], entity).removed
 		expect(lost).to.exist()
 		expect(lost).to.contain(component)
+	end)
+
+	CASE("one node drives several storages and unbinding one keeps the others", function()
+		local server, world = create_server()
+		local players = ready_players(server, 2)
+
+		local group = server:filter(players[1])
+		local entity_a = world:entity()
+		local entity_b = world:entity()
+		server:set_networked(entity_a, group)
+		server:set_networked(entity_b, group)
+		server_lib.collect_updates_groups(server)
+
+		server:stop_networked(entity_a)
+		server_lib.collect_updates_groups(server)
+
+		group:set(players[2])
+		local groups = server_lib.collect_updates_groups(server)
+		local gained_groups = groups_for_player(server, groups, players[2])
+		expect(#gained_groups).to.equal(1)
+		expect(gained_groups[1].added_entities).to.contain(entity_b)
+		expect(gained_groups[1].added_entities).never.to.contain(entity_a)
+	end)
+
+	CASE("get_full sees a mutation made since the last collect", function()
+		local server, world = create_server()
+		local players = ready_players(server, 2)
+
+		local group = server:filter(players[1])
+		local entity = world:entity()
+		server:set_networked(entity, group)
+		server_lib.collect_updates_groups(server)
+
+		group:set(players[2])
+		server:get_full(players[2])
+
+		local index = server.registry.client_indexes[players[2]]
+		local filter = server.networked[entity].filter
+		expect(filter).to.exist()
+		assert(filter)
+		expect(bitmasks.test(filter, index)).to.equal(true)
+	end)
+
+	CASE("an unbound filter binds on the first set_* that reaches it", function()
+		local server, world = create_server()
+		local players = ready_players(server, 2)
+
+		local group = replecs.filter(players[1])
+		expect(function()
+			group:members()
+		end).to.throw()
+
+		-- reaching the server through a derived node binds the whole graph
+		local derived = group:extend(players[2])
+		local entity = world:entity()
+		server:set_networked(entity, derived)
+
+		expect(group:contains(players[1])).to.equal(true)
+		local groups = server_lib.collect_updates_groups(server)
+		expect(#groups_for_player(server, groups, players[1])).to.equal(1)
+		expect(#groups_for_player(server, groups, players[2])).to.equal(1)
+	end)
+
+	CASE("a filter bound to one server cannot reach another", function()
+		local server_a, world_a = create_server()
+		local server_b = create_server()
+		ready_players(server_a, 1)
+
+		local group = server_a:filter()
+		expect(function()
+			server_b:set_networked(world_a:entity(), group)
+		end).to.throw()
+
+		-- and combining nodes of two servers errors where they meet
+		expect(function()
+			group:filter(server_b:filter())
+		end).to.throw()
+	end)
+
+	CASE("a blacklist source excludes its members and admits later joiners", function()
+		local server, world = create_server()
+		local players = ready_players(server, 2)
+
+		local group = server:filter { [players[1]] = false }
+		local entity = world:entity()
+		server:set_networked(entity, group)
+		local groups = server_lib.collect_updates_groups(server)
+		expect(#groups_for_player(server, groups, players[1])).to.equal(0)
+		expect(#groups_for_player(server, groups, players[2])).to.equal(1)
+
+		server:mark_player_ready "player_3"
+		expect(group:contains "player_3").to.equal(true)
+		expect(group:contains(players[1])).to.equal(false)
+
+		expect(function()
+			group:set { [players[1]] = false, [players[2]] = true }
+		end).to.throw()
+		expect(function()
+			group:filter(players[1]):add(players[2])
+		end).to.throw()
 	end)
 end)
 

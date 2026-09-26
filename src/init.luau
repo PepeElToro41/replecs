@@ -10,6 +10,7 @@ local VERSION = require "@self/ver"
 
 export type Server = server.Server
 export type Client = client.Client
+export type FilterNode = server.FilterNode
 
 type Entity = common.Entity
 type World = common.World
@@ -46,6 +47,7 @@ type Replecs = types.Components & {
 	create_server: (world: World?) -> Server,
 	create_client: (world: World?) -> Client,
 	create_custom_id: (identifier: string, handler: (ctx: HandleContext) -> Entity?) -> CustomId,
+	filter: (initial: types.FilterSimple?) -> FilterNode,
 }
 
 local replecs = {}
@@ -101,6 +103,12 @@ end
 
 function replecs.create_custom_id(identifier: string, handler: (ctx: HandleContext) -> Entity?)
 	return customid.create(identifier, handler)
+end
+
+-- an unbound source filter: usable from any module, it attaches to the server
+-- the first time a set_* call receives it (directly or through a derived node)
+function replecs.filter(initial: types.FilterSimple?): FilterNode
+	return server.create_filter(initial)
 end
 
 function replecs.after_replication(lib: ReplecsLib, callback: () -> ())

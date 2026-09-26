@@ -29,6 +29,18 @@ type RegistryClass = {
 	-- exactly this many bits, so an index past it would fall off the buffer
 	max_clients: number,
 	bitmask_size: number,
+
+	-- bumped when a client registers, leaves or an alias changes: filter
+	-- nodes re-resolve their raw members against it
+	epoch: number,
+	-- bumped once per server resolve pass, predicate nodes recompute per cycle
+	cycle: number,
+	-- bit per registered client, the base a blacklist filter subtracts from
+	registered_bitmask: Bitmask,
+	-- clients dropped by unregister_client. a filter may still name them and
+	-- is_client_valid holds inside PlayerRemoving, so resolve_member must not
+	-- register them again (possibly onto their freed index)
+	departed: Set<Client>,
 }
 
 local registry = {}
@@ -56,20 +68,23 @@ local function resolve_member(self: Registry, member: Client): number?
 		end
 	end
 
-	if not utils.is_client_valid(member) then
+	if self.departed[member] or not utils.is_client_valid(member) then
 		return nil
 	end
 
 	registry.register_client(self, member)
 	return self.client_indexes[member]
 end
+registry.resolve_member = resolve_member
 
 function registry.add_alias(self: Registry, client: Client, alias: any)
 	self.client_aliases[alias] = client
+	self.epoch += 1
 end
 
 function registry.remove_alias(self: Registry, alias: any)
 	self.client_aliases[alias] = nil
+	self.epoch += 1
 end
 
 -- drops every alias pointing at the client
@@ -80,6 +95,7 @@ function registry.remove_client_aliases(self: Registry, client: Client)
 			aliases[alias] = nil
 		end
 	end
+	self.epoch += 1
 end
 
 @native
@@ -143,6 +159,10 @@ function registry.register_client(self: Registry, member: Client)
 	self.client_indexes[member] = index
 	self.index_clients[index] = member
 	self.client_count += 1
+
+	self.departed[member] = nil
+	bitmasks.set(self.registered_bitmask, index)
+	self.epoch += 1
 end
 
 function registry.unregister_client(self: Registry, member: Client)
@@ -155,6 +175,10 @@ function registry.unregister_client(self: Registry, member: Client)
 	self.client_indexes[member] = nil
 	self.index_clients[index] = nil
 	self.client_count -= 1
+
+	self.departed[member] = true
+	bitmasks.reset(self.registered_bitmask, index)
+	self.epoch += 1
 end
 
 local DEFAULT_MAX_CLIENTS = 128
@@ -171,6 +195,11 @@ function registry.create(max_clients: number?): Registry
 	self.client_count = 0
 	self.free_indexes = {}
 	self.client_aliases = {}
+
+	self.epoch = 0
+	self.cycle = 0
+	self.registered_bitmask = buffer.create(self.bitmask_size)
+	self.departed = setmetatable({}, { __mode = "k" }) :: any
 
 	return setmetatable(self, registry) :: any
 end

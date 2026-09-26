@@ -18,6 +18,31 @@ sidebar:
 type Iterator<T...> = () -> (T...)
 ```
 
+### `FilterNode`
+
+One node of the reactive filter graph. Sources hold a player set, derived nodes combine
+their inputs and resolve lazily on the next collect. See the [player filtering guide](/replecs/guides/player-filtering#filter-groups).
+
+```ts
+type FilterOperand = FilterNode | Player | { [Player]: boolean }
+
+type FilterNode = {
+    -- sources only
+    set: (self: FilterNode, filter: Player | { [Player]: boolean }) -> (),
+    add: (self: FilterNode, player: Player) -> (),
+    remove: (self: FilterNode, player: Player) -> (),
+    clear: (self: FilterNode) -> (),
+
+    -- each returns a new derived node
+    filter: (self: FilterNode, ...FilterOperand) -> FilterNode,   -- intersection
+    extend: (self: FilterNode, ...FilterOperand) -> FilterNode,   -- union
+    exclude: (self: FilterNode, ...FilterOperand) -> FilterNode,  -- difference
+
+    members: (self: FilterNode) -> { [Player]: true },
+    contains: (self: FilterNode, player: Player) -> boolean,
+}
+```
+
 </div>
 
 ## Members
@@ -158,6 +183,48 @@ type Server = {
 #### Returns
     - **component**: The decoded component.
 </div>
+
+### `server:filter()`
+
+Creates a source filter bound to this server. Every `set_*` method and the
+`replecs.networked` / `replecs.reliable` / ... components accept it in place of a plain filter.
+
+```ts
+type Server = {
+    filter: (self: Server, initial: (Player | { [Player]: boolean })?) -> FilterNode
+}
+```
+
+<div class="padded">
+#### Arguments
+- **initial**: The starting member set. A set of `false` values makes a blacklist.
+</div>
+
+### `server:filter_where()`
+
+Creates a filter driven by a predicate over the registered players. The predicate is
+re-evaluated once per collect.
+
+```ts
+type Server = {
+    filter_where: (self: Server, predicate: (player: Player) -> boolean) -> FilterNode
+}
+```
+
+<div class="padded">
+#### Arguments
+- **predicate**: Returns whether the player is part of the filter.
+</div>
+
+### `server:everyone()`
+
+A filter of every registered player, the base to derive blacklists from.
+
+```ts
+type Server = {
+    everyone: (self: Server) -> FilterNode
+}
+```
 
 ### `server:mark_player_ready()`
 

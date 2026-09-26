@@ -71,6 +71,23 @@ Must be the same in both the server and client.
 the handler can be ommited and set later with `customid:handler(handler)`
 </div>
 
+### `Replecs.filter`
+
+Creates a source filter that is not bound to a server yet. It binds to the server the
+first time a `set_*` call receives it, directly or through a derived filter. Use
+`server:filter()` when the server is in scope.
+
+```ts
+function Replecs.filter(
+    initial: (Player | { [Player]: boolean })?
+): FilterNode
+```
+
+<div class="padded">
+#### Arguments
+- **initial**: The starting member set. A set of `false` values makes a blacklist.
+</div>
+
 </div>
 
 ## Types

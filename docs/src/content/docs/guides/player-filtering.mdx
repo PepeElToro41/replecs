@@ -166,3 +166,98 @@ Players.PlayerRemoving:Connect(function(player)
     replicator:remove_player_alias(player_entity)
 end)
 ```
+---
+
+## Filter Groups
+
+The filters above are resolved once, when you set them. Filter groups are reactive:
+you mutate a **source** and every entity or component bound to it, or to any filter
+derived from it, updates on the next `collect_updates()`.
+
+A source is a mutable player set created with `server:filter()`:
+
+```luau
+local match = server:filter({ [Player1] = true, [Player2] = true })
+local shared_with = server:filter()
+
+world:set(entity, replecs.networked, match)   -- or server:set_networked(entity, match)
+
+shared_with:add(Player2)
+match:remove(Player1)   -- the entity leaves Player1 on the next collect
+match:set(Player3)      -- replaces the whole set
+match:clear()
+```
+
+### Deriving filters
+
+Combinators return a **new** filter whose value follows its inputs. The graph is fixed
+when you build it; only the values change.
+
+```luau
+-- players in match AND in shared_with
+local can_see_inventory = match:filter(shared_with)
+
+-- ... plus admins
+local with_admins = can_see_inventory:extend(admins)
+
+-- ... minus muted players
+local final = with_admins:exclude(muted)
+
+world:set(chest, jecs.pair(replecs.reliable, Inventory), final)
+```
+
+| Method | Result |
+|---|---|
+| `a:filter(b, ...)` | players in `a` and in every operand |
+| `a:extend(b, ...)` | players in `a` or in any operand |
+| `a:exclude(b, ...)` | players in `a` and in no operand |
+
+Operands can be other filters, a single player or a `{ [Player]: boolean }` set.
+Only sources can be mutated; calling `set`/`add`/`remove`/`clear` on a derived filter errors.
+
+Nothing is recomputed when you mutate a source. Filters are resolved once per collect,
+only the ones whose inputs actually moved are recomputed, and an entity is only re-sent
+when its final player set really changed. Any number of mutations in a frame cost one
+delta.
+
+### Reading a filter
+
+```luau
+local players = final:members()      -- { [Player]: true }
+if final:contains(Player1) then ... end
+```
+
+Both force the filter to resolve right away, so they always reflect the latest mutations.
+
+### Blacklists, everyone and predicates
+
+A set of `false` values makes a blacklist source: every registered player except its members.
+Players that join later are included automatically.
+
+```luau
+local not_banned = server:filter({ [Player3] = false })
+local everyone = server:everyone()          -- same as an empty blacklist
+
+-- re-evaluated over the registered players once per collect
+local admins = server:filter_where(function(player)
+    return player:GetRankInGroup(GROUP_ID) >= 200
+end)
+```
+
+`add` and `remove` edit the member set literally, so on a blacklist `not_banned:add(player)` bans them.
+
+### Filters without a server
+
+`replecs.filter()` creates a source that is not bound to any server yet, so you can build
+your filter graph in a module that has no replicator in scope. It binds to the server the
+first time a `set_*` call receives it, directly or through a derived filter. A filter
+belongs to one server: passing it to another errors, and so does combining filters of two
+servers.
+
+```luau
+-- filters.luau
+return {
+    match = replecs.filter(),
+    shared_with = replecs.filter(),
+}
+```

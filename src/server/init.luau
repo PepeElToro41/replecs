@@ -21,10 +21,11 @@ type FilterAny = types.FilterAny
 type FilterSet = types.FilterSet
 type FilterPredicator = types.FilterPredicator
 type FilterPlayer = types.FilterPlayer
-type FilterGroup = filter_groups.FilterGroup
+type FilterSimple = types.FilterSimple
+export type FilterNode = filter_groups.FilterNode
 
 -- what the public set_* API accepts as a filter
-type FilterInput = FilterAny | FilterGroup
+type FilterInput = FilterAny | FilterNode
 
 type MaskHash = string
 
@@ -57,6 +58,10 @@ export type ServerImp = {
 
 	force_change: (self: Server, entity: Entity, component: Component) -> (),
 
+	filter: (self: Server, initial: FilterSimple?) -> FilterNode,
+	filter_predicator: (self: Server, predicator: FilterPredicator) -> FilterNode,
+	everyone: (self: Server) -> FilterNode,
+
 	set_global: (self: Server, entity: Entity, global_id: number) -> (),
 	remove_global: (self: Server, entity: Entity) -> (),
 	set_custom: (self: Server, entity: Entity, custom: Component | CustomId) -> (),
@@ -76,10 +81,10 @@ type StorageBase = {
 	filter: Bitmask?,
 	last_replicated: Bitmask?,
 
-	-- set while a filter group drives this storage's filter; the listener is
-	-- kept so it can be disconnected when the filter changes or the storage dies
-	filter_group: FilterGroup?,
-	filter_listener: ((Bitmask) -> ())?,
+	-- set while a filter node drives this storage's filter, with the slot of
+	-- this storage in the node's binding list so unbind is a swap remove
+	filter_node: FilterNode?,
+	binding_index: number?,
 	filter_input: FilterInput?,
 }
 
@@ -135,15 +140,23 @@ type PostponedComponent = {
 	once: boolean?,
 }
 
--- a predicate-driven filter, re-evaluated before every collect_updates cycle
-type FunctionFilterEntry = {
-	predicator: registry.MemberPredicator,
+-- a storage driven by a filter node, re-applied whenever the node's version moves
+type FilterBinding = {
 	entity: Entity,
 	networked: NetworkedStorage,
+	storage: StorageBase,
 
-	-- set for reliable component filters, nil for entity-level ones
+	-- set for component filters, nil for entity-level ones
 	tracking: Component?,
 	tracking_storage: TrackingStorageBase?,
+	-- node version last written into the storage filter
+	applied_version: number,
+}
+
+type NodeBindings = {
+	entries: Array<FilterBinding>,
+	-- every entry sits at this version once a resolve pass completes
+	applied_version: number,
 }
 
 type NetworkedReferencesInfo = {
@@ -204,7 +217,7 @@ export type Server = ServerImp & {
 	hooked_relations: Map<Component, HookedInfo>,
 
 	dirty_networked: Array<Entity>,
-	function_filters: Map<StorageBase, FunctionFilterEntry>,
+	filter_bindings: Map<FilterNode, NodeBindings>,
 
 	empty_bitmask: Bitmask,
 	draft_bitmask: Bitmask,
@@ -443,20 +456,28 @@ local function resolve_filter_bitmask(self: Server, filter: FilterAny): Bitmask
 	end
 end
 
-local function disconnect_filter_group(storage: StorageBase)
-	local group = storage.filter_group
-	local listener = storage.filter_listener
-	if group and listener then
-		group:disconnect(listener)
-	end
-	storage.filter_group = nil
-	storage.filter_listener = nil
-end
-
--- releases whatever was driving this storage's filter (group or predicate)
+-- releases the node driving this storage's filter, if any. the entry is swap
+-- removed and the moved entry's storage takes over the freed slot
 local function clear_filter_source(self: Server, storage: StorageBase)
-	disconnect_filter_group(storage)
-	self.function_filters[storage] = nil
+	local node = storage.filter_node
+	if not node then
+		return
+	end
+	local bindings = self.filter_bindings[node]
+	local index = storage.binding_index :: number
+	local entries = bindings.entries
+
+	local last = table.remove(entries)
+	if last and last.storage ~= storage then
+		entries[index] = last
+		last.storage.binding_index = index
+	end
+	if #entries == 0 then
+		self.filter_bindings[node] = nil
+	end
+
+	storage.filter_node = nil
+	storage.binding_index = nil
 end
 
 -- a nil-filter storage inherits entity visibility, so its replicated set is
@@ -528,29 +549,62 @@ local function edit_tracking_filter(
 	mark_tracking_storage_dirty(self, entity, component, networked, storage, DIRTY_FILTER_FLAG)
 end
 
-local function connect_networked_group(self: Server, entity: Entity, networked: NetworkedStorage, group: FilterGroup)
-	local function listener(bitmask: Bitmask)
-		edit_networked_filter(self, entity, networked, bitmask)
-	end
-	networked.filter_group = group
-	networked.filter_listener = listener
-	group:connect(listener)
-end
-
-local function connect_tracking_group(
+-- attaches a node to a storage and returns the node's current mask as the
+-- storage's own copy: storage filters get holes punched at remove_player and
+-- are snapshotted in place, so they never alias the node buffer
+local function bind_filter(
 	self: Server,
 	entity: Entity,
-	component: Component,
+	component: Component?,
 	networked: NetworkedStorage,
-	storage: TrackingStorageBase,
-	group: FilterGroup
-)
-	local function listener(bitmask: Bitmask)
-		edit_tracking_filter(self, entity, component, networked, storage, bitmask)
+	storage: StorageBase,
+	node: FilterNode
+): Bitmask
+	filter_groups.bind(node, self.registry)
+	local value = filter_groups.resolve(node)
+
+	local bindings = self.filter_bindings[node]
+	if not bindings then
+		bindings = { entries = {}, applied_version = node.version }
+		self.filter_bindings[node] = bindings
 	end
-	storage.filter_group = group
-	storage.filter_listener = listener
-	group:connect(listener)
+	local entries = bindings.entries
+	table.insert(entries, {
+		entity = entity,
+		networked = networked,
+		storage = storage,
+		tracking = component,
+		tracking_storage = if component then storage :: TrackingStorageBase else nil,
+		applied_version = node.version,
+	})
+	storage.filter_node = node
+	storage.binding_index = #entries
+
+	return bitmasks.clone(value)
+end
+
+-- resolves a filter input into a bitmask and, for nodes and predicates,
+-- binds the source so later changes keep driving the storage. nil means
+-- "replicate to all active clients", resolved at collect
+local function resolve_filter_input(
+	self: Server,
+	entity: Entity,
+	component: Component?,
+	networked: NetworkedStorage,
+	storage: StorageBase,
+	filter: FilterInput?
+): Bitmask?
+	if filter == nil then
+		return nil
+	end
+	-- a node is a table, so this check goes before the set one
+	if filter_groups.is_filter_node(filter) then
+		return bind_filter(self, entity, component, networked, storage, filter :: FilterNode)
+	elseif typeof(filter) == "function" then
+		local node = filter_groups.create_predicate(self.registry, filter :: FilterPredicator)
+		return bind_filter(self, entity, component, networked, storage, node)
+	end
+	return resolve_filter_bitmask(self, filter :: FilterAny)
 end
 
 function ensure_hooked_component(self: Server, component: Component): HookedInfo
@@ -796,9 +850,6 @@ local function clear_networked_references(self: Server, entity: Entity, networke
 	end
 end
 
--- resolves a filter input into a bitmask and attaches its driving source
--- (group listener or predicate entry) to the storage; nil filter means
--- "replicate to all active clients", resolved at collect
 local function apply_tracking_filter(
 	self: Server,
 	entity: Entity,
@@ -807,31 +858,7 @@ local function apply_tracking_filter(
 	storage: TrackingStorageBase,
 	filter: FilterInput?
 ): Bitmask?
-	local bitmask: Bitmask?
-
-	if filter then
-		if filter_groups.is_filter_group(filter) then
-			local group = filter :: FilterGroup
-			bitmask = group:calculate_up()
-			connect_tracking_group(self, entity, component, networked, storage, group)
-		elseif typeof(filter) == "function" then
-			local predicator = filter :: registry.MemberPredicator
-			bitmask = self.registry:create_bitmask_from_function(predicator)
-
-			self.function_filters[storage] = {
-				predicator = predicator,
-				entity = entity,
-				networked = networked,
-
-				tracking = component,
-				tracking_storage = storage,
-			}
-		else
-			bitmask = resolve_filter_bitmask(self, filter :: FilterAny)
-		end
-	end
-
-	return bitmask
+	return resolve_filter_input(self, entity, component, networked, storage, filter)
 end
 
 local function change_tracking(
@@ -1097,28 +1124,8 @@ function start_networked(self: Server, entity: Entity, filter: FilterInput?)
 		-- get a removal delta instead of the pending deletion
 		change_networked(self, entity, networked, filter)
 	else
-		local bitmask: Bitmask?
-
-		if filter then
-			if filter_groups.is_filter_group(filter) then
-				local group = filter :: FilterGroup
-				bitmask = group:calculate_up()
-				connect_networked_group(self, entity, networked, group)
-			elseif typeof(filter) == "function" then
-				local predicator = filter :: registry.MemberPredicator
-				bitmask = self.registry:create_bitmask_from_function(predicator)
-
-				self.function_filters[networked] = {
-					predicator = predicator,
-					entity = entity,
-					networked = networked,
-				}
-			else
-				bitmask = resolve_filter_bitmask(self, filter :: FilterAny)
-			end
-		else
-			-- bitmask stays nil: replicate to all active clients, resolved at collect
-		end
+		-- nil bitmask: replicate to all active clients, resolved at collect
+		local bitmask = resolve_filter_input(self, entity, nil, networked, networked, filter)
 
 		networked.filter = bitmask
 		mark_networked_dirty(self, entity, networked, DIRTY_FILTER_FLAG)
@@ -1164,24 +1171,7 @@ function change_networked(self: Server, entity: Entity, networked: NetworkedStor
 	-- old filter source stops driving this storage before the new one takes over
 	clear_filter_source(self, networked)
 
-	local bitmask: Bitmask?
-	if filter then
-		if filter_groups.is_filter_group(filter) then
-			local group = filter :: FilterGroup
-			bitmask = group:calculate_up()
-			connect_networked_group(self, entity, networked, group)
-		elseif typeof(filter) == "function" then
-			local predicator = filter :: registry.MemberPredicator
-			bitmask = self.registry:create_bitmask_from_function(predicator)
-			self.function_filters[networked] = {
-				predicator = predicator,
-				entity = entity,
-				networked = networked,
-			}
-		else
-			bitmask = resolve_filter_bitmask(self, filter :: FilterAny)
-		end
-	end
+	local bitmask = resolve_filter_input(self, entity, nil, networked, networked, filter)
 
 	edit_networked_filter(self, entity, networked, bitmask)
 end
@@ -2398,31 +2388,47 @@ local function serialize_unreliable_group(
 	commit()
 end
 
-local function collect_updates_groups(self: Server): Map<MaskHash, SerializeGroup>
-	local client_registry = self.registry
-	for storage, entry in self.function_filters do
-		local bitmask = client_registry:create_bitmask_from_function(entry.predicator)
-		local current = storage.filter
-		if current and bitmasks.equals(current, bitmask) then
+-- resolves every bound filter node once and re-applies the ones that moved.
+-- steady state is one integer compare per distinct node. must run before
+-- dirty_networked is walked and before the active epoch rolls, since
+-- edit_*_filter snapshots against last_active_bitmask
+local function resolve_filters(self: Server)
+	self.registry.cycle += 1
+
+	for node, bindings in self.filter_bindings do
+		local value = filter_groups.resolve(node)
+		local version = node.version
+		if bindings.applied_version == version then
 			continue
 		end
 
-		local tracking_component = entry.tracking
+		for _, entry in bindings.entries do
+			if entry.applied_version == version then
+				continue
+			end
+			entry.applied_version = version
 
-		if tracking_component then
-			-- routes to the right dirty list via the storage's track_type
-			edit_tracking_filter(
-				self,
-				entry.entity,
-				tracking_component,
-				entry.networked,
-				entry.tracking_storage :: TrackingStorageBase,
-				bitmask
-			)
-		else
-			edit_networked_filter(self, entry.entity, entry.networked, bitmask)
+			local tracking_component = entry.tracking
+			if tracking_component then
+				-- routes to the right dirty list via the storage's track_type
+				edit_tracking_filter(
+					self,
+					entry.entity,
+					tracking_component,
+					entry.networked,
+					entry.tracking_storage :: TrackingStorageBase,
+					bitmasks.clone(value)
+				)
+			else
+				edit_networked_filter(self, entry.entity, entry.networked, bitmasks.clone(value))
+			end
 		end
+		bindings.applied_version = version
 	end
+end
+
+local function collect_updates_groups(self: Server): Map<MaskHash, SerializeGroup>
+	resolve_filters(self)
 
 	local serialize_groups: Map<MaskHash, SerializeGroup> = {}
 	local networked_entities = self.networked
@@ -3137,6 +3143,7 @@ end
 
 function server.get_full(self: Server, player: Player): (buffer, Array<any>)
 	self:resolve_dirty()
+	resolve_filters(self)
 
 	local index = self.registry.client_indexes[player]
 	if index == nil then
@@ -3473,6 +3480,7 @@ end
 
 function server.collect_entity(self: Server, entity: Entity): PacketIterator
 	self:resolve_dirty()
+	resolve_filters(self)
 	local groups = collect_entity_groups(self, entity)
 
 	local member_updates: Map<number, MemberUpdatePackets> = {}
@@ -3564,9 +3572,22 @@ end
 
 function server.collect_unreliable(self: Server): PacketIterator
 	self:resolve_dirty()
+	resolve_filters(self)
 	local groups = collect_unreliable_groups(self)
 	serialize_unreliable_groups(self, groups)
 	return create_unreliable_packet_iterator(self, distribute_unreliable_groups(groups))
+end
+
+function server.filter(self: Server, initial: FilterSimple?): FilterNode
+	return filter_groups.create_source(self.registry, initial)
+end
+
+function server.filter_predicator(self: Server, predicator: FilterPredicator): FilterNode
+	return filter_groups.create_predicate(self.registry, predicator)
+end
+
+function server.filter_everyone(self: Server): FilterNode
+	return filter_groups.create_everyone(self.registry)
 end
 
 function server.register_player(self: Server, player: Player)
@@ -3891,7 +3912,7 @@ function server.create(world: World?, components: types.Components?, max_clients
 	self.hooked_unreliable_pairs = {}
 
 	self.dirty_networked = {}
-	self.function_filters = {}
+	self.filter_bindings = {}
 
 	self.empty_bitmask = buffer.create(self.bitmask_size)
 	self.draft_bitmask = buffer.create(self.bitmask_size)
@@ -3926,12 +3947,19 @@ return {
 	end,
 	collect_unreliable_groups = function(self: Server): Map<MaskHash, UnreliableSerializeGroup>
 		self:resolve_dirty()
+		resolve_filters(self)
 		return collect_unreliable_groups(self)
 	end,
 	serialize_update_groups = serialize_update_groups,
 	serialize_unreliable_groups = serialize_unreliable_groups,
 	collect_entity_groups = function(self: Server, entity: Entity): Map<MaskHash, EntitySerializeGroup>
 		self:resolve_dirty()
+		resolve_filters(self)
 		return collect_entity_groups(self, entity)
+	end,
+
+	-- unbound source for module level construction, binds on first set_*
+	create_filter = function(initial: FilterSimple?): FilterNode
+		return filter_groups.create_source(nil, initial)
 	end,
 }
