@@ -128,3 +128,103 @@ world:set(data, replecs.serdes, {
 <Aside type="caution">
 Returning variants in serdes will put you back at risk of unreliable packets getting over the 1KB limit.
 </Aside>
+
+### Preprocessing Values
+
+A preprocessor lets you transform a component value before it is replicated, and transform it back on the client.
+Unlike a serdes, it does not deal with buffers, it works with plain values and can be used with or without a serdes.
+
+This is useful when the value stored in the world is not what you want to send over the network,
+for example an object with a metatable, an `Enum` item, or a table with fields the client doesn't need.
+
+The preprocessor is set with `replicator:set_preprocessor(component, preprocessor)` and removed with `replicator:remove_preprocessor(component)`.
+It's important that the preprocessor is set in both the client and server,
+this can be done in the holder returned by `replecs.create`, which forwards it to both.
+
+The preprocessor should be a table with this structure:
+
+```luau
+type Preprocessor<Before, After> = {
+    serialize: (value: Before) -> After,
+    deserialize: (value: After) -> Before,
+}
+```
+
+Let's see an example where we replicate a class object. Metatables don't survive replication,
+so we send the plain data and rebuild the object in the client.
+
+```luau
+local replecs = require("@pkg/replecs")
+local replicator = require("@shared/replicator")
+local Inventory = require("inventory")
+
+local inventory = world:component() :: Entity<Inventory.Inventory>
+
+replicator:set_preprocessor(inventory, {
+    serialize = function(value: Inventory.Inventory)
+        return value.items
+    end,
+    deserialize = function(items: { string })
+        return Inventory.new(items)
+    end,
+})
+```
+
+#### Order with Serdes
+
+If a component has both a preprocessor and a serdes, the preprocessor runs first in the server and last in the client:
+
+- Server: `preprocessor.serialize` → `serdes.serialize`
+- Client: `serdes.deserialize` → `preprocessor.deserialize`
+
+This means the serdes only ever sees the preprocessed value. You can use this to keep serializers simple,
+by turning a complex value into something easy to write into a buffer.
+
+```luau
+local Material = { "Plastic", "Wood", "Metal" }
+local material_index = {}
+for index, name in Material do
+    material_index[name] = index
+end
+
+local material = world:component() :: Entity<string>
+
+replicator:set_preprocessor(material, {
+    serialize = function(name: string): number
+        return material_index[name]
+    end,
+    deserialize = function(index: number): string
+        return Material[index]
+    end,
+})
+
+world:set(material, replecs.serdes, {
+    bytespan = 1,
+    serialize = function(index: number)
+        local buf = buffer.create(1)
+        buffer.writeu8(buf, 0, index)
+        return buf
+    end,
+    deserialize = function(buf: buffer)
+        return buffer.readu8(buf, 0)
+    end,
+})
+```
+
+<Aside type="note">
+The handshake only checks that the client and server have a preprocessor for the same components, not what they do.
+Make sure both sides set a matching one.
+</Aside>
+
+#### Preprocessing Pairs
+
+You can also set a preprocessor on a pair. When replicating a pair, replecs looks for a preprocessor
+in the exact pair first, and then falls back to the wildcard pair of the relation.
+
+```luau
+-- applies to every `owns` pair, regardless of the target
+replicator:set_preprocessor(jecs.pair(components.owns, jecs.Wildcard), {
+    serialize = function(value) ... end,
+    deserialize = function(value) ... end,
+})
+```

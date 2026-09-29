@@ -89,7 +89,7 @@ Applies the full state of the world from the server.
 
 ```ts
 type Client = {
-    apply_full: (self: Client, buf: buffer, variants: {{any}}) -> ()
+    apply_full: (self: Client, buf: buffer, variants: {any}) -> ()
 }
 ```
 
@@ -223,9 +223,10 @@ type Client = {
     - **entity**: The client entity to unbind.
 </div>
 
-### `client:enconde_component()`
+### `client:encode_component()`
 
-Encodes a component for sending through the network. This returns a number between 1 to 255.
+Encodes a component for sending through the network. This returns the index of the component in the shared components list,
+a number from `1` to `get_shared_count()`. Throws an error if the component is not shared.
 
 ```ts
 type Client = {
@@ -247,7 +248,7 @@ Decodes a component from a number.
 
 ```ts
 type Client = {
-    decode_component: (self: Client, encoded: number) -> Entity
+    decode_component: (self: Client, encoded: number) -> Component?
 }
 ```
 
@@ -255,7 +256,24 @@ type Client = {
 #### Arguments
     - **number**: The number to decode, This is number from `encode_component`.
 #### Returns
-    - **component**: The decoded component.
+    - **component**: The decoded component, or `nil` if the number does not match a shared component.
+</div>
+
+
+### `client:get_shared_count()`
+
+Returns how many shared components there are. Every number returned by `encode_component` is between `1` and this value,
+so you can use it to size buffers or validate a number before calling `decode_component`.
+
+```ts
+type Client = {
+    get_shared_count: (self: Client) -> number
+}
+```
+
+<div class="padded">
+#### Returns
+    - **count**: The number of shared components.
 </div>
 
 
@@ -304,6 +322,76 @@ type Client = {
 #### Returns
     - **success**: Whether the handshake info is valid.
     - **err**: The error message if the handshake was not successful.
+</div>
+
+
+### `client:set_serdes()`
+
+Sets the [serdes](/replecs/reference/component-serialization#replecsserdes) of a component or pair. This is the same as setting the `replecs.serdes` component.
+Serdes take part in the handshake, so the server must set a matching one.
+
+```ts
+type Client = {
+    set_serdes: <T>(self: Client, id: Component<T>, serdes: Serdes<T>) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to set the serdes to.
+    - **serdes**: The serdes table.
+</div>
+
+
+### `client:remove_serdes()`
+
+Removes the serdes of a component or pair.
+
+```ts
+type Client = {
+    remove_serdes: (self: Client, id: Component) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to remove the serdes from.
+</div>
+
+
+### `client:set_preprocessor()`
+
+Sets the [preprocessor](/replecs/reference/component-serialization#replecspreprocessor) of a component or pair. The preprocessor runs after the serdes when reading a value.
+The handshake checks that the server also has a preprocessor for this component, but not what it does, so make sure it matches.
+
+When set to a pair, the exact pair is used first, then `jecs.pair(relation, jecs.Wildcard)`.
+
+```ts
+type Client = {
+    set_preprocessor: <B, A>(self: Client, id: Component<B>, preprocessor: Preprocessor<B, A>) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to set the preprocessor to.
+    - **preprocessor**: The preprocessor table.
+</div>
+
+
+### `client:remove_preprocessor()`
+
+Removes the preprocessor of a component or pair.
+
+```ts
+type Client = {
+    remove_preprocessor: (self: Client, id: Component) -> ()
+}
+```
+
+<div class="padded">
+#### Arguments
+    - **id**: The component or pair to remove the preprocessor from.
 </div>
 
 

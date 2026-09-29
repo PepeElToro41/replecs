@@ -29,6 +29,8 @@ export type HandshakeInfo = {
 		includes_variants: boolean?,
 		bytespan: number?,
 	} },
+	-- preprocessors are functions, so only their presence is compared
+	preprocessors: { [string]: boolean },
 }
 
 export type Serdes<T = any> = {
@@ -77,6 +79,7 @@ export type Shared = {
 	custom_ids: SharedInfo<customid.CustomId>,
 
 	serdes: { [Component]: Serdes },
+	preprocessors: { [Component]: true },
 }
 
 return nil

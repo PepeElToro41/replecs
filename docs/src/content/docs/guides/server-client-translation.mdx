@@ -21,7 +21,9 @@ This system relies on the `replecs.shared` tag.
 
 You can use this same system to serialize components that get sent through the network.
 
-- `replicator:encode_component(component)` to encode a component. This returns a number between 1 to 255.
-- `replicator:decode_component(number)` to decode a component. This takes the number from `encode_component`.
+- `replicator:encode_component(component)` to encode a component. This returns a number from `1` to `replicator:get_shared_count()`. Throws an error if the component is not shared.
+- `replicator:decode_component(number)` to decode a component. This takes the number from `encode_component`, and returns `nil` if it does not match a shared component.
 
 The methods for translating components are available in both the client and server replicators.
+
+`replicator:get_shared_count()` gives you the upper bound of the range, which is useful to pick a buffer size for the encoded number.

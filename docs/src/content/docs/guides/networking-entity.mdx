@@ -8,15 +8,29 @@ import { Card, Aside } from '@astrojs/starlight/components';
 ## Replicating Entities
 
 Replecs replication is _per-entity_. This means that you need to mark each entity to be networked.<br/>  
-You can do this by adding `replecs.networked` to the entity. This will allocate an entity creation event to be sent to the client.
+You can do this by calling `set_networked` on the server replicator. This will allocate an entity creation event to be sent to the client.
+
+```luau
+local world = require("world")
+local replicator = require("@server/replicator")
+
+local npc = world:entity()
+replicator:set_networked(npc)
+```
+
+<Aside type="note" title="Pair API">
+Everything in this guide can also be done declaratively by adding pairs to the entity.
+Adding `replecs.networked` is the same as calling `set_networked`:
 
 ```luau
 local replecs = require("@pkg/replecs")
-local world = require("world")
 
-local npc = world:entity()
 world:add(npc, replecs.networked)
 ```
+
+Both APIs are interchangeable. The pair API is convenient when you want replication to live next to your components,
+while the imperative API is convenient when you need to react to game logic.
+</Aside>
 
 ## Replicating Components
 
@@ -30,47 +44,62 @@ This allows for a highly granular control over replication for each entity.
 
 ### Components/Tags
 
-Components and tags should be marked with `replecs.reliable` with a pair. You will set what component to replicate as the target.
+Components and tags are replicated with `set_reliable`. You pass the component you want to replicate.
 
 ```luau
-local replecs = require("@pkg/replecs")
-local jecs = require("@pkg/jecs")
 local world = require("world")
+local replicator = require("@server/replicator")
 local components = require("@shared/components")
 
 local npc = world:entity()
-world:add(npc, replecs.networked)
+replicator:set_networked(npc)
 
 world:set(npc, components.health, 100)
 world:add(npc, components.alive)
 -- mark components to be replicated
+replicator:set_reliable(npc, components.health)
+replicator:set_reliable(npc, components.alive)
+```
+
+<Aside type="note" title="Pair API">
+Add `replecs.reliable` as a pair, with the component to replicate as the target.
+
+```luau
 world:add(npc, jecs.pair(replecs.reliable, components.health))
 world:add(npc, jecs.pair(replecs.reliable, components.alive))
 ```
+</Aside>
 
 ### Unreliable Components
 
-Components can be marked to be replicated unreliably. 
+Components can be marked to be replicated unreliably with `set_unreliable`.
 
 This will send the latest value of the component to the client no matter whether it changed or not.
 This kind of replication should be used when the component value changes too quickly in the server (every frame).
 
-Replecs will also automatically split buffer packets if they exceed the 1KB maximum unrealible size. 
-This will ensure that no packets get dropped.
+Replecs will also automatically split unreliable packets to stay under a `900` byte budget, so they fit in the 1KB unreliable limit.
+A single entity larger than the budget by itself is still sent alone, over the budget, so keep unreliable values small.
 
 
 ```luau
-local replecs = require("@pkg/replecs")
-local jecs = require("@pkg/jecs")
 local world = require("world")
+local replicator = require("@server/replicator")
 local components = require("@shared/components")
 
 local npc = world:entity()
-world:add(npc, replecs.networked)
+replicator:set_networked(npc)
 
 world:set(npc, components.position, Vector3.new(0, 0, 0))
+replicator:set_unreliable(npc, components.position)
+```
+
+<Aside type="note" title="Pair API">
+Add `replecs.unreliable` as a pair, with the component to replicate as the target.
+
+```luau
 world:add(npc, jecs.pair(replecs.unreliable, components.position))
 ```
+</Aside>
 
 <Aside type="danger">
 Replecs cannot infer the size of non-serialized values. 
@@ -80,45 +109,130 @@ to every single component that will be replicated as unreliable to ensure the pa
 
 ### Relationships
 
-Pairs should be marked with `replecs.pair` with a pair. You will set what `relation` to replicate as the target.<br/>
+Pairs are replicated with `set_relation`. You pass the `relation` you want to replicate, and every pair of that relation on the entity will be replicated.<br/>
 Note that if the relation target is an entity, this entity also needs to be marked as networked.
 
 ```luau
-local replecs = require("@pkg/replecs")
-local jecs = require("@pkg/jecs")
 local world = require("world")
+local replicator = require("@server/replicator")
+local components = require("@shared/components")
 
 -- create a relation
 local npc = world:entity()
 local player = world:entity()
 
-world:add(npc, replecs.networked)
-world:add(player, replecs.networked)
+replicator:set_networked(npc)
+replicator:set_networked(player)
 
 -- create a pair
 world:add(npc, jecs.pair(components.attacking, player))
-world:add(npc, jecs.pair(replecs.pair, components.attacking))
+replicator:set_relation(npc, components.attacking)
 ```
+
+<Aside type="note" title="Pair API">
+Add `replecs.relation` as a pair, with the relation to replicate as the target.
+
+```luau
+world:add(npc, jecs.pair(replecs.relation, components.attacking))
+```
+</Aside>
+
+### Specific Pairs
+
+If you only want to replicate a single pair instead of every target of a relation, use `set_pair` with the full pair id.
+Only that pair is tracked, other targets of the same relation are not replicated.
+
+```luau
+local world = require("world")
+local replicator = require("@server/replicator")
+local components = require("@shared/components")
+
+local npc = world:entity()
+local player = world:entity()
+local enemy = world:entity()
+
+replicator:set_networked(npc)
+replicator:set_networked(player)
+replicator:set_networked(enemy)
+
+world:add(npc, jecs.pair(components.attacking, player))
+world:add(npc, jecs.pair(components.attacking, enemy))
+
+-- only (attacking, player) is replicated
+replicator:set_pair(npc, jecs.pair(components.attacking, player))
+```
+
+Pairs with values that change every frame can be replicated unreliably with `set_unreliable_pair`.
+It behaves like `set_unreliable`, the pair must have a value.
+
+```luau
+world:set(npc, jecs.pair(components.distance_to, player), 12)
+replicator:set_unreliable_pair(npc, jecs.pair(components.distance_to, player))
+```
+
+<Aside type="note">
+There is no pair API for specific pairs, `set_pair` and `set_unreliable_pair` can only be called on the replicator.
+</Aside>
 
 ---
 
 ### Relationship Values
 
-Pairs that contain values can be marked like normal pairs, but replecs will only replicate pair values if the first id of the pair is a component.
+Pairs that contain values can be marked like normal pairs, but replecs will only replicate pair values if the relation or the target of the pair is a component.
 
 ```luau
-local replecs = require("@pkg/replecs")
-local jecs = require("@pkg/jecs")
 local world = require("world")
+local replicator = require("@server/replicator")
 
 local value_relation = world:component()
 local no_value_relation = world:entity()
 
+local npc = world:entity()
+local target = world:entity()
+
+replicator:set_networked(npc)
+replicator:set_networked(target)
+
+world:set(npc, jecs.pair(value_relation, target), 10)
+world:add(npc, jecs.pair(no_value_relation, target))
+
 -- this will replicate pair values
-world:add(relation, jecs.pair(replecs.pair, value_relation))
+replicator:set_relation(npc, value_relation)
 -- this will not replicate pair values
-world:add(relation, jecs.pair(replecs.pair, no_value_relation))
+replicator:set_relation(npc, no_value_relation)
 ```
+
+### Once Components
+
+Components can be marked to replicate only their addition and removal with `set_once`.
+Value changes are ignored, which is useful for components that are set once and never change, like a name or a model id.
+
+If the value does change and you need to send it, call `force_change`. The current value is sent on the next update.
+
+```luau
+local world = require("world")
+local replicator = require("@server/replicator")
+local components = require("@shared/components")
+
+local npc = world:entity()
+replicator:set_networked(npc)
+
+world:set(npc, components.name, "Guard")
+replicator:set_once(npc, components.name)
+
+-- later, this change is not replicated by itself
+world:set(npc, components.name, "Captain")
+-- send it explicitly
+replicator:force_change(npc, components.name)
+```
+
+<Aside type="note" title="Pair API">
+Add `replecs.once` as a pair, with the component to replicate as the target.
+
+```luau
+world:add(npc, jecs.pair(replecs.once, components.name))
+```
+</Aside>
 
 </div>
 
@@ -130,23 +244,54 @@ Entities and components can be stopped from being replicated at any time.
 
 ### Entities
 
-You can stop an entity from being replicated by removing the `replecs.networked` tag.
+You can stop an entity from being replicated with `stop_networked`.
 This will also allocate an event to delete the entity in the client.
 
-All your components will still remain in the entity. You can reactivate the entity by adding `replecs.networked` again.
+```luau
+replicator:stop_networked(npc)
+```
+
+All your components will still remain in the entity. You can reactivate the entity by calling `set_networked` again.
 
 This will correctly replicate back your entity with all its components. This is useful for streaming entities in and out dynamically.
 
+<Aside type="note" title="Pair API">
+Removing `replecs.networked` from the entity does the same as `stop_networked`.
+
+```luau
+world:remove(npc, replecs.networked)
+```
+</Aside>
+
 ### Components
 
-You can stop a component from being replicated by removing the pair.
+You can stop a component from being replicated with the matching `stop_*` function.
 This will also allocate an event to remove the component entirely in the client
+
+```luau
+replicator:stop_reliable(npc, components.health)
+replicator:stop_reliable(npc, components.alive)
+replicator:stop_unreliable(npc, components.position)
+replicator:stop_once(npc, components.name)
+replicator:stop_relation(npc, components.attacking)
+replicator:stop_pair(npc, jecs.pair(components.attacking, player))
+replicator:stop_unreliable_pair(npc, jecs.pair(components.distance_to, player))
+```
+
+A component stopped this way does not come back if the entity is stopped and revived with `set_networked`,
+you need to mark it again.
+
+<Aside type="note" title="Pair API">
+Removing the pair does the same as calling the matching `stop_*` function.
+Specific pairs have no pair API, so they can only be stopped with `stop_pair` and `stop_unreliable_pair`.
 
 ```luau
 world:remove(npc, jecs.pair(replecs.reliable, components.health))
 world:remove(npc, jecs.pair(replecs.reliable, components.alive))
 world:remove(npc, jecs.pair(replecs.unreliable, components.position))
-world:remove(npc, jecs.pair(replecs.pair, components.attacking))
+world:remove(npc, jecs.pair(replecs.once, components.name))
+world:remove(npc, jecs.pair(replecs.relation, components.attacking))
 ```
+</Aside>
 
 </div>

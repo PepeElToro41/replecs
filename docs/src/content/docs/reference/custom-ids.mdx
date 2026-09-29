@@ -18,9 +18,9 @@ Custom id handler, created with `Replecs.create_custom_id`.
 ```ts
 type CustomId = {
     identifier: string,
-    handle_callback: (ctx: HandleContext) -> Entity?
+    handle_callback: ((ctx: HandleContext) -> Entity?)?
 
-    handler: (self: CustomId, handler: (ctx: HandleContext) -> Entity?) -> ()
+    handle: (self: CustomId, handler: (ctx: HandleContext) -> Entity?) -> ()
 }
 ```
 
@@ -28,10 +28,10 @@ type CustomId = {
 
 #### Fields
 - **identifier**: The identifier of the custom id.
-- **handle_callback**: The callback set to handle the custom id.
+- **handle_callback**: The callback set to handle the custom id. `nil` until one is given.
 
 #### Methods
-- **handler()**: Sets the handler for the custom id.
+- **handle()**: Sets the handler for the custom id.
     - **Arguments**
         - **handler**: The handler to set.
 

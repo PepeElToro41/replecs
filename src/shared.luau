@@ -38,7 +38,8 @@ function shared.resolve_shared(
 	world: World,
 	components: types.Components,
 	registered_custom_ids: { [customid.CustomId]: boolean },
-	serdes: { [Component]: types.Serdes }
+	serdes: { [Component]: types.Serdes },
+	preprocessors: { [Component]: true }
 ): types.Shared
 	local shared = {} :: types.Shared
 
@@ -61,6 +62,7 @@ function shared.resolve_shared(
 	end
 
 	shared.serdes = serdes
+	shared.preprocessors = preprocessors
 	shared.components = create_shared_lookup(components_lookup)
 	shared.custom_ids = create_shared_lookup(custom_ids_lookup) :: types.SharedInfo<customid.CustomId>
 

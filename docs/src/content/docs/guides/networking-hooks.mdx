@@ -3,6 +3,7 @@ title: Networking Hooks
 sidebar:
     order: 3
 ---
+import { Aside } from '@astrojs/starlight/components';
 
 
 Replecs allows you to intercept to the networking process in the client.
@@ -76,10 +77,16 @@ local replicator = require("@client/replicator")
 replicator:hook("changed", jecs.pair(replecs.reliable, components.speed), function(entity, id, speed)
     print(entity, "changed speed to", speed)
 end)
-replicator:hook("changed", jecs.pair(replecs.pair, components.attacking), function(entity, id)
+replicator:hook("changed", jecs.pair(replecs.relation, components.attacking), function(entity, id)
     print(entity, "is now attacking", jecs.pair_second(world, id)) 
 end)
 ```
+
+<Aside type="note">
+The hook pair does not always match the server method one to one:
+- Components tracked with `set_once` are hooked with `replecs.reliable`.
+- Pairs tracked with `set_pair` or `set_unreliable_pair` are hooked with `replecs.relation` and the relation of the pair, the same as `set_relation`.
+</Aside>
 
 ### Component Removals
 Setting the action to "removed" will make the callback run right before a component or pair gets removed.
@@ -96,7 +103,7 @@ local replicator = require("@client/replicator")
 replicator:hook("removed", jecs.pair(replecs.reliable, components.speed), function(entity, id)
     print("removed speed for:", entity, world:get(entity, components.speed))
 end)
-replicator:hook("removed", jecs.pair(replecs.pair, components.attacking), function(entity, id)
+replicator:hook("removed", jecs.pair(replecs.relation, components.attacking), function(entity, id)
     print(entity, "is no longer attacking", jecs.pair_second(world, id)) 
 end)
 ```
@@ -126,7 +133,7 @@ You can override actions. When this happens, replecs will not perform the action
 This allows you add your own logic for changing/removing/deleting entities and components. 
 
 You override actions the same way you would hook to them,
-but calling `replicator:override(entity, action, ...)` instead, you cant override and hook at the same time for the same component and action.
+but calling `replicator:override(action, ...)` instead, you cant override and hook at the same time for the same component and action.
 
 All actions behave the same way with the exception of "changed" since the component will never change.
 

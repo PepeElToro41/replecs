@@ -34,9 +34,41 @@ declare namespace Replecs {
     | Player
     | MemberFilterMap
     | MemberFilterPredicate
+    | FilterNode
     | Record<string, never>
     | undefined;
   type Member = unknown;
+
+  /** What a filter combinator accepts: another node or a raw player / set. */
+  export type FilterOperand = FilterNode | Player | MemberFilterMap;
+
+  /**
+   * One node of the reactive filter graph. Sources own a player set; derived
+   * nodes combine their inputs and re-evaluate lazily on the next collect.
+   * Structure is fixed at construction, only the value is reactive.
+   */
+  export interface FilterNode {
+    /** Replaces the member set. A map of `false` values makes a blacklist. Sources only. */
+    set(filter: Player | MemberFilterMap): void;
+    /** Adds to the member set (on a blacklist source this excludes the player). Sources only. */
+    add(player: Player): void;
+    /** Sources only. */
+    remove(player: Player): void;
+    /** Sources only. */
+    clear(): void;
+
+    /** Players in this node and in every operand. */
+    filter(...operands: FilterOperand[]): FilterNode;
+    /** Players in this node or in any operand. */
+    extend(...operands: FilterOperand[]): FilterNode;
+    /** Players in this node and in no operand. */
+    exclude(...operands: FilterOperand[]): FilterNode;
+
+    /** Resolves the node and returns its current players. Errors if the node is not bound to a server yet. */
+    members(): Map<Player, true>;
+    /** Resolves the node and tests one player (aliases accepted). */
+    contains(player: Player): boolean;
+  }
 
   export interface SharedInfo<T> {
     lookup: Record<string, T>;
@@ -64,6 +96,7 @@ declare namespace Replecs {
     components: SharedInfo<Entity>;
     custom_ids: SharedInfo<CustomId>;
     serdes: Map<Id, SerdesTable>;
+    preprocessors: Map<Id, true>;
   }
   interface HandshakeSerdesInfo {
     includes_variants?: boolean;
@@ -74,6 +107,7 @@ declare namespace Replecs {
     components: Record<string, boolean>;
     custom_ids: Record<string, boolean>;
     serdes: Record<string, HandshakeSerdesInfo>;
+    preprocessors: Record<string, boolean>;
   }
 
   export interface Components {
@@ -194,6 +228,13 @@ declare namespace Replecs {
   }
 
   export interface ServerImp extends SerializationOptions {
+    /** A source filter bound to this server. */
+    filter(initial?: Player | MemberFilterMap): FilterNode;
+    /** A filter driven by a predicate over registered players, re-evaluated once per collect. */
+    filter_predicator(predicate: MemberFilterPredicate): FilterNode;
+    /** Every registered player; the base for blacklists. */
+    everyone(): FilterNode;
+
     set_networked(entity: Entity, filter?: MemberFilter): void;
     set_reliable(
       entity: Entity,
@@ -289,6 +330,8 @@ declare namespace Replecs {
       identifier: string,
       handler?: (ctx: HandleContext) => Entity,
     ) => CustomId;
+    /** An unbound source filter; it attaches to a server the first time a `set_*` call receives it. */
+    filter: (initial?: Player | MemberFilterMap) => FilterNode;
   }
 }
 

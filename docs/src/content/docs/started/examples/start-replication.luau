@@ -3,8 +3,8 @@ local interval = require("@utils/interval")
 local system = require("@utils/scheduler/system")
 
 local updates_interval = interval(1 / 20)
-local unreliables_interval = interval(1 / 30)
 
+-- players waiting for the full state of the world
 local pending_players: { Player } = {}
 
 remotes_server.request_full:on(function(player)
@@ -12,12 +12,11 @@ remotes_server.request_full:on(function(player)
 end)
 
 function replecs_server()
-	-- will send updates 20 times a second
 	if updates_interval() then
-		-- new players get the full state right before the updates are collected
+		-- activate pending players right before collecting updates
 		for _, player in pending_players do
 			if not player.Parent then
-				continue
+				continue -- left before we got here
 			end
 			replicator:mark_player_ready(player)
 			local buf, variants = replicator:get_full(player)
@@ -27,13 +26,6 @@ function replecs_server()
 
 		for player, buf, variants in replicator:collect_updates() do
 			remotes_server.send_updates:fire(player, buf, variants)
-		end
-	end
-
-	-- will send unreliables 30 times a second
-	if unreliables_interval() then
-		for player, buf, variants in replicator:collect_unreliable() do
-			remotes_server.send_unreliables:fire(player, buf, variants)
 		end
 	end
 end

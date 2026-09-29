@@ -13,6 +13,7 @@ function handshake.generate_handshake(shared: types.Shared): types.HandshakeInfo
 		components = {},
 		custom_ids = {},
 		serdes = {},
+		preprocessors = {},
 	}
 
 	for component_name, component in shared.components.lookup do
@@ -34,6 +35,16 @@ function handshake.generate_handshake(shared: types.Shared): types.HandshakeInfo
 			includes_variants = serdes.includes_variants,
 			bytespan = serdes.bytespan,
 		}
+	end
+
+	-- preprocessors are functions, so only their presence is shared
+	for component in shared.preprocessors do
+		local name = component_to_name[component]
+		if not name then
+			continue
+		end
+
+		handshake.preprocessors[name] = true
 	end
 
 	return handshake
@@ -99,6 +110,30 @@ function handshake.verify_handshake(
 
 		if not handshake.serdes[component_name] then
 			common.log_warn(`{verify_side} registered a serdes for "{component_name}" that {handshake_side} doesn't have`)
+		end
+	end
+
+	for component_name in handshake.preprocessors do
+		local component = shared.components.lookup[component_name]
+		if not component then
+			common.log_warn(
+				`{handshake_side} registered a preprocessor for "{component_name}" that {verify_side} doesn't have`
+			)
+			continue
+		end
+
+		if not shared.preprocessors[component] then
+			return false, `missing preprocessor for component "{component_name}" in {verify_side}`
+		end
+	end
+	for component in shared.preprocessors do
+		local component_name = component_to_name[component]
+		if not component_name then
+			continue
+		end
+
+		if not handshake.preprocessors[component_name] then
+			return false, `missing preprocessor for component "{component_name}" in {handshake_side}`
 		end
 	end
 

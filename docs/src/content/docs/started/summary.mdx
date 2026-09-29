@@ -107,7 +107,8 @@ This page will summarize the previous guides and create a basic project setup fo
     </Tabs>
     ---
 
-4. Initialize replicators and get the full state of the world:
+4. Initialize replicators. The client requests the full state of the world, the server queues the player
+   and activates it inside the replication system in the next step:
 
     <FileTree>
     - src
@@ -115,6 +116,7 @@ This page will summarize the previous guides and create a basic project setup fo
             - replicator.lua
             - **init.client.lua**
         - server
+            - **pending-players.lua**
             - replicator.lua
             - **init.server.lua**
         - shared
@@ -128,12 +130,13 @@ This page will summarize the previous guides and create a basic project setup fo
             ```luau
             local replicator = require("@server/replicator")
             local remotes_server = require("@shared/remotes").server
+            local pending_players = require("@server/pending-players")
 
             replicator:init()
 
-            remotes_server.receive_full:set_callback(function(player)
-                replicator:mark_player_ready(player)
-                return replicator:get_full(player)
+            -- players are activated by the replecs-server system, not here
+            remotes_server.request_full:on(function(player)
+                table.insert(pending_players, player)
             end)
             ```
         </TabItem>
@@ -144,13 +147,25 @@ This page will summarize the previous guides and create a basic project setup fo
 
             replicator:init()
 
-            local buf, variants = remotes_client.receive_full:invoke_server()
-            replicator:apply_full(buf, variants)
+            remotes_client.receive_full:on(function(buf, variants)
+                replicator:apply_full(buf, variants)
+            end)
+            remotes_client.request_full:fire()
+            ```
+        </TabItem>
+        <TabItem label="pending-players.lua">
+            ```luau
+            -- players waiting for the full state of the world
+            local pending_players: { Player } = {}
+
+            return pending_players
             ```
         </TabItem>
     </Tabs>
 
-5. Create systems to send updates and unreliable values:
+5. Create systems to send updates and unreliable values. Pending players are activated right before
+   `collect_updates`, any change made between `get_full` and `collect_updates` would be
+   [silently dropped](/replecs/started/replication#where-to-call-get_full) for that player:
 
     <FileTree>
     - src
@@ -161,6 +176,7 @@ This page will summarize the previous guides and create a basic project setup fo
         - server
             - systems
                 - **replecs-server.lua**
+            - pending-players.lua
             - replicator.lua
         - shared
             - utils
@@ -175,6 +191,7 @@ This page will summarize the previous guides and create a basic project setup fo
         <TabItem label="replecs-server.lua">
             ```luau
             local replicator = require("@server/replicator")
+            local pending_players = require("@server/pending-players")
             local interval = require("@utils/interval")
 
             local updates_interval = interval(1 / 20)
@@ -182,6 +199,17 @@ This page will summarize the previous guides and create a basic project setup fo
 
             function replecs_server()
                 if updates_interval() then
+                    -- activate new players right before collecting updates
+                    for _, player in pending_players do
+                        if not player.Parent then
+                            continue
+                        end
+                        replicator:mark_player_ready(player)
+                        local buf, variants = replicator:get_full(player)
+                        remotes_server.receive_full:fire(player, buf, variants)
+                    end
+                    table.clear(pending_players)
+
                     for player, buf, variants in replicator:collect_updates() do
                         remotes_server.send_updates:fire(player, buf, variants)
                     end

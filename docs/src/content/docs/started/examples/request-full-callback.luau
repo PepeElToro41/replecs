@@ -3,19 +3,14 @@ local collect = require("@utils/collect")
 local system = require("@utils/scheduler/system")
 
 local updates = collect(remotes_client.send_updates)
-local unreliables = collect(remotes_client.send_unreliables)
 
-remotes_client.receive_full:on(function(buf, variants)
-	replicator:apply_full(buf, variants)
-end)
-remotes_client.request_full:fire()
+-- yields until the server resumes the callback inside its system
+local buf, variants = remotes_client.receive_full:invoke_server()
+replicator:apply_full(buf, variants)
 
 function replecs_client()
 	for buf, variants in updates do
 		replicator:apply_updates(buf, variants)
-	end
-	for buf, variants in unreliables do
-		replicator:apply_unreliable(buf, variants)
 	end
 end
 
