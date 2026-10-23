@@ -1876,7 +1876,11 @@ function push_relation_updates(
 	local is_component = storage.is_component
 
 	for target in storage.dirty_targets do
-		if WORLD_HAS(world, entity, PAIR(rel, target)) then
+		-- the pair id only keeps the target's index: a target deleted and
+		-- recycled in the same frame aliases the live pair, so the pair must
+		-- resolve back to this exact generation to count as present
+		local id = PAIR(rel, target)
+		if WORLD_HAS(world, entity, id) and PAIR_SECOND(world, id) == target then
 			if is_component then
 				local changed = bucket.changed[rel]
 				if not changed then
@@ -1884,7 +1888,7 @@ function push_relation_updates(
 					bucket.changed[rel] = changed
 				end
 
-				local value = WORLD_GET(world, entity, PAIR(rel, target))
+				local value = WORLD_GET(world, entity, id)
 				table.insert(changed.targets, target)
 				table.insert(changed.values, SET_VALUE(value))
 			else

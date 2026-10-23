@@ -777,13 +777,18 @@ local function process_full_entity(
 	end
 end
 
+-- removals resolve their target with find_entity: a target this client never
+-- saw (filtered out, or deleted earlier in the same packet) has nothing to
+-- remove, and creating a placeholder for it would leak a ghost entity
+
 -- pair tag removal: [target id, relation]
 local function process_entity_pair_removal(self: Client, entity: Entity, c: Cursor, custom_ids: CustomIdMap)
 	local relation = read_component_id(self, c)
 	local relation_hooks = self.network_hooks.removed[PAIR(self.components.relation, relation)]
-	process_entity(self, c, custom_ids, function(target)
+	local target = find_entity(self, c)
+	if target then
 		entity_remove_pair(self, entity, relation, target, relation_hooks)
-	end)
+	end
 end
 
 -- relation target removals: [target ids..., vlq count, relation]
@@ -793,9 +798,10 @@ local function process_entity_relation_removals(self: Client, entity: Entity, c:
 	local relation_hooks = self.network_hooks.removed[PAIR(self.components.relation, relation)]
 
 	for _ = 1, total_targets do
-		process_entity(self, c, custom_ids, function(target)
+		local target = find_entity(self, c)
+		if target then
 			entity_remove_pair(self, entity, relation, target, relation_hooks)
-		end)
+		end
 	end
 end
 
@@ -1758,6 +1764,8 @@ return {
 
 	process_entity_pair = process_entity_pair,
 	process_entity_pair_value = process_entity_pair_value,
+	process_entity_pair_removal = process_entity_pair_removal,
+	process_entity_relation_removals = process_entity_relation_removals,
 	process_entity_relations = process_entity_relations,
 	process_entity_relation_values = process_entity_relation_values,
 	process_full_entity = process_full_entity,
