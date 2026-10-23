@@ -1800,6 +1800,130 @@ TEST("relations", function()
 		expect(removed).to.contain(target_a)
 	end)
 
+	-- pair ids only keep the target's index. pepecs hands the most recently
+	-- freed index back on the next entity(), so a target deleted and recreated
+	-- in the same frame aliases the live pair and must still be reported removed
+	CASE("a target deleted and recycled in the same frame is removed, the recycled target added", function()
+		local server, world = create_server()
+		local players = ready_players(server, 1)
+
+		local relation = shared_tag(world)
+		local entity = world.entity()
+		local old_target = world.entity()
+		world.add(entity, pepecs.pair(relation, old_target))
+
+		server:set_networked(entity)
+		server:set_relation(entity, relation)
+		server_lib.collect_updates_groups(server)
+
+		world.delete(old_target)
+		local new_target = world.entity()
+		-- the scenario needs the index reused with a bumped generation
+		expect((new_target :: any) % 2 ^ 24).to.equal((old_target :: any) % 2 ^ 24)
+		expect(new_target).never.to.equal(old_target)
+		world.add(entity, pepecs.pair(relation, new_target))
+		local groups = server_lib.collect_updates_groups(server)
+
+		local player_groups = groups_for_player(server, groups, players[1])
+		expect(#player_groups).to.equal(1)
+
+		local changed = updates_of(player_groups[1], entity).changed_relations
+		expect(changed).to.exist()
+		assert(changed)
+
+		local removed = changed.removed[relation]
+		expect(removed).to.exist()
+		assert(removed)
+		expect(removed).to.contain(old_target)
+		expect(removed).never.to.contain(new_target)
+
+		local added = changed.added[relation]
+		expect(added).to.exist()
+		assert(added)
+		expect(added).to.contain(new_target)
+		expect(added).never.to.contain(old_target)
+	end)
+
+	CASE("a recycled component relation target is removed, the new one changed with its value", function()
+		local server, world = create_server()
+		local players = ready_players(server, 1)
+
+		local relation = shared_component(world)
+		local entity = world.entity()
+		local old_target = world.entity()
+		world.set(entity, pepecs.pair(relation, old_target), "old")
+
+		server:set_networked(entity)
+		server:set_relation(entity, relation)
+		server_lib.collect_updates_groups(server)
+
+		world.delete(old_target)
+		local new_target = world.entity()
+		expect((new_target :: any) % 2 ^ 24).to.equal((old_target :: any) % 2 ^ 24)
+		world.set(entity, pepecs.pair(relation, new_target), "new")
+		local groups = server_lib.collect_updates_groups(server)
+
+		local player_groups = groups_for_player(server, groups, players[1])
+		expect(#player_groups).to.equal(1)
+
+		local changed = updates_of(player_groups[1], entity).changed_relations
+		expect(changed).to.exist()
+		assert(changed)
+
+		local removed = changed.removed[relation]
+		expect(removed).to.exist()
+		assert(removed)
+		expect(removed).to.contain(old_target)
+
+		local values = changed.changed[relation]
+		expect(values).to.exist()
+		assert(values)
+		expect(values.targets).to.equal { new_target }
+		expect(values.values).to.equal { "new" }
+	end)
+
+	CASE("every dead generation of an index recycled twice in one frame is removed", function()
+		local server, world = create_server()
+		local players = ready_players(server, 1)
+
+		local relation = shared_tag(world)
+		local entity = world.entity()
+		local first = world.entity()
+		world.add(entity, pepecs.pair(relation, first))
+
+		server:set_networked(entity)
+		server:set_relation(entity, relation)
+		server_lib.collect_updates_groups(server)
+
+		world.delete(first)
+		local second = world.entity()
+		world.add(entity, pepecs.pair(relation, second))
+		world.delete(second)
+		local third = world.entity()
+		world.add(entity, pepecs.pair(relation, third))
+		expect((third :: any) % 2 ^ 24).to.equal((first :: any) % 2 ^ 24)
+		local groups = server_lib.collect_updates_groups(server)
+
+		local player_groups = groups_for_player(server, groups, players[1])
+		expect(#player_groups).to.equal(1)
+
+		local changed = updates_of(player_groups[1], entity).changed_relations
+		expect(changed).to.exist()
+		assert(changed)
+
+		local removed = changed.removed[relation]
+		expect(removed).to.exist()
+		assert(removed)
+		expect(removed).to.contain(first)
+		expect(removed).to.contain(second)
+		expect(removed).never.to.contain(third)
+
+		local added = changed.added[relation]
+		expect(added).to.exist()
+		assert(added)
+		expect(added).to.equal { third }
+	end)
+
 	CASE("relation component value changes land in the changed_relations changed bucket", function()
 		local server, world = create_server()
 		local players = ready_players(server, 1)
@@ -4114,6 +4238,63 @@ TEST("client entity ids", function()
 		expect((next(custom_ids))).to.beNil()
 		expect(c.offset).to.equal(0)
 	end)
+
+	-- removal blocks are laid out by the server as [target id, relation] and
+	-- [target ids..., vlq count, relation]; written back-to-front like every id
+	CASE("a pair removal for an unknown target never creates an entity", function()
+		local client, world = create_client()
+		local relation = shared_tag(world)
+		client:resolve_dirty()
+
+		local encoded = client.shared.components.members[relation]
+		local span = #client.shared.components.keys
+		local entity = world.entity()
+		local server_id = 1234
+
+		local c = id_cursor(function(w)
+			cursor.writeu40(w, server_id)
+			cursor.writeu8(w, ENTITY_ID_TYPES.entity)
+			cursor.write_span(w, encoded, span)
+		end)
+		client_lib.process_entity_pair_removal(client, entity, c, {})
+		expect(c.offset).to.equal(0)
+		expect(client:get_client_entity(server_id)).to.beNil()
+	end)
+
+	CASE("relation removals for unknown targets never create entities, known ones are removed", function()
+		local client, world = create_client()
+		local relation = shared_tag(world)
+		client:resolve_dirty()
+
+		local encoded = client.shared.components.members[relation]
+		local span = #client.shared.components.keys
+		local entity = world.entity()
+		local known_id, unknown_id = 1234, 5678
+
+		local known = id_cursor(function(w)
+			cursor.writeu40(w, known_id)
+			cursor.writeu8(w, ENTITY_ID_TYPES.entity)
+		end)
+		local known_target: pepecs.Entity? = nil
+		client_lib.process_entity(client, known, {}, function(target)
+			known_target = target
+		end)
+		assert(known_target)
+		world.add(entity, pepecs.pair(relation, known_target))
+
+		local c = id_cursor(function(w)
+			cursor.writeu40(w, known_id)
+			cursor.writeu8(w, ENTITY_ID_TYPES.entity)
+			cursor.writeu40(w, unknown_id)
+			cursor.writeu8(w, ENTITY_ID_TYPES.entity)
+			cursor.write_vlq(w, 2)
+			cursor.write_span(w, encoded, span)
+		end)
+		client_lib.process_entity_relation_removals(client, entity, c, {})
+		expect(c.offset).to.equal(0)
+		expect(world.has(entity, pepecs.pair(relation, known_target))).to.equal(false)
+		expect(client:get_client_entity(unknown_id)).to.beNil()
+	end)
 end)
 
 TEST("client serialization options", function()
@@ -4924,6 +5105,149 @@ TEST("client apply_updates", function()
 		expect(apply_all_updates(server, clients)).to.equal(1)
 		expect(client:get_client_entity(entity :: any)).to.beNil()
 		expect(client_world.exists(c_entity)).to.equal(false)
+	end)
+
+	-- a held item swap: delete the old target and create the new one in the
+	-- same frame, so the new entity takes the old index with a new generation
+	local function swap_target(
+		server: Server,
+		world: pepecs.World,
+		entity: pepecs.Entity,
+		relation: pepecs.Entity,
+		filter: any
+	)
+		local old = world.target(entity, relation, 0)
+		assert(old)
+		world.delete(old)
+		local new = world.entity()
+		expect((new :: any) % 2 ^ 24).to.equal((old :: any) % 2 ^ 24)
+		server:set_networked(new, filter)
+		world.add(entity, pepecs.pair(relation, new))
+		return new
+	end
+
+	local function relation_targets(
+		world: pepecs.World,
+		entity: pepecs.Entity,
+		relation: pepecs.Entity
+	): { pepecs.Entity }
+		local targets = {}
+		local index = 0
+		while true do
+			local target = world.target(entity, relation, index)
+			if not target then
+				break
+			end
+			table.insert(targets, target)
+			index += 1
+		end
+		return targets
+	end
+
+	CASE("a relation target recycled in the same frame is swapped on clients that never saw it", function()
+		local server, server_world = create_server()
+		local players = ready_players(server, 2)
+		local client_a, world_a = create_client()
+		local client_b, world_b = create_client()
+		local clients = { [players[1]] = client_a, [players[2]] = client_b }
+
+		local s_relation = named_component(server_world, "held", true)
+		local c_relation_a = named_component(world_a, "held", true)
+		local c_relation_b = named_component(world_b, "held", true)
+
+		-- the target is only visible to player 1, the relation to everyone
+		local filter = { [players[1]] = true }
+		local entity = server_world.entity()
+		local target = server_world.entity()
+		server:set_networked(target, filter)
+		server:set_networked(entity)
+		server:set_relation(entity, s_relation)
+		server_world.add(entity, pepecs.pair(s_relation, target))
+		apply_all_updates(server, clients)
+
+		local c_entity_a = client_a:get_client_entity(entity :: any)
+		local c_entity_b = client_b:get_client_entity(entity :: any)
+		assert(c_entity_a and c_entity_b)
+
+		for _ = 1, 4 do
+			target = swap_target(server, server_world, entity, s_relation, filter)
+			apply_all_updates(server, clients)
+
+			local targets_a = relation_targets(world_a, c_entity_a, c_relation_a)
+			expect(#targets_a).to.equal(1)
+			expect(client_a:get_server_entity(targets_a[1] :: any)).to.equal(target)
+
+			local targets_b = relation_targets(world_b, c_entity_b, c_relation_b)
+			expect(#targets_b).to.equal(1)
+			expect(client_b:get_server_entity(targets_b[1] :: any)).to.equal(target)
+		end
+	end)
+
+	CASE("a recycled relation target is swapped when the client overrides the deletion", function()
+		local server, server_world = create_server()
+		local players = ready_players(server, 1)
+		local client, client_world = create_client()
+		local clients = { [players[1]] = client }
+
+		local s_relation = named_component(server_world, "held", true)
+		local c_relation = named_component(client_world, "held", true)
+
+		local entity = server_world.entity()
+		local old_target = server_world.entity()
+		server:set_networked(old_target)
+		server:set_networked(entity)
+		server:set_relation(entity, s_relation)
+		server_world.add(entity, pepecs.pair(s_relation, old_target))
+		apply_all_updates(server, clients)
+
+		local c_entity = client:get_client_entity(entity :: any)
+		local c_old_target = client:get_client_entity(old_target :: any)
+		assert(c_entity and c_old_target)
+		-- the override keeps the old client entity alive, so nothing but the
+		-- replicated removal can take the stale pair off
+		client:override("deleted", c_old_target, function() end)
+
+		local new_target = swap_target(server, server_world, entity, s_relation, nil)
+		apply_all_updates(server, clients)
+
+		expect(client_world.exists(c_old_target)).to.equal(true)
+		expect(client_world.has(c_entity, pepecs.pair(c_relation, c_old_target))).to.equal(false)
+		local targets = relation_targets(client_world, c_entity, c_relation)
+		expect(#targets).to.equal(1)
+		expect(client:get_server_entity(targets[1] :: any)).to.equal(new_target)
+	end)
+
+	CASE("an index recycled twice in one frame leaves one target and no ghost for the middle one", function()
+		local server, server_world = create_server()
+		local players = ready_players(server, 1)
+		local client, client_world = create_client()
+		local clients = { [players[1]] = client }
+
+		local s_relation = named_component(server_world, "held", true)
+		local c_relation = named_component(client_world, "held", true)
+
+		local entity = server_world.entity()
+		local first = server_world.entity()
+		server:set_networked(first)
+		server:set_networked(entity)
+		server:set_relation(entity, s_relation)
+		server_world.add(entity, pepecs.pair(s_relation, first))
+		apply_all_updates(server, clients)
+
+		local c_entity = client:get_client_entity(entity :: any)
+		assert(c_entity)
+
+		local second = swap_target(server, server_world, entity, s_relation, nil)
+		local third = swap_target(server, server_world, entity, s_relation, nil)
+		apply_all_updates(server, clients)
+
+		local targets = relation_targets(client_world, c_entity, c_relation)
+		expect(#targets).to.equal(1)
+		expect(client:get_server_entity(targets[1] :: any)).to.equal(third)
+		-- the middle generation never reached the client; its removal must not
+		-- create an entity for it
+		expect(client:get_client_entity(first :: any)).to.beNil()
+		expect(client:get_client_entity(second :: any)).to.beNil()
 	end)
 
 	CASE("a component tracked unreliably still arrives through the reliable channel on add", function()
