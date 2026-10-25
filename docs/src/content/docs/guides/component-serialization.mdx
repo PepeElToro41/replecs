@@ -40,11 +40,11 @@ local world = require("world")
 local position = world:component() :: Entity<Vector3>
 
 world:set(position, replecs.serdes, {
-    serialize = function(value: Vector3)
+    serialize = function(position: Vector3)
         local buf = buffer.create(12)
-        buffer.writef32(buf, 0, transform.X)
-        buffer.writef32(buf, 4, transform.Y)
-        buffer.writef32(buf, 8, transform.Z)
+        buffer.writef32(buf, 0, position.X)
+        buffer.writef32(buf, 4, position.Y)
+        buffer.writef32(buf, 8, position.Z)
         return buf
     end,
     deserialize = function(buf: buffer)
